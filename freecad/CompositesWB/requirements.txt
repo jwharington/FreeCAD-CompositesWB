@@ -1,0 +1,3 @@
+workbenches=FEM,Curves
+# pylibs=ezdxf
+# optionalpylibs=metadata,git
