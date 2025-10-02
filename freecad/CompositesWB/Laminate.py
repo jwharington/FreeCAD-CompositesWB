@@ -33,8 +33,6 @@ class LaminateFP:
         obj.StackModelType = StackModelType.Discrete.name
         obj.addExtension("App::SuppressibleExtensionPython")
 
-        self.laminate = make_laminate()
-
     def onDocumentRestored(self, obj):
         if not obj.hasExtension("App::SuppressibleExtensionPython"):
             obj.addExtension("App::SuppressibleExtensionPython")
@@ -43,7 +41,8 @@ class LaminateFP:
 
     def execute(self, obj):
         model_type = StackModelType[obj.StackModelType]
-        self.layers = get_layers_ccx(self.laminate, model_type)
+        laminate = make_laminate()
+        self.layers = get_layers_ccx(laminate, model_type)
 
     def get_materials(self, obj):
         return write_lamina_materials_ccx(
@@ -56,6 +55,15 @@ class LaminateFP:
             prefix=obj.Name,
             layers=self.layers,
         )
+
+    def __getstate__(self):
+        return {}
+        # data = asdict(self.laminate)
+        # print(data)
+        # return {"laminate": data}
+
+    def __setstate__(self, res):
+        return None
 
 
 class ViewProviderLaminate:
@@ -88,14 +96,13 @@ class ViewProviderLaminate:
         return []  # Or return child objects
 
     def __getstate__(self):
-        return None
+        return {}
         # data = asdict(self.laminate)
         # print(data)
         # return {"laminate": data}
 
     def __setstate__(self, res):
         return None
-        # self.laminate =
 
 
 class LaminateCommand:
