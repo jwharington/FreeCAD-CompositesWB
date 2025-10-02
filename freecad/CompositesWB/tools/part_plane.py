@@ -1,6 +1,7 @@
 import Part
 from FreeCAD import Vector
 import numpy as np
+import TechDraw
 
 
 def part_plane(shape, zs=None, inset=0.01):
@@ -44,6 +45,17 @@ def part_plane(shape, zs=None, inset=0.01):
         points[i][-1].z += inset
 
     return points
+
+
+def make_part_plane2(shape, inset=0.01):
+    direction = Vector(0, 0, 1)
+
+    projections = TechDraw.projectEx(shape, direction)
+    edges = []
+    for p in projections:
+        edges.extend(p.Edges)
+    wire = TechDraw.findOuterWire(edges)
+    return Part.Face(wire.makeOffset2D(offset=-inset))
 
 
 def make_part_plane(shape, zs=None, inset=0.01, ruled: bool = False):
