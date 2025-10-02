@@ -9,7 +9,10 @@ from .util.fem_util import (
     write_lamina_materials_ccx,
     write_shell_section_ccx,
 )
-
+from .objects import (
+    CompositeLaminate,
+    SymmetryType,
+)
 
 # import Plot
 # Fem::MaterialMechanicalNonlinear
@@ -31,6 +34,22 @@ class LaminateFP:
             "Link to lamina",
         ).Layers = []
 
+        ###
+        obj.addProperty(
+            "App::PropertyLinkGlobal",
+            "ResinMaterial",
+            "Materials",
+            "Material shapes",
+        ).ResinMaterial = None
+
+        obj.addProperty(
+            "App::PropertyPercent",
+            "FibreVolumeFraction",
+            "Composition",
+            "Composition",
+        ).FibreVolumeFraction = 50
+        ###
+
         obj.addProperty(
             "App::PropertyEnumeration",
             "StackModelType",
@@ -40,15 +59,26 @@ class LaminateFP:
         obj.StackModelType = [item.name for item in StackModelType]
         obj.StackModelType = StackModelType.Discrete.name
 
+        obj.addProperty(
+            "App::PropertyEnumeration",
+            "Symmetry",
+            "Composition",
+            "Repeating stackup",
+        )
+        obj.Symmetry = [item.name for item in SymmetryType]
+        obj.Symmetry = SymmetryType.Odd.name
+
     def onDocumentRestored(self, obj):
         if not obj.hasExtension("App::SuppressibleExtensionPython"):
             obj.addExtension("App::SuppressibleExtensionPython")
-        self.laminate = make_laminate()
         obj.recompute()
 
     def execute(self, obj):
         model_type = StackModelType[obj.StackModelType]
-        laminate = make_laminate()
+        laminate = self.get_model(obj)
+        if not laminate:
+            print("no valid laminate, using demo")
+            laminate = make_laminate()
         self.layers = get_layers_ccx(laminate, model_type)
 
     def get_materials(self, obj):
@@ -71,6 +101,23 @@ class LaminateFP:
 
     def __setstate__(self, res):
         return None
+
+    def get_model(self, obj):
+        model_layers = [o.Proxy.get_model(o) for o in obj.Layers]
+        if not model_layers:
+            print("invalid model")
+            return None
+        if volume_fraction := obj.FibreVolumeFraction:
+            volume_fraction *= 0.01
+        else:
+            volume_fraction = None
+
+        return CompositeLaminate(
+            symmetry=SymmetryType.Odd,
+            layers=model_layers,
+            volume_fraction_fibre=volume_fraction,
+            material_matrix=obj.MaterialResin,
+        )
 
 
 class ViewProviderLaminate:

@@ -3,6 +3,11 @@ import FreeCADGui
 from pivy import coin
 from . import LAMINATE_TOOL_ICON
 from .objects.weave_type import WeaveType
+from .objects import (
+    FibreCompositeLamina,
+    HomogeneousLamina,
+    SimpleFabric,
+)
 
 
 class BaseLaminaFP:
@@ -33,6 +38,9 @@ class BaseLaminaFP:
             "Model",
             "Thickness of layer",
         ).Thickness = 0.1
+
+    def get_model(self, obj, parent):
+        return None
 
 
 class BaseViewProviderLamina:
@@ -79,6 +87,14 @@ class HomogeneousLaminaFP(BaseLaminaFP):
             "Material shapes",
         ).Material = None
 
+    def get_model(self, obj):
+        return HomogeneousLamina(
+            core=obj.Core,
+            thickness=obj.Thickness.Value,
+            orientation=obj.Angle.Value,
+            material=obj.Material,
+        )
+
 
 class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 
@@ -98,17 +114,17 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
 
         obj.addProperty(
             "App::PropertyLinkGlobal",
-            "ResinMaterial",
-            "Materials",
-            "Material shapes",
-        ).ResinMaterial = None
-
-        obj.addProperty(
-            "App::PropertyLinkGlobal",
             "FibreMaterial",
             "Materials",
             "Material shapes",
         ).FibreMaterial = None
+
+        obj.addProperty(
+            "App::PropertyLinkGlobal",
+            "ResinMaterial",
+            "Materials",
+            "Material shapes",
+        ).ResinMaterial = None
 
         obj.addProperty(
             "App::PropertyPercent",
@@ -125,6 +141,20 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         )
         obj.WeaveType = [item.name for item in WeaveType]
         obj.WeaveType = WeaveType.UD.name
+
+    def get_model(self, obj):
+        if volume_fraction := obj.FibreVolumeFraction:
+            volume_fraction *= 0.01
+        else:
+            volume_fraction = None
+
+        fabric = SimpleFabric(
+            thickness=obj.Thickness.Value,
+            orientation=obj.Angle.Value,
+            weave=WeaveType(obj.WeaveType),
+            volume_fraction=volume_fraction,
+        )
+        return FibreCompositeLamina(fibre=fabric)
 
 
 class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
