@@ -18,12 +18,15 @@ class CompositesWorkbench(Gui.Workbench):
         from . import Seam  # noqa
         from . import PartPlane  # noqa
         from . import Laminate  # noqa
+        from . import Lamina  # noqa
 
         self.list = [
             "Composites_Mould",
             "Composites_PartPlane",
             "Composites_Seam",
             "Composites_Laminate",
+            "Composites_HomogeneousLamina",
+            "Composites_FibreCompositeLamina",
         ]
         self.appendToolbar("Composites", self.list)
         self.appendMenu("Composites", self.list)

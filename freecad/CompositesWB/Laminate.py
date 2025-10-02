@@ -22,6 +22,14 @@ class LaminateFP:
 
     def __init__(self, obj):
         obj.Proxy = self
+        obj.addExtension("App::SuppressibleExtensionPython")
+
+        obj.addProperty(
+            "App::PropertyLinkListGlobal",
+            "Layers",
+            "Dimensions",
+            "Link to lamina",
+        ).Layers = []
 
         obj.addProperty(
             "App::PropertyEnumeration",
@@ -31,7 +39,6 @@ class LaminateFP:
         )
         obj.StackModelType = [item.name for item in StackModelType]
         obj.StackModelType = StackModelType.Discrete.name
-        obj.addExtension("App::SuppressibleExtensionPython")
 
     def onDocumentRestored(self, obj):
         if not obj.hasExtension("App::SuppressibleExtensionPython"):
@@ -73,8 +80,8 @@ class ViewProviderLaminate:
     def attach(self, obj):
         self.standard = coin.SoGroup()
         obj.addDisplayMode(self.standard, "Standard")
-        # self.ViewObject = obj
-        # self.Object = obj.Object
+        self.ViewObject = obj
+        self.Object = obj.Object
 
     def getIcon(self):
         return LAMINATE_TOOL_ICON
@@ -93,7 +100,7 @@ class ViewProviderLaminate:
         pass
 
     def claimChildren(self):
-        return []  # Or return child objects
+        return self.Object.Layers  # Or return child objects
 
     def __getstate__(self):
         return {}
