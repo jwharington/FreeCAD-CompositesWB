@@ -8,6 +8,7 @@ from .objects import (
     HomogeneousLamina,
     SimpleFabric,
 )
+from .Composite import add_composite_props
 
 
 class BaseLaminaFP:
@@ -112,26 +113,14 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
     def __init__(self, obj):
         super().__init__(obj)
 
+        add_composite_props()
+
         obj.addProperty(
             "App::PropertyLinkGlobal",
             "FibreMaterial",
             "Materials",
             "Material shapes",
         ).FibreMaterial = None
-
-        obj.addProperty(
-            "App::PropertyLinkGlobal",
-            "ResinMaterial",
-            "Materials",
-            "Material shapes",
-        ).ResinMaterial = None
-
-        obj.addProperty(
-            "App::PropertyPercent",
-            "FibreVolumeFraction",
-            "Composition",
-            "Composition",
-        ).FibreVolumeFraction = 50
 
         obj.addProperty(
             "App::PropertyEnumeration",

@@ -10,7 +10,7 @@ from .util.fem_util import (
     write_shell_section_ccx,
 )
 from .objects import (
-    CompositeLaminate,
+    Laminate,
     SymmetryType,
 )
 
@@ -33,22 +33,6 @@ class LaminateFP:
             "Dimensions",
             "Link to lamina",
         ).Layers = []
-
-        ###
-        obj.addProperty(
-            "App::PropertyLinkGlobal",
-            "ResinMaterial",
-            "Materials",
-            "Material shapes",
-        ).ResinMaterial = None
-
-        obj.addProperty(
-            "App::PropertyPercent",
-            "FibreVolumeFraction",
-            "Composition",
-            "Composition",
-        ).FibreVolumeFraction = 50
-        ###
 
         obj.addProperty(
             "App::PropertyEnumeration",
@@ -107,16 +91,9 @@ class LaminateFP:
         if not model_layers:
             print("invalid model")
             return None
-        if volume_fraction := obj.FibreVolumeFraction:
-            volume_fraction *= 0.01
-        else:
-            volume_fraction = None
-
-        return CompositeLaminate(
+        return Laminate(
             symmetry=SymmetryType.Odd,
             layers=model_layers,
-            volume_fraction_fibre=volume_fraction,
-            material_matrix=obj.MaterialResin,
         )
 
 

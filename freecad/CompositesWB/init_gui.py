@@ -18,6 +18,7 @@ class CompositesWorkbench(Gui.Workbench):
         from . import Seam  # noqa
         from . import PartPlane  # noqa
         from . import Laminate  # noqa
+        from . import CompositeLaminate  # noqa
         from . import Lamina  # noqa
 
         self.list = [
@@ -25,6 +26,7 @@ class CompositesWorkbench(Gui.Workbench):
             "Composites_PartPlane",
             "Composites_Seam",
             "Composites_Laminate",
+            "Composites_CompositeLaminate",
             "Composites_HomogeneousLamina",
             "Composites_FibreCompositeLamina",
         ]
