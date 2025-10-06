@@ -19,7 +19,8 @@ class CompositesWorkbench(Gui.Workbench):
         from . import PartPlane  # noqa
         from . import Laminate  # noqa
         from . import CompositeLaminate  # noqa
-        from . import Lamina  # noqa
+        from . import HomogeneousLamina  # noqa
+        from . import FibreCompositeLamina  # noqa
 
         self.list = [
             "Composites_Mould",

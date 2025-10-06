@@ -14,7 +14,7 @@ class CompositeLaminateFP(LaminateFP):
     def __init__(self, obj):
         super().__init__(obj)
 
-        add_composite_props()
+        add_composite_props(obj)
 
     def get_model(self, obj):
         model_layers = [o.Proxy.get_model(o) for o in obj.Layers]
