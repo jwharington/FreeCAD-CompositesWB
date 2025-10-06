@@ -17,7 +17,7 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
     def __init__(self, obj):
         super().__init__(obj)
 
-        add_composite_props()
+        add_composite_props(obj)
 
         obj.addProperty(
             "App::PropertyLinkGlobal",
