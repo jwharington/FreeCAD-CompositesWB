@@ -1,8 +1,12 @@
 import FreeCAD
 import FreeCADGui
-from . import LAMINATE_TOOL_ICON
+from . import COMPOSITE_LAMINATE_TOOL_ICON
 from .Composite import add_composite_props
-from .Laminate import LaminateFP, ViewProviderLaminate
+from .Laminate import (
+    LaminateFP,
+    ViewProviderLaminate,
+    get_model_layers,
+)
 from .objects import (
     CompositeLaminate,
     SymmetryType,
@@ -17,7 +21,7 @@ class CompositeLaminateFP(LaminateFP):
         add_composite_props(obj)
 
     def get_model(self, obj):
-        model_layers = [o.Proxy.get_model(o) for o in obj.Layers]
+        model_layers = get_model_layers(obj)
         if not model_layers:
             print("invalid model")
             return None
@@ -30,20 +34,20 @@ class CompositeLaminateFP(LaminateFP):
             symmetry=SymmetryType.Odd,
             layers=model_layers,
             volume_fraction_fibre=volume_fraction,
-            material_matrix=obj.MaterialResin,
+            material_matrix=obj.ResinMaterial,
         )
 
 
 class ViewProviderCompositeLaminate(ViewProviderLaminate):
 
     def getIcon(self):
-        return LAMINATE_TOOL_ICON
+        return COMPOSITE_LAMINATE_TOOL_ICON
 
 
 class CompositeLaminateCommand:
     def GetResources(self):
         return {
-            "Pixmap": LAMINATE_TOOL_ICON,
+            "Pixmap": COMPOSITE_LAMINATE_TOOL_ICON,
             "MenuText": "CompositeLaminate",
             "ToolTip": "Composite laminate container",
         }

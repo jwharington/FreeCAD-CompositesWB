@@ -1,7 +1,7 @@
 def add_composite_props(obj):
 
     obj.addProperty(
-        "App::PropertyLinkGlobal",
+        "App::PropertyLinkGlobal",  # PropertyLinkGlobal
         "ResinMaterial",
         "Materials",
         "Material shapes",

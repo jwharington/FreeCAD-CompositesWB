@@ -11,7 +11,14 @@ DRAPE_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")
 MOULD_TOOL_ICON = path.join(ICONPATH, "CompositeMouldCommand.svg")
 PART_PLANE_TOOL_ICON = path.join(ICONPATH, "CompositePartPlaneCommand.svg")
 SEAM_TOOL_ICON = path.join(ICONPATH, "CompositeSeamCommand.svg")
+
 LAMINATE_TOOL_ICON = path.join(ICONPATH, "FEM_MaterialLaminate.svg")
+COMPOSITE_LAMINATE_TOOL_ICON = path.join(ICONPATH, "FEM_MaterialLaminate.svg")
+HOMOGENEOUS_LAMINA_TOOL_ICON = path.join(ICONPATH, "FEM_MaterialLaminate.svg")
+FIBRE_COMPOSITE_LAMINA_TOOL_ICON = path.join(
+    ICONPATH,
+    "FEM_MaterialLaminate.svg",
+)
 
 TOL3D = 1e-7
 TOL2D = 1e-9

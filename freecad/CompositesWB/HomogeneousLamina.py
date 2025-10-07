@@ -1,6 +1,6 @@
 import FreeCAD
 import FreeCADGui
-from . import LAMINATE_TOOL_ICON
+from . import HOMOGENEOUS_LAMINA_TOOL_ICON
 from .objects import (
     HomogeneousLamina,
 )
@@ -33,7 +33,7 @@ class HomogeneousLaminaFP(BaseLaminaFP):
 class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 
     def getIcon(self):
-        return LAMINATE_TOOL_ICON
+        return HOMOGENEOUS_LAMINA_TOOL_ICON
 
     def claimChildren(self):
         return [self.Object.Material]
@@ -42,7 +42,7 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 class HomogeneousLaminaCommand:
     def GetResources(self):
         return {
-            "Pixmap": LAMINATE_TOOL_ICON,
+            "Pixmap": HOMOGENEOUS_LAMINA_TOOL_ICON,
             "MenuText": "HomogeneousLamina",
             "ToolTip": "Homogeneous lamina container",
         }
@@ -61,4 +61,7 @@ class HomogeneousLaminaCommand:
         return FreeCAD.ActiveDocument is not None
 
 
-FreeCADGui.addCommand("Composites_HomogeneousLamina", HomogeneousLaminaCommand())
+FreeCADGui.addCommand(
+    "Composites_HomogeneousLamina",
+    HomogeneousLaminaCommand(),
+)
