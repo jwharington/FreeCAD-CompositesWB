@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="64px"
+   height="64px"
+   id="svg2860"
+   version="1.1"
+   sodipodi:docname="FEM_MaterialCompositeLaminate.svg"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <sodipodi:namedview
+     id="namedview22"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     showgrid="false"
+     inkscape:zoom="10.429825"
+     inkscape:cx="33.989065"
+     inkscape:cy="25.168208"
+     inkscape:window-width="1536"
+     inkscape:window-height="891"
+     inkscape:window-x="0"
+     inkscape:window-y="32"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2862" />
+  <metadata
+     id="metadata2865">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+        <dc:creator>
+          <cc:Agent>
+            <dc:title>[Bernd Hahnebach]</dc:title>
+          </cc:Agent>
+        </dc:creator>
+        <dc:date>2015-09-18</dc:date>
+        <dc:relation>https://www.freecad.org/wiki/index.php?title=Artwork</dc:relation>
+        <dc:publisher>
+          <cc:Agent>
+            <dc:title>FreeCAD</dc:title>
+          </cc:Agent>
+        </dc:publisher>
+        <dc:identifier>FreeCAD/src/Mod/</dc:identifier>
+        <dc:rights>
+          <cc:Agent>
+            <dc:title>FreeCAD LGPL2+</dc:title>
+          </cc:Agent>
+        </dc:rights>
+        <cc:license>https://www.gnu.org/copyleft/lesser.html</cc:license>
+        <dc:contributor>
+          <cc:Agent>
+            <dc:title>[agryson] Alexander Gryson</dc:title>
+          </cc:Agent>
+        </dc:contributor>
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     id="layer1">
+    <path
+       style="display:inline;fill:#fce94f;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:butt;stroke-linejoin:round;stroke-opacity:1"
+       d="M 3,25 37,31 61,23 31,19 Z"
+       id="path2993" />
+    <path
+       style="display:inline;fill:#c4a000;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:butt;stroke-linejoin:round;stroke-opacity:1"
+       d="M 61,23 V 35 L 37,45 V 31 Z"
+       id="path2995" />
+    <path
+       id="path3825"
+       d="m 3,25 34,6 V 45 L 3,39 Z"
+       style="display:inline;overflow:visible;visibility:visible;fill:#edd400;fill-opacity:1;fill-rule:evenodd;stroke:#302b00;stroke-width:2;stroke-linecap:butt;stroke-linejoin:round;stroke-miterlimit:4;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1;marker:none;enable-background:accumulate" />
+    <path
+       style="display:inline;fill:none;stroke:#fce94f;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:0.4"
+       d="m 5,27.42772 0.00867,9.919116 30.008671,5.268799 -0.0087,-9.933614 z"
+       id="path3765" />
+    <path
+       style="display:inline;fill:none;stroke:#edd400;stroke-width:2;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:0.996073"
+       d="m 38.840031,30.743833 0.102292,11.190101 20.058952,-8.265793 3.6e-4,-8.566818 z"
+       id="path3775"
+       sodipodi:nodetypes="ccccc" />
+    <path
+       style="display:inline;fill:#00fc29;fill-opacity:1;stroke:#009500;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1;-inkscape-stroke:none"
+       d="M 3.2025342,27.100498 30.816135,20.780061 61,24.648073 37,33.004625 Z"
+       id="path1"
+       sodipodi:nodetypes="ccccc" />
+    <path
+       style="display:inline;fill:none;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 17,22 32.733819,4.755394"
+       id="path3873" />
+    <path
+       style="display:inline;fill:none;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-opacity:1"
+       d="M 20.23956,28.042275 46,21"
+       id="path3875" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       d="m 3,25 34,6 24,-8"
+       id="path3" />
+    <g
+       id="g888">
+      <path
+         style="fill:none;fill-opacity:1;stroke:#a40000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:0.996073"
+         d="M 37,38 61,29"
+         id="path2" />
+      <path
+         style="fill:none;fill-opacity:1;stroke:#cc0000;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+         d="m 3,32 34,6"
+         id="path5" />
+    </g>
+    <path
+       style="fill:none;fill-opacity:1;stroke:#0000e4;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:0.998037"
+       d="m 37.196274,41.725042 24,-9.677648"
+       id="path2-7"
+       sodipodi:nodetypes="cc" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#0000e4;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:0.9980365"
+       d="m 3.1962737,35.725042 34.0000003,6"
+       id="path5-5" />
+    <path
+       style="display:inline;fill:none;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 20.23956,42.042275 0,-14"
+       id="path3051-3" />
+    <path
+       style="display:inline;fill:none;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:miter;stroke-opacity:1"
+       d="M 49.733818,39.694243 V 26.755394"
+       id="path3051-6" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       d="M 37,31 V 45"
+       id="path4" />
+    <path
+       style="fill:#a40000;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       d="M 3,25 V 39"
+       id="path6" />
+    <path
+       style="fill:#a40000;fill-opacity:1;stroke:#302b00;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke-opacity:1"
+       d="M 61,23 V 35"
+       id="path7" />
+    <ellipse
+       style="fill:#3cc050;fill-opacity:1;stroke:none;stroke-width:1.023;stroke-dasharray:none;stroke-opacity:0.998037"
+       id="path863"
+       cx="19.771702"
+       cy="49.98074"
+       rx="1.9540122"
+       ry="6.7385254" />
+    <ellipse
+       style="fill:#3cc050;fill-opacity:1;stroke:none;stroke-width:1.023;stroke-dasharray:none;stroke-opacity:0.998037"
+       id="path863-3"
+       cx="50.459862"
+       cy="47.605247"
+       rx="1.9540122"
+       ry="6.7385254" />
+  </g>
+</svg>

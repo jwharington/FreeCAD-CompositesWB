@@ -14,6 +14,9 @@ def get_layers_ccx(
     laminate: Laminate,
     model_type: StackModelType = StackModelType.Discrete,
 ):
+    if not laminate:
+        return []
+
     layers = laminate.get_layers(model_type=model_type)
 
     def merge(k, lay):

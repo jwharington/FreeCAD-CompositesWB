@@ -56,11 +56,13 @@ class LaminateFP:
         obj.Symmetry = SymmetryType.Odd.name
 
         obj.addProperty(
-            "App::PropertyLinkList",
-            "LayerOrientations",
+            "App::PropertyPythonObject",
+            "FEMLayers",
             "Dimensions",
-            "Visual representation of layers",
-        )
+            "FEM representation of layers",
+            0,
+            True,
+        ).FEMLayers = []
 
     def onDocumentRestored(self, obj):
         if not obj.hasExtension("App::SuppressibleExtensionPython"):
@@ -68,25 +70,21 @@ class LaminateFP:
         obj.recompute()
 
     def execute(self, obj):
-        model_type = StackModelType[obj.StackModelType]
-        laminate = self.get_model(obj)
-        if laminate:
-            self.layers = get_layers_ccx(laminate, model_type)
-        else:
-            self.layers = []
-        los = [(f"Layer {k}", lay.orientation) for k, lay in enumerate(self.layers)]
-        obj.LayerOrientations = los
+        obj.FEMLayers = get_layers_ccx(
+            laminate=self.get_model(obj),
+            model_type=StackModelType[obj.StackModelType],
+        )
 
     def get_materials(self, obj):
         return write_lamina_materials_ccx(
-            self.layers,
             prefix=obj.Name,
+            layers=obj.FEMLayers,
         )
 
     def write_shell_section(self, obj):
         return write_shell_section_ccx(
             prefix=obj.Name,
-            layers=self.layers,
+            layers=obj.FEMLayers,
         )
 
     def __getstate__(self):
@@ -103,8 +101,11 @@ class LaminateFP:
         if not model_layers:
             print("invalid model")
             return None
+        return self.make_model(obj, model_layers)
+
+    def make_model(self, obj, model_layers):
         return Laminate(
-            symmetry=SymmetryType.Odd,
+            symmetry=SymmetryType[obj.Symmetry],
             layers=model_layers,
         )
 
@@ -112,6 +113,7 @@ class LaminateFP:
 class ViewProviderLaminate:
     def __init__(self, obj):
         obj.Proxy = self
+        self.modes = ["Standard"]
 
     def attach(self, obj):
         self.standard = coin.SoGroup()
@@ -132,7 +134,6 @@ class ViewProviderLaminate:
         return mode
 
     def updateData(self, vobj, prop):
-        # Update visual data based on feature properties
         pass
 
     def claimChildren(self):

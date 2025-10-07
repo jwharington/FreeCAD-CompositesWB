@@ -5,7 +5,6 @@ from .Composite import add_composite_props
 from .Laminate import (
     LaminateFP,
     ViewProviderLaminate,
-    get_model_layers,
 )
 from .objects import (
     CompositeLaminate,
@@ -20,18 +19,14 @@ class CompositeLaminateFP(LaminateFP):
 
         add_composite_props(obj)
 
-    def get_model(self, obj):
-        model_layers = get_model_layers(obj)
-        if not model_layers:
-            print("invalid model")
-            return None
+    def make_model(self, obj, model_layers):
         if volume_fraction := obj.FibreVolumeFraction:
             volume_fraction *= 0.01
         else:
             volume_fraction = None
 
         return CompositeLaminate(
-            symmetry=SymmetryType.Odd,
+            symmetry=SymmetryType[obj.Symmetry],
             layers=model_layers,
             volume_fraction_fibre=volume_fraction,
             material_matrix=obj.ResinMaterial,

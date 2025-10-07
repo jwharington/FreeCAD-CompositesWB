@@ -4,7 +4,10 @@ import FreeCADGui
 from . import (
     PART_PLANE_TOOL_ICON,
 )
-from .tools.part_plane import make_part_plane, make_part_plane2
+from .tools.part_plane import (
+    # make_part_plane,
+    make_part_plane2,
+)
 
 # from .selection_utils import find_face_in_selection_object
 
