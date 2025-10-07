@@ -33,6 +33,12 @@ class BaseLaminaFP:
     def get_model(self, obj, parent):
         return None
 
+    def __getstate__(self):
+        return {}
+
+    def __setstate__(self, state):
+        return None
+
 
 class BaseViewProviderLamina:
     def __init__(self, obj):
@@ -60,5 +66,5 @@ class BaseViewProviderLamina:
     def __getstate__(self):
         return {}
 
-    def __setstate__(self, res):
+    def __setstate__(self, state):
         return None

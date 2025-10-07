@@ -19,8 +19,8 @@ def normalise_orientation(raw: float):
 
 
 def format_orientation(orientation):
-    return f"[{orientation:+03d}]"
+    return f"[{int(orientation):+03d}]"
 
 
 def format_layer(p, k):
-    return f"{p}{k:03d}"
+    return f"{p}{int(k):03d}"

@@ -8,6 +8,7 @@ from .objects import (
 )
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
+from .test.example_materials import glass
 
 
 class FibreCompositeLaminaFP(BaseLaminaFP):
@@ -20,11 +21,11 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         add_composite_props(obj)
 
         obj.addProperty(
-            "App::PropertyLinkGlobal",
+            "App::PropertyMap",
             "FibreMaterial",
             "Materials",
             "Material shapes",
-        ).FibreMaterial = None
+        ).FibreMaterial = glass
 
         obj.addProperty(
             "App::PropertyEnumeration",

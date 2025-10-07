@@ -1,11 +1,14 @@
+from .test.example_materials import resin
+
+
 def add_composite_props(obj):
 
     obj.addProperty(
-        "App::PropertyLinkGlobal",  # PropertyLinkGlobal
+        "App::PropertyMap",  # PropertyLinkGlobal
         "ResinMaterial",
         "Materials",
         "Material shapes",
-    ).ResinMaterial = None
+    ).ResinMaterial = resin
 
     obj.addProperty(
         "App::PropertyPercent",

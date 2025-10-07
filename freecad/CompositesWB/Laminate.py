@@ -55,14 +55,14 @@ class LaminateFP:
         obj.Symmetry = [item.name for item in SymmetryType]
         obj.Symmetry = SymmetryType.Odd.name
 
-        obj.addProperty(
-            "App::PropertyPythonObject",
-            "FEMLayers",
-            "Dimensions",
-            "FEM representation of layers",
-            0,
-            True,
-        ).FEMLayers = []
+        # obj.addProperty(
+        #     "App::PropertyPythonObject",
+        #     "FEMLayers",
+        #     "Dimensions",
+        #     "FEM representation of layers",
+        #     0,
+        #     True,
+        # ).FEMLayers = []
 
     def onDocumentRestored(self, obj):
         if not obj.hasExtension("App::SuppressibleExtensionPython"):
@@ -70,7 +70,7 @@ class LaminateFP:
         obj.recompute()
 
     def execute(self, obj):
-        obj.FEMLayers = get_layers_ccx(
+        self.FEMLayers = get_layers_ccx(
             laminate=self.get_model(obj),
             model_type=StackModelType[obj.StackModelType],
         )
@@ -78,22 +78,19 @@ class LaminateFP:
     def get_materials(self, obj):
         return write_lamina_materials_ccx(
             prefix=obj.Name,
-            layers=obj.FEMLayers,
+            layers=self.FEMLayers,
         )
 
     def write_shell_section(self, obj):
         return write_shell_section_ccx(
             prefix=obj.Name,
-            layers=obj.FEMLayers,
+            layers=self.FEMLayers,
         )
 
     def __getstate__(self):
         return {}
-        # data = asdict(self.laminate)
-        # print(data)
-        # return {"laminate": data}
 
-    def __setstate__(self, res):
+    def __setstate__(self, state):
         return None
 
     def get_model(self, obj):
@@ -141,11 +138,8 @@ class ViewProviderLaminate:
 
     def __getstate__(self):
         return {}
-        # data = asdict(self.laminate)
-        # print(data)
-        # return {"laminate": data}
 
-    def __setstate__(self, res):
+    def __setstate__(self, state):
         return None
 
 
