@@ -68,6 +68,13 @@ def make_part_plane(shape, zs=None, inset=0.01, ruled: bool = False):
             edges.append(e.toShape())
         wires.append(Part.Wire(edges, closed=False))
 
+    #
+    # def reflectLines(self, ViewDir: Vector, *, ViewPos: Vector = None, UpDir: Vector = None,
+    #             EdgeType: str = None, Visible: bool = True, OnShape: bool = False) -> TopoShape:
+    # rl = shape.reflectLines(ViewDir=Vector(0, 0, 1), EdgeType="OutLine", OnShape=True)
+    # rs = shape.reflectLines(ViewDir=Vector(0, 0, 1), EdgeType="Sharp", OnShape=True)
+    # Part.sortEdges()
+
     return Part.makeLoft(
         wires,
         solid=False,
