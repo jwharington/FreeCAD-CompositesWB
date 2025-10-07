@@ -151,7 +151,7 @@ def merge_clt(
     del mat["PoissonRatioYX"]
 
     material = material_from_dict(mat, orthotropic=True)
-    material.Name = prefix
+    material["Name"] = prefix
     return HomogeneousLamina(
         material=material,
         thickness=total_thickness,
@@ -171,7 +171,7 @@ def merge_single(
         layer.material,
         np.radians(layer.orientation),
     )
-    material.Name = prefix + ":" + layer.description
+    material["Name"] = prefix + ":" + layer.description
     return HomogeneousLamina(
         material=material,
         thickness=layer.thickness,

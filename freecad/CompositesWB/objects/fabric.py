@@ -1,13 +1,12 @@
 from dataclasses import dataclass
 from .ply import Ply
 from .weave_type import WeaveType
-from ..mechanics.material_properties import Material
 
 
 @dataclass
 class Fabric(Ply):
     weave: WeaveType = WeaveType.UD
-    material_fibre: Material = None
+    material_fibre: dict = None
     volume_fraction_fibre: float = None
 
     @property

@@ -1,5 +1,4 @@
 from .material_properties import (
-    Material,
     ortho_material2dict,
     iso_material2dict,
     material_from_dict,
@@ -50,7 +49,7 @@ def stiffness_matrix_to_engineering_properties(C):
 
 
 def compliance_matrix(
-    material: Material,
+    material: dict,
     reduced: bool = False,
 ):
     # Sp = S'
@@ -92,7 +91,7 @@ def compliance_matrix(
 
 
 def material_stiffness_matrix(
-    material: Material,
+    material: dict,
     reduced: bool = False,
 ):
     Sp = compliance_matrix(material, reduced=reduced)
@@ -103,7 +102,7 @@ def rotate_stiffness_matrix(C: np.array, Tbar: np.array):
     return Tbar.T @ C @ Tbar
 
 
-def material_shell_properties(material: Material, angle_rad: float):
+def material_shell_properties(material: dict, angle_rad: float):
     Cp = material_stiffness_matrix(material, reduced=False)
     Qp = material_stiffness_matrix(material, reduced=True)
     if is_orthotropic(material):
@@ -115,7 +114,7 @@ def material_shell_properties(material: Material, angle_rad: float):
         return Cp, Qp
 
 
-def material_rotate(material: Material, angle_rad: float):
+def material_rotate(material: dict, angle_rad: float):
     if not is_orthotropic(material):
         return material
     mat_old = ortho_material2dict(material)

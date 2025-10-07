@@ -1,5 +1,4 @@
 from .material_properties import (
-    Material,
     ortho_material2dict,
     iso_material2dict,
     material_from_dict,
@@ -7,11 +6,11 @@ from .material_properties import (
 
 
 def calc_fibre_composite_model(
-    material_fibre: Material,
-    material_matrix: Material,
+    material_fibre: dict,
+    material_matrix: dict,
     volume_fraction_fibre: float,
     thermal: bool = False,
-) -> Material:
+) -> dict:
 
     assert material_fibre, "no fibre material"
     assert material_matrix, "no matrix material"
@@ -113,5 +112,5 @@ def calc_fibre_composite_model(
 
     # vfrac = int(volume_fraction_fibre * 100)
     material = material_from_dict(matdict, orthotropic=True)
-    material.Name = f"{material_fibre.Name}-{material_matrix.Name}"
+    material["Name"] = f"{material_fibre['Name']}-{material_matrix['Name']}"
     return material
