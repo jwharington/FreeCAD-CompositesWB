@@ -1,6 +1,5 @@
 import FreeCAD
 import FreeCADGui
-from pivy import coin
 from . import LAMINATE_TOOL_ICON
 from .mechanics import StackModelType
 from .util.fem_util import (
@@ -12,10 +11,13 @@ from .objects import (
     Laminate,
     SymmetryType,
 )
+from .VPCompositeBase import VPCompositeBase
 
 # import Plot
 # Fem::MaterialMechanicalNonlinear
 # App::DocumentObjectGroup
+
+# from femtaskpanels import task_material_reinforced
 
 
 def get_model_layers(obj):
@@ -107,40 +109,16 @@ class LaminateFP:
         )
 
 
-class ViewProviderLaminate:
-    def __init__(self, obj):
-        obj.Proxy = self
-        self.modes = ["Standard"]
-
-    def attach(self, obj):
-        self.standard = coin.SoGroup()
-        obj.addDisplayMode(self.standard, "Standard")
-        self.ViewObject = obj
-        self.Object = obj.Object
+class ViewProviderLaminate(VPCompositeBase):
 
     def getIcon(self):
         return LAMINATE_TOOL_ICON
-
-    def getDisplayModes(self, obj):
-        return ["Standard"]
-
-    def getDefaultDisplayMode(self):
-        return "Standard"
-
-    def setDisplayMode(self, mode):
-        return mode
 
     def updateData(self, vobj, prop):
         pass
 
     def claimChildren(self):
-        return self.Object.Layers  # Or return child objects
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        return None
+        return self.Object.Layers
 
 
 class LaminateCommand:
@@ -158,7 +136,8 @@ class LaminateCommand:
             "Laminate",
         )
         LaminateFP(obj)
-        ViewProviderLaminate(obj.ViewObject)
+        if FreeCAD.GuiUp:
+            ViewProviderLaminate(obj.ViewObject)
         doc.recompute()
 
     def IsActive(self):

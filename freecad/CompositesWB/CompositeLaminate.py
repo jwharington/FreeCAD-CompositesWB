@@ -54,7 +54,8 @@ class CompositeLaminateCommand:
             "Laminate",
         )
         CompositeLaminateFP(obj)
-        ViewProviderCompositeLaminate(obj.ViewObject)
+        if FreeCAD.GuiUp:
+            ViewProviderCompositeLaminate(obj.ViewObject)
         doc.recompute()
 
     def IsActive(self):

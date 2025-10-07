@@ -1,4 +1,4 @@
-from pivy import coin
+from .VPCompositeBase import VPCompositeBase
 
 
 class BaseLaminaFP:
@@ -40,31 +40,8 @@ class BaseLaminaFP:
         return None
 
 
-class BaseViewProviderLamina:
-    def __init__(self, obj):
-        obj.Proxy = self
-
-    def attach(self, obj):
-        self.standard = coin.SoGroup()
-        obj.addDisplayMode(self.standard, "Standard")
-        self.ViewObject = obj
-        self.Object = obj.Object
-
-    def getDisplayModes(self, obj):
-        return ["Standard"]
-
-    def getDefaultDisplayMode(self):
-        return "Standard"
-
-    def setDisplayMode(self, mode):
-        return mode
+class BaseViewProviderLamina(VPCompositeBase):
 
     def updateData(self, vobj, prop):
         # Update visual data based on feature properties
         pass
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        return None

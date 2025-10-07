@@ -1,0 +1,70 @@
+import FreeCAD
+import FreeCADGui
+from pivy import coin
+
+
+class VPCompositeBase:
+    # based on view_base_femobject.py
+
+    def __init__(self, vobj):
+        vobj.Proxy = self
+
+    def attach(self, vobj):
+        self.Object = (
+            vobj.Object
+        )  # used on various places, claim childreens, get icon, etc.
+        self.ViewObject = vobj
+        self.standard = coin.SoGroup()
+        vobj.addDisplayMode(self.standard, "Standard")
+
+    def setEdit(self, vobj, mode=0, TaskPanel=None):
+        if TaskPanel is None:
+            # avoid edit mode by return False
+            # https://forum.freecad.org/viewtopic.php?t=12139&start=10#p161062
+            return False
+        # show task panel
+        task = TaskPanel(vobj.Object)
+        FreeCADGui.Control.showDialog(task)
+        return True
+
+    def unsetEdit(self, vobj, mode=0):
+        FreeCADGui.Control.closeDialog()
+        return True
+
+    def doubleClicked(self, vobj):
+        guidoc = FreeCADGui.getDocument(vobj.Object.Document)
+        # check if another VP is in edit mode
+        # https://forum.freecad.org/viewtopic.php?t=13077#p104702
+        if not guidoc.getInEdit():
+            guidoc.setEdit(vobj.Object.Name)
+        else:
+            from PySide.QtGui import QMessageBox
+
+            message = "Active Task Dialog found! Please close this one before opening  a new one!"
+            QMessageBox.critical(None, "Error in tree view", message)
+            FreeCAD.Console.PrintError(message + "\n")
+        return True
+
+    def getDisplayModes(self, obj):
+        return ["Standard"]
+
+    def getDefaultDisplayMode(self):
+        return "Standard"
+
+    def setDisplayMode(self, mode):
+        return mode
+
+    def __getstate__(self):
+        return {}
+
+    def __setstate__(self, state):
+        return None
+
+    # they are needed, see:
+    # https://forum.freecad.org/viewtopic.php?f=18&t=44021
+    # https://forum.freecad.org/viewtopic.php?f=18&t=44009
+    def dumps(self):
+        return None
+
+    def loads(self, state):
+        return None

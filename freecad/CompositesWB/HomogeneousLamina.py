@@ -35,9 +35,6 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
     def getIcon(self):
         return HOMOGENEOUS_LAMINA_TOOL_ICON
 
-    def claimChildren(self):
-        return [self.Object.Material]
-
 
 class HomogeneousLaminaCommand:
     def GetResources(self):
@@ -54,7 +51,8 @@ class HomogeneousLaminaCommand:
             "HomogeneousLamina",
         )
         HomogeneousLaminaFP(obj)
-        ViewProviderHomogeneousLamina(obj.ViewObject)
+        if FreeCAD.GuiUp:
+            ViewProviderHomogeneousLamina(obj.ViewObject)
         doc.recompute()
 
     def IsActive(self):

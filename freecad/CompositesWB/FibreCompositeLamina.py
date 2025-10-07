@@ -59,9 +59,6 @@ class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
     def getIcon(self):
         return FIBRE_COMPOSITE_LAMINA_TOOL_ICON
 
-    def claimChildren(self):
-        return [self.Object.FibreMaterial, self.Object.ResinMaterial]
-
 
 class FibreCompositeLaminaCommand:
     def GetResources(self):
@@ -78,7 +75,8 @@ class FibreCompositeLaminaCommand:
             "CompositeLamina",
         )
         FibreCompositeLaminaFP(obj)
-        ViewProviderFibreCompositeLamina(obj.ViewObject)
+        if FreeCAD.GuiUp:
+            ViewProviderFibreCompositeLamina(obj.ViewObject)
         doc.recompute()
 
     def IsActive(self):
