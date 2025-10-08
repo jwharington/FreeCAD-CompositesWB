@@ -1,0 +1,11 @@
+﻿---
+# File created by FreeCAD 1.1.0 Revision: 43849 +42 (Git)
+General:
+  UUID: "f75354bc-c96a-4e5e-b224-eda3df9f50c5"
+  Name: "Epoxy"
+Models:
+  Linear Elastic:
+    UUID: "7b561d1d-fb9b-44f6-9da9-56a4f74d7536"
+    Density: "1100 kg/m^3"
+    PoissonRatio: "0.36"
+    YoungsModulus: "3500 MPa"

@@ -1,0 +1,11 @@
+﻿---
+# File created by FreeCAD 1.1.0 Revision: 43849 +42 (Git)
+General:
+  UUID: "8bda1cc3-f176-4ea0-b98e-7c8c4d064cc8"
+  Name: "Rohacell71"
+Models:
+  Linear Elastic:
+    UUID: "7b561d1d-fb9b-44f6-9da9-56a4f74d7536"
+    Density: "75 kg/m^3"
+    PoissonRatio: "0.4"
+    YoungsModulus: "105 MPa"
