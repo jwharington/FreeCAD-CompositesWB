@@ -53,6 +53,8 @@ class HomogeneousLaminaCommand:
         HomogeneousLaminaFP(obj)
         if FreeCAD.GuiUp:
             ViewProviderHomogeneousLamina(obj.ViewObject)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         doc.recompute()
 
     def IsActive(self):

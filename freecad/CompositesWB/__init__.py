@@ -4,6 +4,7 @@ from os import path
 from .version import __version__
 
 ICONPATH = os.path.join(os.path.dirname(__file__), "resources", "icons")
+UIPATH = os.path.join(os.path.dirname(__file__), "resources", "ui")
 
 WB_ICON = path.join(ICONPATH, "CompositeMouldCommand.svg")
 TEXTURE_PLAN_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")

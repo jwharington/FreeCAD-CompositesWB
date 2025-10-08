@@ -56,6 +56,8 @@ class CompositeLaminateCommand:
         CompositeLaminateFP(obj)
         if FreeCAD.GuiUp:
             ViewProviderCompositeLaminate(obj.ViewObject)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         doc.recompute()
 
     def IsActive(self):

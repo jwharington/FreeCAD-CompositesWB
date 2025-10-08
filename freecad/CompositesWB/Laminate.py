@@ -138,6 +138,8 @@ class LaminateCommand:
         LaminateFP(obj)
         if FreeCAD.GuiUp:
             ViewProviderLaminate(obj.ViewObject)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         doc.recompute()
 
     def IsActive(self):

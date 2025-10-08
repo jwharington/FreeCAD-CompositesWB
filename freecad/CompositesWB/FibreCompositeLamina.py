@@ -9,6 +9,7 @@ from .objects import (
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .test.example_materials import glass
+from .taskpanels import task_fibre_composite_lamina
 
 
 class FibreCompositeLaminaFP(BaseLaminaFP):
@@ -24,8 +25,16 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
             "App::PropertyMap",
             "FibreMaterial",
             "Materials",
-            "Material shapes",
+            "Fibre material",
         ).FibreMaterial = glass
+
+        obj.addProperty(
+            "App::PropertyString",
+            "FibreMaterialUUID",
+            "Materials",
+            "Fibre material UUID",
+            hidden=True,
+        ).FibreMaterialUUID = ""
 
         obj.addProperty(
             "App::PropertyEnumeration",
@@ -59,6 +68,13 @@ class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
     def getIcon(self):
         return FIBRE_COMPOSITE_LAMINA_TOOL_ICON
 
+    def setEdit(self, vobj, mode=0):
+        return super().setEdit(
+            vobj,
+            mode,
+            task_fibre_composite_lamina._TaskPanel,
+        )
+
 
 class FibreCompositeLaminaCommand:
     def GetResources(self):
@@ -77,6 +93,8 @@ class FibreCompositeLaminaCommand:
         FibreCompositeLaminaFP(obj)
         if FreeCAD.GuiUp:
             ViewProviderFibreCompositeLamina(obj.ViewObject)
+            FreeCADGui.Selection.clearSelection()
+            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         doc.recompute()
 
     def IsActive(self):
