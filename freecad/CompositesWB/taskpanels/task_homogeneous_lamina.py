@@ -1,4 +1,3 @@
-# based on fem task_panel_reinforced.py
 from .base_material import _MaterialTaskPanel
 
 

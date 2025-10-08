@@ -10,6 +10,7 @@ from .objects import (
     CompositeLaminate,
     SymmetryType,
 )
+from .taskpanels import task_composite_laminate
 
 
 class CompositeLaminateFP(LaminateFP):
@@ -37,6 +38,13 @@ class ViewProviderCompositeLaminate(ViewProviderLaminate):
 
     def getIcon(self):
         return COMPOSITE_LAMINATE_TOOL_ICON
+
+    def setEdit(self, vobj, mode=0):
+        return super().setEdit(
+            vobj,
+            mode,
+            task_composite_laminate._TaskPanel,
+        )
 
 
 class CompositeLaminateCommand:
