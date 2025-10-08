@@ -1,6 +1,3 @@
-from .test.example_materials import resin
-
-
 def add_composite_props(obj):
 
     obj.addProperty(
@@ -8,7 +5,7 @@ def add_composite_props(obj):
         "ResinMaterial",
         "Materials",
         "Resin material",
-    ).ResinMaterial = resin
+    ).ResinMaterial = {}
 
     obj.addProperty(
         "App::PropertyString",

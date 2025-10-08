@@ -6,7 +6,6 @@ from .objects import (
 )
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .taskpanels import task_homogeneous_lamina
-from .test.example_materials import foam
 
 
 class HomogeneousLaminaFP(BaseLaminaFP):
@@ -21,7 +20,7 @@ class HomogeneousLaminaFP(BaseLaminaFP):
             "Material",
             "Materials",
             "Material",
-        ).Material = foam
+        ).Material = {}
 
         obj.addProperty(
             "App::PropertyString",

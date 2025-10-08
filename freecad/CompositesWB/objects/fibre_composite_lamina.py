@@ -41,6 +41,7 @@ class FibreCompositeLamina(CompositeLamina):
                 material=material,
                 thickness=la.thickness,
                 orientation=la.orientation,
+                orientation_display=la.orientation,
             )
 
         return [[props(lay) for lay in self.fibre.get_plies()]]

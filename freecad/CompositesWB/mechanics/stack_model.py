@@ -156,6 +156,7 @@ def merge_clt(
         material=material,
         thickness=total_thickness,
         orientation=0,
+        orientation_display=0,
     )
 
 
@@ -176,4 +177,5 @@ def merge_single(
         material=material,
         thickness=layer.thickness,
         orientation=0,
+        orientation_display=layer.orientation,
     )

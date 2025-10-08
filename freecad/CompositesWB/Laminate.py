@@ -57,6 +57,14 @@ class LaminateFP:
         obj.Symmetry = [item.name for item in SymmetryType]
         obj.Symmetry = SymmetryType.Odd.name
 
+        obj.addProperty(
+            "App::PropertyMap",
+            "StackOrientation",
+            "Composition",
+            "Orientation of layers in stack",
+            hidden=True,
+        ).StackOrientation = {}
+
         # obj.addProperty(
         #     "App::PropertyPythonObject",
         #     "FEMLayers",
@@ -76,6 +84,9 @@ class LaminateFP:
             laminate=self.get_model(obj),
             model_type=StackModelType[obj.StackModelType],
         )
+        self.StackOrientation = {
+            o.material["Name"]: o.orientation_display for o in self.FEMLayers
+        }
 
     def get_materials(self, obj):
         return write_lamina_materials_ccx(

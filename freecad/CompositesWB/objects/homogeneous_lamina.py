@@ -13,6 +13,7 @@ from ..util.geometry_util import (
 class HomogeneousLamina(Ply):
     # e.g. core foam, aluminium, etc, or merged
     material: dict = None
+    orientation_display: float = 0
 
     @property
     def description(self):
