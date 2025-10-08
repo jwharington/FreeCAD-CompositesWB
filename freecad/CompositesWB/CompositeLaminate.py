@@ -51,7 +51,7 @@ class CompositeLaminateCommand:
         doc = FreeCAD.ActiveDocument
         obj = doc.addObject(
             "App::FeaturePython",
-            "Laminate",
+            "CompositeLaminate",
         )
         CompositeLaminateFP(obj)
         if FreeCAD.GuiUp:

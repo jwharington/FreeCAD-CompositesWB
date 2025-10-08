@@ -40,10 +40,33 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
             "App::PropertyEnumeration",
             "WeaveType",
             "Composition",
-            "Representation of layers",
+            "Structure of layers",
         )
         obj.WeaveType = [item.name for item in WeaveType]
         obj.WeaveType = WeaveType.UD.name
+
+        obj.addProperty(
+            "App::PropertyArealMass",
+            "ArealWeight",
+            "Composition",
+            "Areal weight of fibres",
+        )
+        obj.setPropertyStatus("ArealWeight", "ReadOnly")
+
+    def get_density(self, obj):
+        if not hasattr(obj, "FibreMaterial"):
+            return None
+        if "Density" not in obj.FibreMaterial:
+            return None
+        val = obj.FibreMaterial["Density"]
+        return FreeCAD.Units.Quantity(val)
+
+    def onChanged(self, obj, prop):
+        density = self.get_density(obj)
+        if not density:
+            return
+        if "Thickness" == prop:
+            obj.ArealWeight = FreeCAD.Units.Quantity(obj.Thickness) * density
 
     def get_model(self, obj):
         if volume_fraction := obj.FibreVolumeFraction:
