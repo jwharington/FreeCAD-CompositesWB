@@ -1,4 +1,7 @@
 # based on base_femtaskpanel.py
+import FreeCADGui
+from os import path
+from .. import UIPATH
 
 
 class _BaseTaskPanel:
@@ -6,8 +9,16 @@ class _BaseTaskPanel:
     Base task panel
     """
 
+    UI_FILENAME = "FibreCompositeLamina.ui"
+
     def __init__(self, obj):
         self.obj = obj
+
+        # parameter widget
+        self.parameter_widget = FreeCADGui.PySideUic.loadUi(
+            path.join(UIPATH, self.UI_FILENAME)
+        )
+        self.form = self.parameter_widget
 
     def accept(self):
         gui_doc = self.obj.ViewObject.Document

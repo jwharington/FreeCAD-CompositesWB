@@ -5,6 +5,8 @@ from .objects import (
     HomogeneousLamina,
 )
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
+from .taskpanels import task_homogeneous_lamina
+from .test.example_materials import foam
 
 
 class HomogeneousLaminaFP(BaseLaminaFP):
@@ -15,11 +17,19 @@ class HomogeneousLaminaFP(BaseLaminaFP):
         super().__init__(obj)
 
         obj.addProperty(
-            "App::PropertyLinkGlobal",
+            "App::PropertyMap",
             "Material",
-            "References",
-            "Material shapes",
-        ).Material = None
+            "Materials",
+            "Material",
+        ).Material = foam
+
+        obj.addProperty(
+            "App::PropertyString",
+            "MaterialUUID",
+            "Materials",
+            "Fibre material UUID",
+            hidden=True,
+        ).MaterialUUID = ""
 
     def get_model(self, obj):
         return HomogeneousLamina(
@@ -34,6 +44,13 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 
     def getIcon(self):
         return HOMOGENEOUS_LAMINA_TOOL_ICON
+
+    def setEdit(self, vobj, mode=0):
+        return super().setEdit(
+            vobj,
+            mode,
+            task_homogeneous_lamina._TaskPanel,
+        )
 
 
 class HomogeneousLaminaCommand:
