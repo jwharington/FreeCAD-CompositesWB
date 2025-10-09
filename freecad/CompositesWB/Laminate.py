@@ -94,7 +94,7 @@ class LaminateFP:
             model_type=StackModelType[obj.StackModelType],
         )
         obj.StackOrientation = {
-            o.material["Name"]: f"{int(o.orientation_display):d}"
+            o.material["Name"]: f"{int(o.orientation_display):+03d}"
             for o in self.FEMLayers
         }
         if laminate:

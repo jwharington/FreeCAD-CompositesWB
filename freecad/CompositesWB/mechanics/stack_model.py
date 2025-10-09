@@ -165,14 +165,14 @@ def merge_single(
     layer: Lamina,
 ) -> HomogeneousLamina:
 
-    if not hasattr(layer, "orientation") or (layer.orientation == 0):
-        return layer
+    # if not hasattr(layer, "orientation") or (layer.orientation == 0):
+    #     return layer
 
     material = material_rotate(
         layer.material,
         np.radians(layer.orientation),
     )
-    material["Name"] = prefix + ":" + layer.description
+    material["Name"] = prefix + ": " + layer.description
     return HomogeneousLamina(
         material=material,
         thickness=layer.thickness,

@@ -18,9 +18,14 @@ def get_layers_ccx(
         return []
 
     layers = laminate.get_layers(model_type=model_type)
+    n = len(layers)
 
     def merge(k, lay):
-        return merge_single(str(k), lay)
+        if n < 100:
+            prefix = f"{k:02d}"
+        else:
+            prefix = f"{k:03d}"
+        return merge_single(prefix, lay)
 
     return [merge(k, lay) for k, lay in enumerate(layers)]
 
