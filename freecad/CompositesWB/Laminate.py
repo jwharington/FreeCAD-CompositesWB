@@ -97,8 +97,10 @@ class LaminateFP:
             o.material["Name"]: f"{int(o.orientation_display):d}"
             for o in self.FEMLayers
         }
-        print(f"laminate execute: {laminate.thickness}")
-        obj.Thickness = FreeCAD.Units.Quantity(laminate.thickness)
+        if laminate:
+            obj.Thickness = FreeCAD.Units.Quantity(laminate.thickness)
+        else:
+            obj.Thickness = FreeCAD.Units.Quantity(0.0)
 
     def onChanged(self, fp, prop):
         match prop:
