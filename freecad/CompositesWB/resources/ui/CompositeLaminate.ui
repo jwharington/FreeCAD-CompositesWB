@@ -26,7 +26,7 @@
       </size>
      </property>
      <property name="title">
-      <string>Material</string>
+      <string>Resin material</string>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_5">
       <item>

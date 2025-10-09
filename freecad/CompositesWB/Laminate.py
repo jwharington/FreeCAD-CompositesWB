@@ -65,6 +65,14 @@ class LaminateFP:
             hidden=True,
         ).StackOrientation = {}
 
+        obj.addProperty(
+            "App::PropertyLength",
+            "Thickness",
+            "Dimensions",
+            "Thickness of laminate",
+        )
+        obj.setPropertyStatus("Thickness", "ReadOnly")
+
         # obj.addProperty(
         #     "App::PropertyPythonObject",
         #     "FEMLayers",
@@ -80,14 +88,22 @@ class LaminateFP:
         obj.recompute()
 
     def execute(self, obj):
+        laminate = self.get_model(obj)
         self.FEMLayers = get_layers_ccx(
-            laminate=self.get_model(obj),
+            laminate=laminate,
             model_type=StackModelType[obj.StackModelType],
         )
         obj.StackOrientation = {
             o.material["Name"]: f"{int(o.orientation_display):d}"
             for o in self.FEMLayers
         }
+        print(f"laminate execute: {laminate.thickness}")
+        obj.Thickness = FreeCAD.Units.Quantity(laminate.thickness)
+
+    def onChanged(self, fp, prop):
+        match prop:
+            case "Layers":
+                fp.recompute()
 
     def get_materials(self, obj):
         return write_lamina_materials_ccx(

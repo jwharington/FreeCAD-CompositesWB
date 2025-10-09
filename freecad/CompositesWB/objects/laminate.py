@@ -20,8 +20,10 @@ class Laminate(Lamina):
         layers = [lay.get_layers(model_type) for lay in self.layers]
         expanded_layers = expand_symmetry(layers, self.symmetry)
         prefix = StackModelType.merged_name(model_type)
-        return calc_stack_model(
+        model = calc_stack_model(
             prefix,
             model_type,
             expanded_layers,
         )
+        self.thickness = sum([layer.thickness for layer in model])
+        return model
