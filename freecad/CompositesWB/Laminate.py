@@ -84,8 +84,9 @@ class LaminateFP:
             laminate=self.get_model(obj),
             model_type=StackModelType[obj.StackModelType],
         )
-        self.StackOrientation = {
-            o.material["Name"]: o.orientation_display for o in self.FEMLayers
+        obj.StackOrientation = {
+            o.material["Name"]: f"{int(o.orientation_display):d}"
+            for o in self.FEMLayers
         }
 
     def get_materials(self, obj):
