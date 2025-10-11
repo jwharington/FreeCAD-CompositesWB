@@ -21,6 +21,7 @@ class CompositesWorkbench(Gui.Workbench):
         from . import CompositeLaminate  # noqa
         from . import HomogeneousLamina  # noqa
         from . import FibreCompositeLamina  # noqa
+        from . import CompositeShell  # noqa
 
         self.list = [
             "Composites_Mould",
@@ -30,6 +31,7 @@ class CompositesWorkbench(Gui.Workbench):
             "Composites_CompositeLaminate",
             "Composites_HomogeneousLamina",
             "Composites_FibreCompositeLamina",
+            "Composites_CompositeShell",
         ]
         self.appendToolbar("Composites", self.list)
         self.appendMenu("Composites", self.list)

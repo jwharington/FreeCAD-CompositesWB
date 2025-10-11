@@ -29,6 +29,7 @@ FIBRE_COMPOSITE_LAMINA_TOOL_ICON = path.join(
     ICONPATH,
     "FEM_MaterialFibreCompositeLamina.svg",
 )
+COMPOSITE_SHELL_TOOL_ICON = path.join(ICONPATH, "CompositeShell.svg")
 
 TOL3D = 1e-7
 TOL2D = 1e-9
