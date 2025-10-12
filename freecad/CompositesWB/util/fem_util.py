@@ -10,21 +10,6 @@ from ..mechanics.material_properties import (
 from typing import List
 
 
-def get_layers_bom(laminate: Laminate):
-    if not laminate:
-        return {}
-
-    layers = laminate.get_layers(model_type=StackModelType.SmearedFabric)
-
-    def name(k, lay):
-        return f"{k:02d}:{lay.material.Name}"
-
-    def orientation(lay):
-        return f"{lay.orientation_display:+03d}"
-
-    return {name(k, lay): orientation(lay) for k, lay in enumerate(layers)}
-
-
 def get_layers_ccx(
     laminate: Laminate,
     model_type: StackModelType = StackModelType.Discrete,

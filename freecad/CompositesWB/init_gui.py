@@ -25,15 +25,15 @@ class CompositesWorkbench(Gui.Workbench):
         from . import TexturePlan  # noqa
 
         self.list = [
-            "Composites_Mould",
-            "Composites_PartPlane",
-            "Composites_Seam",
             "Composites_Laminate",
             "Composites_CompositeLaminate",
             "Composites_HomogeneousLamina",
             "Composites_FibreCompositeLamina",
             "Composites_CompositeShell",
             "Composites_TexturePlan",
+            "Composites_PartPlane",
+            "Composites_Mould",
+            "Composites_Seam",
         ]
         self.appendToolbar("Composites", self.list)
         self.appendMenu("Composites", self.list)

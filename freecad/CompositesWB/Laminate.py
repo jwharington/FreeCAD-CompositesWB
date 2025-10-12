@@ -4,9 +4,11 @@ from . import LAMINATE_TOOL_ICON
 from .mechanics import StackModelType
 from .util.fem_util import (
     get_layers_ccx,
-    get_layers_bom,
     write_lamina_materials_ccx,
     write_shell_section_ccx,
+)
+from .util.bom_util import (
+    get_layers_bom,
 )
 from .objects import (
     Laminate,

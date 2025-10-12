@@ -59,12 +59,13 @@ class CompositeShellFP:
         def get_lcs():
             if fp.LocalCoordinateSystem:
                 return fp.LocalCoordinateSystem
-            return fp.Support
+            return fp.Support[0]
 
         mesh = self.update_mesh(fp)
         self.draper = Draper(mesh, get_lcs())
         fp.Mesh.Mesh = mesh
-        fp.ViewObject.update()
+        if fp.ViewObject:
+            fp.ViewObject.update()
 
     def onDocumentRestored(self, fp):
         # super().onDocumentRestored(fp)
@@ -222,7 +223,7 @@ class ViewProviderCompositeShell:
         aobj = vobj.Mesh
         offset_angle_deg = self.get_offset_angle(vobj)
         tex_coords = obj.get_tex_coords(offset_angle_deg=offset_angle_deg)
-        if tex_coords:
+        if tex_coords and self.grid_shader:
             self.grid_shader.attach(vobj, aobj, tex_coords)
             self.Active = True
             FreeCADGui.Selection.addObserver(self)
