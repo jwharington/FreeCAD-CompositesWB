@@ -4,6 +4,7 @@ from . import LAMINATE_TOOL_ICON
 from .mechanics import StackModelType
 from .util.fem_util import (
     get_layers_ccx,
+    get_layers_bom,
     write_lamina_materials_ccx,
     write_shell_section_ccx,
 )
@@ -66,6 +67,14 @@ class LaminateFP:
         ).StackOrientation = {}
 
         obj.addProperty(
+            "App::PropertyMap",
+            "StackAssembly",
+            "Composition",
+            "Assembly BOM stack",
+            hidden=True,
+        ).StackAssembly = {}
+
+        obj.addProperty(
             "App::PropertyLength",
             "Thickness",
             "Dimensions",
@@ -97,6 +106,7 @@ class LaminateFP:
             o.material["Name"]: f"{int(o.orientation_display):+03d}"
             for o in self.FEMLayers
         }
+        obj.StackAssembly = get_layers_bom(laminate=laminate)
         if laminate:
             obj.Thickness = FreeCAD.Units.Quantity(laminate.thickness)
         else:

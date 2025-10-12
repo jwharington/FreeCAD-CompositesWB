@@ -20,17 +20,20 @@ class TexturePlanFP:
         ).CompositeShell = []
 
     def execute(self, fp):
-        self.update_boundaries(fp)
-        # fp.ViewObject.update()
-
-    def update_boundaries(self, fp):
         for obj in fp.CompositeShell:
-            boundaries = obj.Proxy.get_boundaries(offset_angle_deg=0)
-            if not boundaries:
+            if "Composite::Shell" != obj.Proxy.Type:
+                FreeCAD.Console.PrintError(f"Incorrect type {obj.Name}\n")
                 continue
-            for w in boundaries:
-                print("update wire")
-                fp.Shape = Part.Wire(Part.makePolygon(w))
+            # TODO: lay out separate shapes for each layer in the composites
+            for key, orientation in obj.Laminate.StackAssembly.items():
+                print(f"name {obj.Name} key {key} orientation {orientation}")
+                boundaries = obj.Proxy.get_boundaries(offset_angle_deg=int(orientation))
+                if not boundaries:
+                    continue
+                for w in boundaries:
+                    fp.Shape = Part.Wire(Part.makePolygon(w))
+
+        # fp.ViewObject.update()
 
     def onDocumentRestored(self, fp):
         # super().onDocumentRestored(fp)
@@ -41,12 +44,6 @@ class TexturePlanFP:
             case "CompositeShell":
                 fp.recompute()
 
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        return None
-
 
 class ViewProviderTexturePlan:
 
@@ -54,31 +51,30 @@ class ViewProviderTexturePlan:
         obj.Proxy = self
 
     def getDisplayModes(self, obj):
-        return ["Standard"]
+        return []
 
     def getDefaultDisplayMode(self):
-        return "Standard"
+        return "Wireframe"
 
     def getIcon(self):
         return TEXTURE_PLAN_TOOL_ICON
 
     def attach(self, vobj):
-        self.Active = False
         self.Object = vobj.Object
         self.ViewObject = vobj
 
-    def updateData(self, fp, prop):
-        match prop:
-            case _:
-                return
+    # def updateData(self, fp, prop):
+    #     match prop:
+    #         case _:
+    #             return
 
-    def onChanged(self, vobj, prop):
-        match prop:
-            case _:
-                pass
+    # def onChanged(self, vobj, prop):
+    #     match prop:
+    #         case _:
+    #             pass
 
     def __getstate__(self):
-        return {}
+        return None
 
     def __setstate__(self, state):
         return None
