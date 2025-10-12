@@ -16,6 +16,8 @@ class Draper:
 
         def get_flattener(_mesh):
             faces = np.array([list(i) for i in _mesh.Topology[1]])
+            if not mesh.Points:
+                return None
             flattener = flatmesh.FaceUnwrapper(points, faces)
             flattener.findFlatNodes(
                 self.unwrap_steps,
@@ -26,10 +28,15 @@ class Draper:
         self.mesh = mesh
         self.lcs = lcs
         self.flattener = get_flattener(mesh)
+        if not self.flattener:
+            return
         self.T_local = self.lcs.getGlobalPlacement().inverse()
 
         self.T_fo = self.calc_flat_rotation()
         self.make_interp()
+
+    def isValid(self):
+        return self.flattener
 
     def make_interp(self):
 
