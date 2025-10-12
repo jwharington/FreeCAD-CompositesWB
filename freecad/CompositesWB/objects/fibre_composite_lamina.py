@@ -15,14 +15,24 @@ class FibreCompositeLamina(CompositeLamina):
     @property
     def description(self):
         return (
-            f"{self.fibre.description}-{self.material_matrix.Name}"
+            f"{self.fibre.description}-{self.material_matrix['Name']}"
             f"?{format_orientation(self.orientation)}"
         )
+
+    def get_product(self):
+        return [
+            (
+                f"{self.fibre.material_fibre['Name']} {self.fibre.description} {self.fibre.thickness}",
+                self.fibre.orientation,
+            ),
+        ]
 
     def get_layers(
         self,
         model_type: StackModelType = StackModelType.Discrete,
     ):
+        self.thickness = self.fibre.thickness
+
         def props(la: CompositeLamina):
             Ply.set_missing_child_props(
                 self,

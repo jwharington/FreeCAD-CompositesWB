@@ -28,3 +28,6 @@ class HomogeneousLamina(Ply):
         model_type: StackModelType = StackModelType.Discrete,
     ):
         return [self]
+
+    def get_product(self):
+        return [(f"{self.description} {self.thickness}", 0)]

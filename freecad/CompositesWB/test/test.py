@@ -41,5 +41,8 @@ def test_B():
         illustrateLayup(layers, label=i.name)
         # materials = get_materials(la, model_type=i)
 
+    product = laminate.get_product()
+    pprint(product)
+
 
 test_B()

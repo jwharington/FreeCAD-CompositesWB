@@ -27,3 +27,11 @@ class Laminate(Lamina):
         )
         self.thickness = sum([layer.thickness for layer in model])
         return model
+
+    def get_product(self):
+        res = []
+        expanded_layers = expand_symmetry(self.layers, self.symmetry)
+        for lay in expanded_layers:
+            if product := lay.get_product():
+                res.extend(product)
+        return res
