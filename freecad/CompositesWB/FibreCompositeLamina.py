@@ -1,6 +1,9 @@
 import FreeCAD
 import FreeCADGui
-from . import FIBRE_COMPOSITE_LAMINA_TOOL_ICON
+from . import (
+    FIBRE_COMPOSITE_LAMINA_TOOL_ICON,
+    getCompositesContainer,
+)
 from .objects.weave_type import WeaveType
 from .objects import (
     FibreCompositeLamina,
@@ -117,6 +120,7 @@ class FibreCompositeLaminaCommand:
             ViewProviderFibreCompositeLamina(obj.ViewObject)
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):

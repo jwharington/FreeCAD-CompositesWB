@@ -1,7 +1,10 @@
 import FreeCAD
 import FreeCADGui
 import Part
-from . import TEXTURE_PLAN_TOOL_ICON
+from . import (
+    TEXTURE_PLAN_TOOL_ICON,
+    getCompositesContainer,
+)
 
 
 class TexturePlanFP:
@@ -20,6 +23,7 @@ class TexturePlanFP:
         ).CompositeShell = []
 
     def execute(self, fp):
+        shapes = []
         for obj in fp.CompositeShell:
             if "Composite::Shell" != obj.Proxy.Type:
                 FreeCAD.Console.PrintError(f"Incorrect type {obj.Name}\n")
@@ -31,7 +35,8 @@ class TexturePlanFP:
                 if not boundaries:
                     continue
                 for w in boundaries:
-                    fp.Shape = Part.Wire(Part.makePolygon(w))
+                    shapes.append(Part.Wire(Part.makePolygon(w)))
+        fp.Shape = Part.makeCompound(shapes)
 
         # fp.ViewObject.update()
 
@@ -100,6 +105,7 @@ class TexturePlanCommand:
             ViewProviderTexturePlan(obj.ViewObject)
             # FreeCADGui.Selection.clearSelection()
             # FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):

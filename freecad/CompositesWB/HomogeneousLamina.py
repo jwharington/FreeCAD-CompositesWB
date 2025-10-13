@@ -1,6 +1,9 @@
 import FreeCAD
 import FreeCADGui
-from . import HOMOGENEOUS_LAMINA_TOOL_ICON
+from . import (
+    HOMOGENEOUS_LAMINA_TOOL_ICON,
+    getCompositesContainer,
+)
 from .objects import (
     HomogeneousLamina,
 )
@@ -71,6 +74,7 @@ class HomogeneousLaminaCommand:
             ViewProviderHomogeneousLamina(obj.ViewObject)
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):

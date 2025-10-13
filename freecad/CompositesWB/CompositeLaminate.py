@@ -1,6 +1,9 @@
 import FreeCAD
 import FreeCADGui
-from . import COMPOSITE_LAMINATE_TOOL_ICON
+from . import (
+    COMPOSITE_LAMINATE_TOOL_ICON,
+    getCompositesContainer,
+)
 from .Composite import add_composite_props
 from .Laminate import (
     LaminateFP,
@@ -66,6 +69,7 @@ class CompositeLaminateCommand:
             ViewProviderCompositeLaminate(obj.ViewObject)
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):

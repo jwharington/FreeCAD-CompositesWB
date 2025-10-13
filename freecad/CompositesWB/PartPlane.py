@@ -6,7 +6,8 @@ from . import (
 )
 from .tools.part_plane import (
     # make_part_plane,
-    make_part_plane2,
+    # make_part_plane2,
+    make_part_plane3,
 )
 
 # from .selection_utils import find_face_in_selection_object
@@ -44,15 +45,8 @@ class PartPlaneFP:
         return
 
     def execute(self, fp):
-        # shape = make_part_plane(
-        #     fp.Source.Shape,
-        #     inset=fp.Inset.Value,
-        #     ruled=fp.Ruled,
-        # )
-        # fp.Shape = shape
-        shape = make_part_plane2(
+        shape = make_part_plane3(
             fp.Source.Shape,
-            inset=fp.Inset.Value,
         )
         fp.Shape = shape
 

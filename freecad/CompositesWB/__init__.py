@@ -50,3 +50,31 @@ materials.SetString("ModuleDir", MATPATH)
 
 # FreeCAD.addImportType("My own format (*.own)", "importOwn")
 # FreeCAD.addExportType("My own format (*.own)", "exportOwn")
+
+container_name = "CompositesContainer"
+
+
+def getCompositesContainer():
+    for obj in FreeCAD.ActiveDocument.Objects:
+        if obj.Name == container_name:
+            return obj
+
+    obj = FreeCAD.ActiveDocument.addObject(
+        "App::DocumentObjectGroupPython",
+        container_name,
+    )
+    if not obj:
+        return None
+    obj.Label = "Composites"
+    return obj
+
+
+# def getDocumentCompositeLaminates():
+#     for obj in FreeCAD.ActiveDocument.Objects:
+#         if obj.Name == container_name:
+#             res = []
+#             for o in obj.Group:
+#                 if o.isDerivedFrom("App::FeaturePython"):
+#                     res.append(o)
+#             return res
+#     return []

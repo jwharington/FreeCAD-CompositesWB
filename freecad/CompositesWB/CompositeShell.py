@@ -2,7 +2,10 @@ import FreeCAD
 import FreeCADGui
 import Mesh
 import MeshPart
-from . import COMPOSITE_SHELL_TOOL_ICON
+from . import (
+    COMPOSITE_SHELL_TOOL_ICON,
+    getCompositesContainer,
+)
 from .tools.draper import Draper
 from .shaders.MeshGridShader import MeshGridShader
 
@@ -11,10 +14,16 @@ class CompositeShellFP:
 
     Type = "Composite::Shell"
 
-    def __init__(self, obj, support):
+    def __init__(self, obj):
         obj.Proxy = self
         obj.addExtension("App::SuppressibleExtensionPython")
-        obj.Support = support
+
+        obj.addProperty(
+            type="App::PropertyLinkGlobal",
+            name="Support",
+            group="References",
+            doc="Shell shape",
+        ).Support = None
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
@@ -55,11 +64,15 @@ class CompositeShellFP:
         obj.setPropertyStatus("Mesh", "ReadOnly")
 
     def execute(self, fp):
+        if not fp.Support:
+            return
+
+        fp.Shape = fp.Support.Shape
 
         def get_lcs():
             if fp.LocalCoordinateSystem:
                 return fp.LocalCoordinateSystem
-            return fp.Support[0]
+            return fp.Support
 
         mesh = self.update_mesh(fp)
         self.draper = Draper(mesh, get_lcs())
@@ -156,8 +169,8 @@ class ViewProviderCompositeShell:
     def attach(self, vobj):
         self.Active = False
 
-        self.Object = vobj.Object
         self.ViewObject = vobj
+        self.Object = vobj.Object
 
         self.grid_shader = MeshGridShader()
         vobj.addDisplayMode(self.grid_shader.grp, "Grid")
@@ -165,7 +178,7 @@ class ViewProviderCompositeShell:
 
     def updateData(self, fp, prop):
         match prop:
-            case "LocalCoordinateSystem" | "References":
+            case "LocalCoordinateSystem" | "Support":
                 pass
             case "Laminate":
                 if fp.Laminate:
@@ -174,9 +187,6 @@ class ViewProviderCompositeShell:
                     fp.ViewObject.DisplayLayer = display_layer_opts
                     if (sel not in display_layer_opts) and (display_layer_opts):
                         fp.ViewObject.DisplayLayer = display_layer_opts[0]
-                else:
-                    fp.ViewObject.DisplayLayer = ["0"]
-                    fp.ViewObject.DisplayLayer = "0"
             case _:
                 return
         self.reload_shader()
@@ -254,20 +264,16 @@ class CompositeShellCommand:
     def Activated(self):
         doc = FreeCAD.ActiveDocument
         obj = doc.addObject(
-            "PartDesign::SubShapeBinderPython",
+            # "PartDesign::SubShapeBinderPython",
+            "Part::FeaturePython",
             "CompositeShell",
         )
-        selection = FreeCADGui.Selection.getSelectionEx()
-        support = []
-        for sel in selection:
-            if hasattr(sel, "SubElementNames") and sel.SubElementNames:
-                support.append((sel.Object, sel.SubElementNames))
-
-        CompositeShellFP(obj, support)
+        CompositeShellFP(obj)
         if FreeCAD.GuiUp:
             ViewProviderCompositeShell(obj.ViewObject)
             # FreeCADGui.Selection.clearSelection()
             # FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):

@@ -1,6 +1,9 @@
 import FreeCAD
 import FreeCADGui
-from . import LAMINATE_TOOL_ICON
+from . import (
+    LAMINATE_TOOL_ICON,
+    getCompositesContainer,
+)
 from .mechanics import StackModelType
 from .util.fem_util import (
     get_layers_ccx,
@@ -182,6 +185,7 @@ class LaminateCommand:
             ViewProviderLaminate(obj.ViewObject)
             FreeCADGui.Selection.clearSelection()
             FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+        getCompositesContainer().addObject(obj)
         doc.recompute()
 
     def IsActive(self):
