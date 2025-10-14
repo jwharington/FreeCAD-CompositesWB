@@ -2,14 +2,12 @@ import os
 import FreeCAD
 from os import path
 from .version import __version__
-from pathlib import PurePath
 
 MODULE_PATH = os.path.dirname(__file__)
 ICONPATH = os.path.join(MODULE_PATH, "resources", "icons")
 UIPATH = os.path.join(MODULE_PATH, "resources", "ui")
 MATPATH = os.path.join(MODULE_PATH, "resources", "materials")
 
-WB_ICON = path.join(ICONPATH, "CompositeMouldCommand.svg")
 TEXTURE_PLAN_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")
 DRAPE_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")
 MOULD_TOOL_ICON = path.join(ICONPATH, "CompositeMouldCommand.svg")
@@ -30,6 +28,8 @@ FIBRE_COMPOSITE_LAMINA_TOOL_ICON = path.join(
     "FEM_MaterialFibreCompositeLamina.svg",
 )
 COMPOSITE_SHELL_TOOL_ICON = path.join(ICONPATH, "CompositeShell.svg")
+WB_ICON = path.join(ICONPATH, "CompositesWB.svg")
+
 
 TOL3D = 1e-7
 TOL2D = 1e-9
@@ -54,6 +54,15 @@ materials.SetString("ModuleDir", MATPATH)
 container_name = "CompositesContainer"
 
 
+class _ViewProviderCompositesContainer:
+
+    def __init__(self, vobj):
+        vobj.Proxy = self
+
+    def getIcon(self):
+        return WB_ICON
+
+
 def getCompositesContainer():
     for obj in FreeCAD.ActiveDocument.Objects:
         if obj.Name == container_name:
@@ -66,6 +75,8 @@ def getCompositesContainer():
     if not obj:
         return None
     obj.Label = "Composites"
+    if FreeCAD.GuiUp:
+        _ViewProviderCompositesContainer(obj.ViewObject)
     return obj
 
 

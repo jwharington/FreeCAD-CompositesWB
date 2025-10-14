@@ -42,7 +42,7 @@ class ViewProviderCompositeLaminate(ViewProviderLaminate):
     def getIcon(self):
         return COMPOSITE_LAMINATE_TOOL_ICON
 
-    def setEdit(self, vobj, mode=0):
+    def setEdit(self, vobj, mode=0, TaskPanel=None):
         return super().setEdit(
             vobj,
             mode,

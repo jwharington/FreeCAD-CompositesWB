@@ -103,6 +103,10 @@ class LaminateFP:
 
     def execute(self, obj):
         laminate = self.get_model(obj)
+
+        if not hasattr(obj, "StackModelType"):
+            return
+
         self.FEMLayers = get_layers_ccx(
             laminate=laminate,
             model_type=StackModelType[obj.StackModelType],
@@ -141,11 +145,9 @@ class LaminateFP:
         return None
 
     def get_model(self, obj):
-        model_layers = get_model_layers(obj)
-        if not model_layers:
-            print("invalid model")
-            return None
-        return self.make_model(obj, model_layers)
+        if model_layers := get_model_layers(obj):
+            return self.make_model(obj, model_layers)
+        return None
 
     def make_model(self, obj, model_layers):
         return Laminate(
