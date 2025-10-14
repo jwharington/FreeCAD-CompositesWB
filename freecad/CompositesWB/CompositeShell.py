@@ -1,20 +1,20 @@
-import FreeCAD
 import FreeCADGui
 import Mesh
 import MeshPart
 from . import (
     COMPOSITE_SHELL_TOOL_ICON,
-    getCompositesContainer,
 )
 from .tools.draper import Draper
 from .shaders.MeshGridShader import MeshGridShader
+from .Command import BaseCommand
+from .Laminate import is_laminate
 
 
 class CompositeShellFP:
 
     Type = "Composite::Shell"
 
-    def __init__(self, obj):
+    def __init__(self, obj, support=None, laminate=None, lcs=None):
         obj.Proxy = self
         obj.addExtension("App::SuppressibleExtensionPython")
 
@@ -23,21 +23,24 @@ class CompositeShellFP:
             name="Support",
             group="References",
             doc="Shell shape",
-        ).Support = None
+        )
+
+        obj.setPropertyStatus("Support", "LockDynamic")
+        obj.setPropertyStatus("Support", "ReadOnly")
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="LocalCoordinateSystem",
             group="Materials",
             doc="Local coordinate system used for orthotropic materials",
-        ).LocalCoordinateSystem = None
+        )
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Laminate",
             group="Materials",
             doc="Laminate material",
-        ).Laminate = None
+        )
         # section could be composite laminate, or homogeneous lamina
 
         obj.addProperty(
@@ -45,7 +48,7 @@ class CompositeShellFP:
             name="MaxLength",
             group="Draping",
             doc="Max length of draping mesh",
-        ).MaxLength = 5.0
+        )
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
@@ -53,7 +56,7 @@ class CompositeShellFP:
             group="Orthographic",
             doc="Mesh for orthotropic materials",
             hidden=True,
-        ).Mesh = None
+        )
 
         obj.Mesh = obj.Document.addObject(
             "Mesh::Feature",
@@ -63,8 +66,13 @@ class CompositeShellFP:
         obj.setPropertyStatus("Mesh", "LockDynamic")
         obj.setPropertyStatus("Mesh", "ReadOnly")
 
+        obj.MaxLength = 5.0
+        obj.LocalCoordinateSystem = lcs
+        obj.Laminate = laminate
+        obj.Support = support
+
     def execute(self, fp):
-        if not fp.Support:
+        if (not fp.Support) or (not fp.Laminate):
             return
 
         fp.Shape = fp.Support.Shape
@@ -131,6 +139,7 @@ class ViewProviderCompositeShell:
 
     def __init__(self, obj):
         obj.Proxy = self
+        self.grid_shader = MeshGridShader()
 
         obj.addProperty(
             "App::PropertyFloatConstraint",
@@ -148,8 +157,6 @@ class ViewProviderCompositeShell:
         )
         obj.DisplayLayer = ["0"]
         obj.DisplayLayer = "0"
-
-        self.grid_shader = None
 
     def getDisplayModes(self, obj):
         return ["Grid"]
@@ -172,9 +179,10 @@ class ViewProviderCompositeShell:
         self.ViewObject = vobj
         self.Object = vobj.Object
 
-        self.grid_shader = MeshGridShader()
+        if not hasattr(self, "grid_shader"):
+            self.grid_shader = MeshGridShader()
         vobj.addDisplayMode(self.grid_shader.grp, "Grid")
-        self.load_shader()
+        # self.load_shader()
 
     def updateData(self, fp, prop):
         match prop:
@@ -182,11 +190,12 @@ class ViewProviderCompositeShell:
                 pass
             case "Laminate":
                 if fp.Laminate:
-                    display_layer_opts = list(fp.Laminate.StackOrientation.keys())
-                    sel = fp.ViewObject.DisplayLayer
-                    fp.ViewObject.DisplayLayer = display_layer_opts
-                    if (sel not in display_layer_opts) and (display_layer_opts):
-                        fp.ViewObject.DisplayLayer = display_layer_opts[0]
+                    if hasattr(fp.ViewObject, "DisplayLayer"):
+                        display_layer_opts = list(fp.Laminate.StackOrientation.keys())
+                        sel = fp.ViewObject.DisplayLayer
+                        fp.ViewObject.DisplayLayer = display_layer_opts
+                        if (sel not in display_layer_opts) and (display_layer_opts):
+                            fp.ViewObject.DisplayLayer = display_layer_opts[0]
             case _:
                 return
         self.reload_shader()
@@ -203,6 +212,8 @@ class ViewProviderCompositeShell:
                     self.grid_shader.Darken = vobj.Darken
             case "DisplayLayer":
                 self.reload_shader()
+            case "ShapeAppearance":
+                self.reload_shader()
             case _:
                 pass
 
@@ -215,6 +226,8 @@ class ViewProviderCompositeShell:
         self.load_shader()
 
     def get_offset_angle(self, vobj):
+        if not hasattr(vobj.ViewObject, "DisplayLayer"):
+            return 0
         layer = vobj.ViewObject.DisplayLayer
         if not vobj.Laminate:
             return 0
@@ -253,31 +266,30 @@ class ViewProviderCompositeShell:
         return None
 
 
-class CompositeShellCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": COMPOSITE_SHELL_TOOL_ICON,
-            "MenuText": "CompositeShell",
-            "ToolTip": "Composite shell",
-        }
+class CompositeShellCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            # "PartDesign::SubShapeBinderPython",
-            "Part::FeaturePython",
-            "CompositeShell",
-        )
-        CompositeShellFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderCompositeShell(obj.ViewObject)
-            # FreeCADGui.Selection.clearSelection()
-            # FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = COMPOSITE_SHELL_TOOL_ICON
+    menu_text = "Composite shell"
+    tool_tip = "Create composite shell"
+    sel_args = [
+        {
+            "key": "support",
+            "type": "Part::Feature",
+        },
+        {
+            "key": "laminate",
+            "test": is_laminate,
+        },
+        {
+            "key": "lcs",
+            "type": "Part::LocalCoordinateSystem",
+            "optional": True,
+        },
+    ]
+    type_id = "Part::FeaturePython"
+    instance_name = "CompositeShell"
+    cls_fp = CompositeShellFP
+    cls_vp = ViewProviderCompositeShell
 
 
 FreeCADGui.addCommand(

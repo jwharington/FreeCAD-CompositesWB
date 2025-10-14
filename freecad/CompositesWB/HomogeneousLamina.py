@@ -1,14 +1,13 @@
-import FreeCAD
 import FreeCADGui
 from . import (
     HOMOGENEOUS_LAMINA_TOOL_ICON,
-    getCompositesContainer,
 )
 from .objects import (
     HomogeneousLamina,
 )
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .taskpanels import task_homogeneous_lamina
+from .Command import BaseCommand
 
 
 class HomogeneousLaminaFP(BaseLaminaFP):
@@ -55,30 +54,16 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
         )
 
 
-class HomogeneousLaminaCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": HOMOGENEOUS_LAMINA_TOOL_ICON,
-            "MenuText": "HomogeneousLamina",
-            "ToolTip": "Homogeneous lamina container",
-        }
+class HomogeneousLaminaCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            "App::FeaturePython",
-            "HomogeneousLamina",
-        )
-        HomogeneousLaminaFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderHomogeneousLamina(obj.ViewObject)
-            FreeCADGui.Selection.clearSelection()
-            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = HOMOGENEOUS_LAMINA_TOOL_ICON
+    menu_text = "Homogeneous lamina"
+    tool_tip = "Create homogeneous lamina"
+    sel_args = []
+    type_id = "Part::FeaturePython"
+    instance_name = "HomogeneousLamina"
+    cls_fp = HomogeneousLaminaFP
+    cls_vp = ViewProviderHomogeneousLamina
 
 
 FreeCADGui.addCommand(

@@ -3,8 +3,8 @@ import FreeCADGui
 import Part
 from . import (
     TEXTURE_PLAN_TOOL_ICON,
-    getCompositesContainer,
 )
+from .Command import BaseCommand
 
 
 class TexturePlanFP:
@@ -85,31 +85,16 @@ class ViewProviderTexturePlan:
         return None
 
 
-class TexturePlanCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": TEXTURE_PLAN_TOOL_ICON,
-            "MenuText": "TexturePlan",
-            "ToolTip": "Composite shell",
-        }
+class TexturePlanCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            "Part::FeaturePython",
-            "TexturePlan",
-        )
-        # selection = FreeCADGui.Selection.getSelectionEx()
-        TexturePlanFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderTexturePlan(obj.ViewObject)
-            # FreeCADGui.Selection.clearSelection()
-            # FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = TEXTURE_PLAN_TOOL_ICON
+    menu_text = "Texture plan"
+    tool_tip = "Create texture plan"
+    sel_args = []
+    type_id = "Part::FeaturePython"
+    instance_name = "CompositeShell"
+    class_fp = TexturePlanFP
+    class_vp = ViewProviderTexturePlan
 
 
 FreeCADGui.addCommand(

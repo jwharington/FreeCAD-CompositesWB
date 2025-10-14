@@ -1,8 +1,6 @@
-import FreeCAD
 import FreeCADGui
 from . import (
     COMPOSITE_LAMINATE_TOOL_ICON,
-    getCompositesContainer,
 )
 from .Composite import add_composite_props
 from .Laminate import (
@@ -14,6 +12,7 @@ from .objects import (
     SymmetryType,
 )
 from .taskpanels import task_composite_laminate
+from .Command import BaseCommand
 
 
 class CompositeLaminateFP(LaminateFP):
@@ -50,30 +49,16 @@ class ViewProviderCompositeLaminate(ViewProviderLaminate):
         )
 
 
-class CompositeLaminateCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": COMPOSITE_LAMINATE_TOOL_ICON,
-            "MenuText": "CompositeLaminate",
-            "ToolTip": "Composite laminate container",
-        }
+class CompositeLaminateCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            "App::FeaturePython",
-            "CompositeLaminate",
-        )
-        CompositeLaminateFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderCompositeLaminate(obj.ViewObject)
-            FreeCADGui.Selection.clearSelection()
-            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = COMPOSITE_LAMINATE_TOOL_ICON
+    menu_text = "Composite laminate"
+    tool_tip = "Create composite laminate"
+    sel_args = []
+    type_id = "Part::FeaturePython"
+    instance_name = "CompositeShell"
+    cls_fp = CompositeLaminateFP
+    cls_vp = ViewProviderCompositeLaminate
 
 
 FreeCADGui.addCommand(

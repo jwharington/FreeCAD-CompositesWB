@@ -2,7 +2,6 @@ import FreeCAD
 import FreeCADGui
 from . import (
     FIBRE_COMPOSITE_LAMINA_TOOL_ICON,
-    getCompositesContainer,
 )
 from .objects.weave_type import WeaveType
 from .objects import (
@@ -12,6 +11,7 @@ from .objects import (
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .taskpanels import task_fibre_composite_lamina
+from .Command import BaseCommand
 
 
 class FibreCompositeLaminaFP(BaseLaminaFP):
@@ -101,30 +101,16 @@ class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
         )
 
 
-class FibreCompositeLaminaCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": FIBRE_COMPOSITE_LAMINA_TOOL_ICON,
-            "MenuText": "FibreCompositeLamina",
-            "ToolTip": "Fibre composite lamina container",
-        }
+class FibreCompositeLaminaCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            "App::FeaturePython",
-            "CompositeLamina",
-        )
-        FibreCompositeLaminaFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderFibreCompositeLamina(obj.ViewObject)
-            FreeCADGui.Selection.clearSelection()
-            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = FIBRE_COMPOSITE_LAMINA_TOOL_ICON
+    menu_text = "Fibre composite lamina"
+    tool_tip = "Create fibre composite lamina"
+    sel_args = []
+    type_id = "Part::FeaturePython"
+    instance_name = "FibreCompositeLamina"
+    cls_fp = FibreCompositeLaminaFP
+    cls_vp = ViewProviderFibreCompositeLamina
 
 
 FreeCADGui.addCommand(

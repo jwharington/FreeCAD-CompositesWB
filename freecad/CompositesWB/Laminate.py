@@ -2,7 +2,6 @@ import FreeCAD
 import FreeCADGui
 from . import (
     LAMINATE_TOOL_ICON,
-    getCompositesContainer,
 )
 from .mechanics import StackModelType
 from .util.fem_util import (
@@ -18,6 +17,8 @@ from .objects import (
     SymmetryType,
 )
 from .VPCompositeBase import VPCompositeBase
+from .Command import BaseCommand
+
 
 # import Plot
 # Fem::MaterialMechanicalNonlinear
@@ -28,6 +29,16 @@ from .VPCompositeBase import VPCompositeBase
 
 def get_model_layers(obj):
     return [o.Proxy.get_model(o) for o in obj.Layers]
+
+
+def is_laminate(obj):
+    if obj.TypeId != "App::FeaturePython":
+        return False
+    if not obj.Proxy:
+        return False
+    if obj.Proxy.Type != "Fem::MaterialMechanicalLaminate":
+        return False
+    return True
 
 
 class LaminateFP:
@@ -168,30 +179,16 @@ class ViewProviderLaminate(VPCompositeBase):
         return self.Object.Layers
 
 
-class LaminateCommand:
-    def GetResources(self):
-        return {
-            "Pixmap": LAMINATE_TOOL_ICON,
-            "MenuText": "Laminate",
-            "ToolTip": "Laminate container",
-        }
+class LaminateCommand(BaseCommand):
 
-    def Activated(self):
-        doc = FreeCAD.ActiveDocument
-        obj = doc.addObject(
-            "App::FeaturePython",
-            "Laminate",
-        )
-        LaminateFP(obj)
-        if FreeCAD.GuiUp:
-            ViewProviderLaminate(obj.ViewObject)
-            FreeCADGui.Selection.clearSelection()
-            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
-        getCompositesContainer().addObject(obj)
-        doc.recompute()
-
-    def IsActive(self):
-        return FreeCAD.ActiveDocument is not None
+    icon = LAMINATE_TOOL_ICON
+    menu_text = "Laminate"
+    tool_tip = "Create laminate"
+    sel_args = []
+    type_id = "Part::FeaturePython"
+    instance_name = "LaminatedShell"
+    cls_fp = LaminateFP
+    cls_vp = ViewProviderLaminate
 
 
 FreeCADGui.addCommand("Composites_Laminate", LaminateCommand())
