@@ -33,6 +33,7 @@ def get_model_layers(obj):
 
 
 def is_laminate(obj):
+    print(obj)
     return is_comp_type(
         obj,
         "App::FeaturePython",
@@ -184,7 +185,7 @@ class LaminateCommand(BaseCommand):
     icon = LAMINATE_TOOL_ICON
     menu_text = "Laminate"
     tool_tip = "Create laminate"
-    type_id = "Part::FeaturePython"
+    type_id = "App::FeaturePython"
     instance_name = "LaminatedShell"
     cls_fp = LaminateFP
     cls_vp = ViewProviderLaminate

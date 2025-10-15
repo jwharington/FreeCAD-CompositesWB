@@ -99,7 +99,7 @@ class BaseCommand:
         if FreeCAD.GuiUp:
             cls = self.cls_vp
             cls(obj.ViewObject)
-            # FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         getCompositesContainer().addObject(obj)
         FreeCADGui.Selection.clearSelection()
         doc.recompute()
@@ -107,4 +107,4 @@ class BaseCommand:
     def IsActive(self):
         if FreeCAD.ActiveDocument is None:
             return False
-        return self.check_sel(False) is not None
+        return self.check_sel(False or debug) is not None

@@ -102,7 +102,6 @@ class CompositeShellFP:
         fp.recompute()
 
     def onChanged(self, fp, prop):
-        return
         match prop:
             case "Laminate":
                 fp.recompute()
@@ -169,10 +168,10 @@ class ViewProviderCompositeShell:
         obj.Proxy = self
 
     def getDisplayModes(self, obj):
-        return ["Grid"]
+        return ["Shaded", "Grid"]
 
     def getDefaultDisplayMode(self):
-        return "Grid"
+        return "Shaded"
 
     def getIcon(self):
         return COMPOSITE_SHELL_TOOL_ICON
