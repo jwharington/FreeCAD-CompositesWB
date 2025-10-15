@@ -15,7 +15,7 @@ class HomogeneousLamina(Ply):
     orientation_display: float = 0
 
     @property
-    def description(self):
+    def description(self) -> str:
         desc = self.material["Name"]
         if is_orthotropic(self.material):
             return desc + format_orientation(self.orientation)

@@ -14,7 +14,7 @@ class Draper:
 
         points = np.array([[i.x, i.y, i.z] for i in mesh.Points])
 
-        def get_flattener(_mesh):
+        def get_flattener(_mesh) -> flatmesh.FaceUnwrapper:
             faces = np.array([list(i) for i in _mesh.Topology[1]])
             if not mesh.Points:
                 return None
@@ -27,7 +27,7 @@ class Draper:
 
         self.mesh = mesh
         self.lcs = lcs
-        self.flattener = get_flattener(mesh)
+        self.flattener: flatmesh.FaceUnwrapper = get_flattener(mesh)
         if not self.flattener:
             return
         self.T_local = self.lcs.getGlobalPlacement().inverse()
@@ -138,11 +138,11 @@ class Draper:
                 imin = i
         return imin
 
-    def find_triangle(self, i_O):
+    def find_triangle(self, i_O) -> list[int]:
         for tri in self.mesh.Topology[1]:
             if i_O in tri:
                 return list(tri)
-        return None
+        return []
 
     @staticmethod
     def find_x_axis_mix(OA_f, OB_f):

@@ -155,10 +155,10 @@ class LaminateFP:
     def __setstate__(self, state):
         return None
 
-    def get_model(self, obj):
+    def get_model(self, obj) -> Laminate:
         if model_layers := get_model_layers(obj):
             return self.make_model(obj, model_layers)
-        return None
+        return None  # noqa
 
     def make_model(self, obj, model_layers):
         return Laminate(

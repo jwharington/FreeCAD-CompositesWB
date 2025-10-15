@@ -7,6 +7,7 @@ from .objects.weave_type import WeaveType
 from .objects import (
     FibreCompositeLamina,
     SimpleFabric,
+    Lamina,
 )
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
@@ -70,11 +71,11 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         if "Thickness" == prop:
             obj.ArealWeight = FreeCAD.Units.Quantity(obj.Thickness) * density
 
-    def get_model(self, obj):
+    def get_model(self, obj) -> Lamina:
         if volume_fraction := obj.FibreVolumeFraction:
             volume_fraction *= 0.01
         else:
-            volume_fraction = None
+            volume_fraction = 0.0
         if not obj.FibreMaterial:
             raise ValueError("No fibre material")
         weave_type = WeaveType[obj.WeaveType]
@@ -93,7 +94,7 @@ class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
     def getIcon(self):
         return FIBRE_COMPOSITE_LAMINA_TOOL_ICON
 
-    def setEdit(self, vobj, mode=0):
+    def setEdit(self, vobj, mode=0, TaskPanel=None):
         return super().setEdit(
             vobj,
             mode,

@@ -4,6 +4,7 @@ from . import (
 )
 from .objects import (
     HomogeneousLamina,
+    Lamina,
 )
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .taskpanels import task_homogeneous_lamina
@@ -32,7 +33,7 @@ class HomogeneousLaminaFP(BaseLaminaFP):
             hidden=True,
         ).MaterialUUID = ""
 
-    def get_model(self, obj):
+    def get_model(self, obj) -> Lamina:
         return HomogeneousLamina(
             core=obj.Core,
             thickness=obj.Thickness.Value,
@@ -46,7 +47,7 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
     def getIcon(self):
         return HOMOGENEOUS_LAMINA_TOOL_ICON
 
-    def setEdit(self, vobj, mode=0):
+    def setEdit(self, vobj, mode=0, TaskPanel=None):
         return super().setEdit(
             vobj,
             mode,

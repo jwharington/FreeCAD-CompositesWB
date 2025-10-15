@@ -1,5 +1,5 @@
 from ..mechanics.stack_model_type import StackModelType
-from ..objects.lamina import Lamina
+from ..objects.homogeneous_lamina import HomogeneousLamina
 from ..objects.laminate import Laminate
 from ..mechanics.stack_model import merge_single
 from ..mechanics.material_properties import (
@@ -43,7 +43,7 @@ def format_material_name(name: str, prefix: str = ""):
 
 
 def write_lamina_material_ccx(
-    layer: Lamina,
+    layer: HomogeneousLamina,
     prefix: str = "",
 ):
     material_name = format_material_name(layer.description, prefix)
@@ -74,7 +74,7 @@ def write_lamina_material_ccx(
 
 
 def write_lamina_materials_ccx(
-    layers: List[Lamina],
+    layers: List[HomogeneousLamina],
     prefix: str = "",
 ):
     res = ""
@@ -85,7 +85,7 @@ def write_lamina_materials_ccx(
 
 def write_shell_section_ccx(
     prefix: str,
-    layers: List[Lamina],
+    layers: List[HomogeneousLamina],
 ):
     res = ""
     for layer in layers:

@@ -26,7 +26,7 @@ class CompositeLaminateFP(LaminateFP):
         if volume_fraction := obj.FibreVolumeFraction:
             volume_fraction *= 0.01
         else:
-            volume_fraction = None
+            volume_fraction = 0
 
         return CompositeLaminate(
             symmetry=SymmetryType[obj.Symmetry],

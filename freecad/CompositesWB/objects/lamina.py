@@ -20,3 +20,7 @@ class Lamina:
         model_type: StackModelType = StackModelType.Discrete,
     ):
         return [self]
+
+    @property
+    def description(self) -> str:
+        return "no description"

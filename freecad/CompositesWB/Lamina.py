@@ -1,4 +1,5 @@
 from .VPCompositeBase import VPCompositeBase
+from .objects import Lamina
 
 
 class BaseLaminaFP:
@@ -30,7 +31,7 @@ class BaseLaminaFP:
             "Thickness of layer",
         ).Thickness = 0.1
 
-    def get_model(self, obj, parent):
+    def get_model(self, obj) -> Lamina:
         return None
 
     def __getstate__(self):

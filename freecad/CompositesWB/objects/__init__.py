@@ -5,3 +5,4 @@ from .homogeneous_lamina import HomogeneousLamina  # noqa
 from .laminate import Laminate  # noqa
 from .composite_laminate import CompositeLaminate  # noqa
 from .fibre_composite_lamina import FibreCompositeLamina  # noqa
+from .lamina import Lamina  # noqa

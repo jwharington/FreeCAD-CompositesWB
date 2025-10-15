@@ -14,7 +14,7 @@ class FibreCompositeLamina(CompositeLamina):
     fibre: SimpleFabric = field(default_factory=SimpleFabric)
 
     @property
-    def description(self):
+    def description(self) -> str:
         return (
             f"{self.fibre.description}-{self.material_matrix['Name']}"
             f"?{format_orientation(self.orientation)}"

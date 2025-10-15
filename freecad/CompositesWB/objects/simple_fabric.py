@@ -11,7 +11,7 @@ from ..util.geometry_util import (
 class SimpleFabric(Fabric):
 
     @property
-    def description(self):
+    def description(self) -> str:
         return f"{self.weave.name}{format_orientation(self.orientation)}"
 
     def get_plies(self):

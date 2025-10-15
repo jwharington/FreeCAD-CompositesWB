@@ -1,7 +1,6 @@
 from ..util.plot_util import illustrateLayup
 from ..mechanics import StackModelType
 from ..mechanics.fibre_composite_model import calc_fibre_composite_model
-from ..util.fem_util import test_ccx
 import numpy as np
 from pprint import pprint
 from .examples import make_laminate

@@ -195,18 +195,24 @@ class ViewProviderCompositeShell:
         vobj.addDisplayMode(self.grid_shader.grp, "Grid")
         # self.load_shader()
 
+    def update_display_layer(self, fp):
+        if not hasattr(fp.ViewObject, "DisplayLayer"):
+            return
+        display_layer_opts = list(fp.Laminate.StackOrientation.keys())
+        sel = fp.ViewObject.DisplayLayer
+        fp.ViewObject.DisplayLayer = display_layer_opts
+        if sel in display_layer_opts:
+            return
+        if display_layer_opts:
+            fp.ViewObject.DisplayLayer = display_layer_opts[0]
+
     def updateData(self, fp, prop):
         match prop:
             case "LocalCoordinateSystem" | "Support":
                 pass
             case "Laminate":
                 if fp.Laminate:
-                    if hasattr(fp.ViewObject, "DisplayLayer"):
-                        display_layer_opts = list(fp.Laminate.StackOrientation.keys())
-                        sel = fp.ViewObject.DisplayLayer
-                        fp.ViewObject.DisplayLayer = display_layer_opts
-                        if (sel not in display_layer_opts) and (display_layer_opts):
-                            fp.ViewObject.DisplayLayer = display_layer_opts[0]
+                    self.update_display_layer(fp)
             case _:
                 return
         self.reload_shader()
