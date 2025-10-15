@@ -6,6 +6,7 @@ from .simple_fabric import SimpleFabric
 from ..mechanics.stack_model_type import StackModelType
 from ..mechanics.fibre_composite_model import calc_fibre_composite_model
 from ..util.geometry_util import format_orientation
+from .fabric import Fabric
 
 
 @dataclass
@@ -33,7 +34,7 @@ class FibreCompositeLamina(CompositeLamina):
     ):
         self.thickness = self.fibre.thickness
 
-        def props(la: CompositeLamina):
+        def props(la: Fabric):
             Ply.set_missing_child_props(
                 self,
                 [la],

@@ -3,7 +3,6 @@ from .ply import Ply
 from ..mechanics.material_properties import (
     is_orthotropic,
 )
-from ..mechanics.stack_model_type import StackModelType
 from ..util.geometry_util import (
     format_orientation,
 )
@@ -12,7 +11,7 @@ from ..util.geometry_util import (
 @dataclass
 class HomogeneousLamina(Ply):
     # e.g. core foam, aluminium, etc, or merged
-    material: dict = None
+    material: dict = {}
     orientation_display: float = 0
 
     @property
@@ -22,12 +21,6 @@ class HomogeneousLamina(Ply):
             return desc + format_orientation(self.orientation)
         else:
             return desc
-
-    def get_layers(
-        self,
-        model_type: StackModelType = StackModelType.Discrete,
-    ):
-        return [self]
 
     def get_product(self):
         return [(f"{self.description} {self.thickness}", 0)]

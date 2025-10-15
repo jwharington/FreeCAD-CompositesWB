@@ -1,16 +1,7 @@
-from FreeCAD import Console
 import Part
 import numpy as np
 from .geom_utils import find_uv_intersection
-
-
-try:
-    import BOPTools.SplitAPI
-
-    splitAPI = BOPTools.SplitAPI
-except ImportError:
-    Console.PrintError("Failed importing BOPTools. Fallback to Part API\n")
-    splitAPI = Part.BOPTools.SplitAPI
+from . import splitAPI
 
 
 def make_seam(face1, face2, overlap=10, num_points=64):

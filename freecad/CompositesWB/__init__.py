@@ -1,7 +1,7 @@
 import os
 import FreeCAD
 from os import path
-from .version import __version__
+from .version import __version__  # noqa
 
 MODULE_PATH = os.path.dirname(__file__)
 ICONPATH = os.path.join(MODULE_PATH, "resources", "icons")
@@ -38,9 +38,8 @@ if hasattr(FreeCAD.Base, "Precision"):
     TOL2D = FreeCAD.Base.Precision.parametric(TOL3D)
 
 # Add materials to the user config dir
-materials = FreeCAD.ParamGet(
-    "User parameter:BaseApp/Preferences/Mod/Material/Resources/Modules/CompositesWB"
-)
+material_base = "BaseApp/Preferences/Mod/Material/Resources/Modules"
+materials = FreeCAD.ParamGet("User parameter:{material_base}/CompositesWB")
 materials.SetString(
     "ModuleIcon",
     COMPOSITE_LAMINATE_TOOL_ICON,
@@ -63,7 +62,7 @@ class _ViewProviderCompositesContainer:
         return WB_ICON
 
 
-def getCompositesContainer():
+def getCompositesContainer() -> FreeCAD.Document:
     for obj in FreeCAD.ActiveDocument.Objects:
         if obj.Name == container_name:
             return obj

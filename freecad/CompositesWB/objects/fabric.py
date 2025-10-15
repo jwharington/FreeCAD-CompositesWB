@@ -6,8 +6,8 @@ from .weave_type import WeaveType
 @dataclass
 class Fabric(Ply):
     weave: WeaveType = WeaveType.UD
-    material_fibre: dict = None
-    volume_fraction_fibre: float = None
+    material_fibre: dict = {}
+    volume_fraction_fibre: float = 0
 
     @property
     def area_density(self) -> float:
@@ -18,7 +18,7 @@ class Fabric(Ply):
         self.set_area_density(value)
 
     def calc_area_density(self) -> float:
-        return self.thickness * self.material_fibre.Density
+        return self.thickness * self.material_fibre["Density"]
 
     def set_area_density(self, value):
-        self.thickness = value / self.material_fibre.Density
+        self.thickness = value / self.material_fibre["Density"]

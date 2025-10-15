@@ -31,7 +31,7 @@ class CompositeLaminateFP(LaminateFP):
         return CompositeLaminate(
             symmetry=SymmetryType[obj.Symmetry],
             layers=model_layers,
-            volume_fraction_fibre=volume_fraction,
+            volume_fraction_fibre=volume_fraction,  # noqa
             material_matrix=obj.ResinMaterial,
         )
 

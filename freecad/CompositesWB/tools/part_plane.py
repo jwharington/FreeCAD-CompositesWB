@@ -4,6 +4,7 @@ import numpy as np
 import TechDraw
 
 import Path
+from . import splitAPI
 
 
 def removeDuplicateEdges(edges):
@@ -83,9 +84,9 @@ def part_plane(shape, zs=None, inset=0.01):
         for wire in xc:
             for edge in wire.Edges:
                 for i in range(2):
-                    d = edge.distToShape(bb[i])
-                    if (not best[i]) or (d[0] < best[i][0]):
-                        best[i] = d
+                    d: float = edge.distToShape(bb[i])
+                    if (not best[i]) or (d[0] < best[i][0]):  # noqa
+                        best[i] = d  # noqa
 
         for i in range(2):
             if best[i]:
@@ -132,7 +133,9 @@ def make_part_plane3(shape):
     # cut in with slice to compound
 
     tool = Part.makeCompound(edges)
-    fused = shape.generalFuse(tool)[0]
+    # fused = shape.generalFuse(tool)[0]
+    fused = splitAPI.slice(shape, [tool], "Split", 1e-6)
+
     faces_up = []
     for face in fused.Faces:
         p = face.ParameterRange
