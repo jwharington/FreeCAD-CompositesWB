@@ -2,6 +2,16 @@ from .VPCompositeBase import VPCompositeBase
 from .objects import Lamina
 
 
+def is_lamina(obj):
+    if obj.TypeId != "Part::FeaturePython":
+        return False
+    if not obj.Proxy:
+        return False
+    if obj.Proxy.Type != "Fem::MaterialMechanicalLamina":
+        return False
+    return True
+
+
 class BaseLaminaFP:
 
     Type = "Fem::MaterialMechanicalLamina"

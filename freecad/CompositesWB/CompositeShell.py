@@ -25,7 +25,6 @@ class CompositeShellFP:
     Type = "Composite::Shell"
 
     def __init__(self, obj, support=None, laminate=None, lcs=None):
-        obj.Proxy = self
         obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
@@ -80,6 +79,7 @@ class CompositeShellFP:
         obj.LocalCoordinateSystem = lcs
         obj.Laminate = laminate
         obj.Support = support
+        obj.Proxy = self
 
     def execute(self, fp):
         if (not fp.Support) or (not fp.Laminate):
@@ -149,7 +149,6 @@ class CompositeShellFP:
 class ViewProviderCompositeShell:
 
     def __init__(self, obj):
-        obj.Proxy = self
         self.grid_shader = MeshGridShader()
 
         obj.addProperty(
@@ -168,6 +167,7 @@ class ViewProviderCompositeShell:
         )
         obj.DisplayLayer = ["0"]
         obj.DisplayLayer = "0"
+        obj.Proxy = self
 
     def getDisplayModes(self, obj):
         return ["Grid"]
@@ -184,16 +184,19 @@ class ViewProviderCompositeShell:
             self.Object.LocalCoordinateSystem,
         ]
 
-    def attach(self, vobj):
+    def attach(self, obj):
         self.Active = False
 
-        self.ViewObject = vobj
-        self.Object = vobj.Object
+        self.ViewObject = obj
+        self.Object = obj.Object
 
         if not hasattr(self, "grid_shader"):
             self.grid_shader = MeshGridShader()
-        vobj.addDisplayMode(self.grid_shader.grp, "Grid")
+        obj.addDisplayMode(self.grid_shader.grp, "Grid")
         # self.load_shader()
+
+        # needed to trigger color update
+        self.onChanged(obj, "Color")
 
     def update_display_layer(self, fp):
         if not hasattr(fp.ViewObject, "DisplayLayer"):

@@ -12,13 +12,13 @@ from .objects import (
     SymmetryType,
 )
 from .taskpanels import task_composite_laminate
-from .Command import BaseCommand
+from .Laminate import LaminateCommand
 
 
 class CompositeLaminateFP(LaminateFP):
 
-    def __init__(self, obj):
-        super().__init__(obj)
+    def __init__(self, obj, laminae=[]):
+        super().__init__(obj, laminae=laminae)
 
         add_composite_props(obj)
 
@@ -49,14 +49,12 @@ class ViewProviderCompositeLaminate(ViewProviderLaminate):
         )
 
 
-class CompositeLaminateCommand(BaseCommand):
+class CompositeLaminateCommand(LaminateCommand):
 
     icon = COMPOSITE_LAMINATE_TOOL_ICON
     menu_text = "Composite laminate"
     tool_tip = "Create composite laminate"
-    sel_args = []
-    type_id = "Part::FeaturePython"
-    instance_name = "CompositeShell"
+    instance_name = "CompositeLaminate"
     cls_fp = CompositeLaminateFP
     cls_vp = ViewProviderCompositeLaminate
 

@@ -18,7 +18,7 @@ from .objects import (
 )
 from .VPCompositeBase import VPCompositeBase
 from .Command import BaseCommand
-
+from .Lamina import is_lamina
 
 # import Plot
 # Fem::MaterialMechanicalNonlinear
@@ -45,8 +45,7 @@ class LaminateFP:
 
     Type = "Fem::MaterialMechanicalLaminate"
 
-    def __init__(self, obj):
-        obj.Proxy = self
+    def __init__(self, obj, laminae=[]):
         obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
@@ -54,7 +53,7 @@ class LaminateFP:
             "Layers",
             "Dimensions",
             "Link to lamina",
-        ).Layers = []
+        ).Layers = laminae
 
         obj.addProperty(
             "App::PropertyEnumeration",
@@ -97,6 +96,8 @@ class LaminateFP:
             "Thickness of laminate",
         )
         obj.setPropertyStatus("Thickness", "ReadOnly")
+
+        obj.Proxy = self
 
         # obj.addProperty(
         #     "App::PropertyPythonObject",
@@ -184,11 +185,19 @@ class LaminateCommand(BaseCommand):
     icon = LAMINATE_TOOL_ICON
     menu_text = "Laminate"
     tool_tip = "Create laminate"
-    sel_args = []
     type_id = "Part::FeaturePython"
     instance_name = "LaminatedShell"
     cls_fp = LaminateFP
     cls_vp = ViewProviderLaminate
+
+    sel_args = [
+        {
+            "key": "laminae",
+            "test": is_lamina,
+            "array": True,
+            "optional": True,
+        },
+    ]
 
 
 FreeCADGui.addCommand("Composites_Laminate", LaminateCommand())

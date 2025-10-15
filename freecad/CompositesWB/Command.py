@@ -5,6 +5,8 @@ from typing import ClassVar
 
 # from .selection_utils import find_face_in_selection_object
 
+debug: bool = False
+
 
 class BaseCommand:
 
@@ -29,7 +31,7 @@ class BaseCommand:
         present = []
         missing = []
 
-        if report:
+        if report and debug:
             for s in sel:
                 print(f"{type(s)} {s.TypeId}")
 
@@ -65,12 +67,12 @@ class BaseCommand:
                 continue
             missing.append(item)
             if "optional" not in item:
-                if report:
+                if report and debug:
                     print(f"missing non-optional {item['key']}")
                 ok = False
 
         res = {p["key"]: p["value"] for p in present}
-        if report:
+        if report and debug:
             print(res)
         if ok:
             return res
