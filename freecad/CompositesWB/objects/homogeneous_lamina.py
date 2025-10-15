@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from .ply import Ply
 from ..mechanics.material_properties import (
     is_orthotropic,
@@ -11,7 +11,7 @@ from ..util.geometry_util import (
 @dataclass
 class HomogeneousLamina(Ply):
     # e.g. core foam, aluminium, etc, or merged
-    material: dict = {}
+    material: dict = field(default_factory=dict)
     orientation_display: float = 0
 
     @property

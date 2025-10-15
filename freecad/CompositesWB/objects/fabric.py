@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from .ply import Ply
 from .weave_type import WeaveType
 
@@ -6,7 +6,7 @@ from .weave_type import WeaveType
 @dataclass
 class Fabric(Ply):
     weave: WeaveType = WeaveType.UD
-    material_fibre: dict = {}
+    material_fibre: dict = field(default_factory=dict)
     volume_fraction_fibre: float = 0
 
     @property
