@@ -3,6 +3,7 @@ import Mesh
 import MeshPart
 from . import (
     COMPOSITE_SHELL_TOOL_ICON,
+    is_comp_type,
 )
 from .tools.draper import Draper
 from .shaders.MeshGridShader import MeshGridShader
@@ -11,13 +12,11 @@ from .Laminate import is_laminate
 
 
 def is_composite_shell(obj):
-    if obj.TypeId != "Part::FeaturePython":
-        return False
-    if not obj.Proxy:
-        return False
-    if obj.Proxy.Type != "Composite::Shell":
-        return False
-    return True
+    return is_comp_type(
+        obj,
+        "Part::FeaturePython",
+        "Composite::Shell",
+    )
 
 
 class CompositeShellFP:

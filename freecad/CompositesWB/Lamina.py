@@ -1,19 +1,14 @@
+from . import is_comp_type
 from .VPCompositeBase import VPCompositeBase
 from .objects import Lamina
 
 
 def is_lamina(obj):
-    if obj.TypeId != "App::FeaturePython":
-        return False
-    if not hasattr(obj, "Proxy"):
-        return False
-    if not obj.Proxy:
-        return False
-    if not hasattr(obj.Proxy, "Type"):
-        return False
-    if obj.Proxy.Type != "Fem::MaterialMechanicalLamina":
-        return False
-    return True
+    return is_comp_type(
+        obj,
+        "App::FeaturePython",
+        "Fem::MaterialMechanicalLamina",
+    )
 
 
 class BaseLaminaFP:

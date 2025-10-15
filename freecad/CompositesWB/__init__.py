@@ -53,6 +53,20 @@ materials.SetString("ModuleDir", MATPATH)
 container_name = "CompositesContainer"
 
 
+def is_comp_type(obj, type_id, proxy_type):
+    if obj.TypeId != type_id:
+        return False
+    if not hasattr(obj, "Proxy"):
+        return False
+    if not obj.Proxy:
+        return False
+    if not hasattr(obj.Proxy, "Type"):
+        return False
+    if obj.Proxy.Type != proxy_type:
+        return False
+    return True
+
+
 class _ViewProviderCompositesContainer:
 
     def __init__(self, vobj):

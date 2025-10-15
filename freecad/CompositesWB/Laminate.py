@@ -2,6 +2,7 @@ import FreeCAD
 import FreeCADGui
 from . import (
     LAMINATE_TOOL_ICON,
+    is_comp_type,
 )
 from .mechanics import StackModelType
 from .util.fem_util import (
@@ -32,17 +33,11 @@ def get_model_layers(obj):
 
 
 def is_laminate(obj):
-    if obj.TypeId != "App::FeaturePython":
-        return False
-    if not hasattr(obj, "Proxy"):
-        return False
-    if not obj.Proxy:
-        return False
-    if not hasattr(obj.Proxy, "Type"):
-        return False
-    if obj.Proxy.Type != "Fem::MaterialMechanicalLaminate":
-        return False
-    return True
+    return is_comp_type(
+        obj,
+        "App::FeaturePython",
+        "Fem::MaterialMechanicalLaminate",
+    )
 
 
 class LaminateFP:
