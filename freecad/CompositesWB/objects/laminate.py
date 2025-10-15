@@ -7,7 +7,7 @@ from ..mechanics.stack_expansion import calc_stack_model
 from ..util.geometry_util import expand_symmetry
 
 
-@dataclass  # (frozen=True)
+@dataclass
 class Laminate(Lamina):
     name: str = "Laminate"
     layers: List[Lamina] = field(default_factory=list)

@@ -2,6 +2,6 @@ from dataclasses import dataclass
 from .lamina import Lamina
 
 
-@dataclass  # (frozen=True)
+@dataclass
 class Ply(Lamina):
     orientation: float = 0

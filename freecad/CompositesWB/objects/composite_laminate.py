@@ -7,7 +7,7 @@ from .composite_lamina import CompositeLamina
 from ..mechanics.stack_model_type import StackModelType
 
 
-@dataclass  # (frozen=True)
+@dataclass
 class CompositeLaminate(Laminate, CompositeLamina):
     layers: List[Lamina] = field(default_factory=list)
 
