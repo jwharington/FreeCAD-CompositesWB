@@ -93,6 +93,7 @@ class CompositeShellFP:
         fp.recompute()
 
     def onChanged(self, fp, prop):
+        return
         match prop:
             case "Laminate":
                 fp.recompute()

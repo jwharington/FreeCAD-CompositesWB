@@ -93,8 +93,8 @@ class TexturePlanCommand(BaseCommand):
     sel_args = []
     type_id = "Part::FeaturePython"
     instance_name = "CompositeShell"
-    class_fp = TexturePlanFP
-    class_vp = ViewProviderTexturePlan
+    cls_fp = TexturePlanFP
+    cls_vp = ViewProviderTexturePlan
 
 
 FreeCADGui.addCommand(

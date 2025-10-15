@@ -1,5 +1,3 @@
-import FreeCAD
-from FreeCAD import Console
 import FreeCADGui
 from . import (
     PART_PLANE_TOOL_ICON,
@@ -9,8 +7,7 @@ from .tools.part_plane import (
     # make_part_plane2,
     make_part_plane3,
 )
-
-# from .selection_utils import find_face_in_selection_object
+from .Command import BaseCommand
 
 
 class PartPlaneFP:
@@ -72,38 +69,21 @@ class ViewProviderPartPlane:
         return None
 
 
-class CompositePartPlaneCommand:
-    """Composite part plane command"""
+class CompositePartPlaneCommand(BaseCommand):
 
-    def GetResources(self):
-        return {
-            "Pixmap": PART_PLANE_TOOL_ICON,
-            "MenuText": "Part plane",
-            "ToolTip": "Generate part plane",
-        }
-
-    def check_sel(self):
-        sel = FreeCADGui.Selection.getSelection()
-        if len(sel) == 1:
-            return sel
-        return None
-
-    def Activated(self):
-        if sel := self.check_sel():
-            source = sel[0]
-            doc = FreeCAD.ActiveDocument
-            obj = doc.addObject(
-                "Part::FeaturePython",
-                "PartPlane",
-            )
-            PartPlaneFP(obj, source)
-            ViewProviderPartPlane(obj.ViewObject)
-            doc.recompute()
-        else:
-            Console.PrintError("Select 1 object exactly\r\n")
-
-    def IsActive(self):
-        return self.check_sel() is not None
+    icon = PART_PLANE_TOOL_ICON
+    menu_text = "Part plane"
+    tool_tip = "Generate two part mould plane"
+    sel_args = [
+        {
+            "key": "source",
+            "type": "Part::Feature",
+        },
+    ]
+    type_id = "Part::FeaturePython"
+    instance_name = "PartPlane"
+    cls_fp = PartPlaneFP
+    cls_vp = ViewProviderPartPlane
 
 
 FreeCADGui.addCommand("Composites_PartPlane", CompositePartPlaneCommand())

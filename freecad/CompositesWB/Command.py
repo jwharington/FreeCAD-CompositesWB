@@ -3,6 +3,8 @@ import FreeCADGui
 from . import getCompositesContainer
 from typing import ClassVar
 
+# from .selection_utils import find_face_in_selection_object
+
 
 class BaseCommand:
 

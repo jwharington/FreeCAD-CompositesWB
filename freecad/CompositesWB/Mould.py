@@ -1,10 +1,9 @@
-import FreeCAD
-from FreeCAD import Console
 import FreeCADGui
 from . import (
     MOULD_TOOL_ICON,
 )
 from .tools.mould import make_moulds
+from .Command import BaseCommand
 
 
 class MouldFP:
@@ -72,38 +71,21 @@ class ViewProviderMould:
         return None
 
 
-class CompositeMouldCommand:
-    """Composite mould command"""
+class CompositeMouldCommand(BaseCommand):
 
-    def GetResources(self):
-        return {
-            "Pixmap": MOULD_TOOL_ICON,
-            "MenuText": "Mould",
-            "ToolTip": "Generate mould",
-        }
-
-    def check_sel(self):
-        sel = FreeCADGui.Selection.getSelection()
-        if len(sel) == 1:
-            return sel
-        return None
-
-    def Activated(self):
-        if sel := self.check_sel():
-            source = sel[0]
-            doc = FreeCAD.ActiveDocument
-            obj = doc.addObject(
-                "Part::FeaturePython",
-                "Mould",
-            )
-            MouldFP(obj, source)
-            ViewProviderMould(obj.ViewObject)
-            doc.recompute()
-        else:
-            Console.PrintError("Select 1 object exactly\r\n")
-
-    def IsActive(self):
-        return self.check_sel() is not None
+    icon = MOULD_TOOL_ICON
+    menu_text = "Mould"
+    tool_tip = "Generate two part mould"
+    sel_args = [
+        {
+            "key": "source",
+            "type": "Part::Feature",
+        },
+    ]
+    type_id = "Part::FeaturePython"
+    instance_name = "Mould"
+    cls_fp = MouldFP
+    cls_vp = ViewProviderMould
 
 
 FreeCADGui.addCommand("Composites_Mould", CompositeMouldCommand())
