@@ -14,27 +14,40 @@ class CompositesWorkbench(Gui.Workbench):
         function.
         """
 
-        from . import Mould  # noqa
-        from . import Seam  # noqa
-        from . import PartPlane  # noqa
         from . import Laminate  # noqa
         from . import CompositeLaminate  # noqa
-        from . import HomogeneousLamina  # noqa
         from . import FibreCompositeLamina  # noqa
-        from . import CompositeShell  # noqa
-        from . import TexturePlan  # noqa
+        from . import HomogeneousLamina  # noqa
 
-        self.list = [
+        from . import CompositeShell  # noqa
+        from . import Seam  # noqa
+
+        from . import TexturePlan  # noqa
+        from . import PartPlane  # noqa
+        from . import Mould  # noqa
+
+        cmds_section = [
             "Composites_Laminate",
             "Composites_CompositeLaminate",
-            "Composites_HomogeneousLamina",
             "Composites_FibreCompositeLamina",
+            "Composites_HomogeneousLamina",
+        ]
+        cmds_structure = [
             "Composites_CompositeShell",
+            "Composites_Seam",
+        ]
+        cmds_manufacturing = [
             "Composites_TexturePlan",
             "Composites_PartPlane",
             "Composites_Mould",
-            "Composites_Seam",
         ]
+        self.list = (
+            cmds_section
+            + ["Separator"]
+            + cmds_structure
+            + ["Separator"]
+            + cmds_manufacturing
+        )
         self.appendToolbar("Composites", self.list)
         self.appendMenu("Composites", self.list)
 

@@ -10,6 +10,16 @@ from .Command import BaseCommand
 from .Laminate import is_laminate
 
 
+def is_composite_shell(obj):
+    if obj.TypeId != "Part::FeaturePython":
+        return False
+    if not obj.Proxy:
+        return False
+    if obj.Proxy.Type != "Composite::Shell":
+        return False
+    return True
+
+
 class CompositeShellFP:
 
     Type = "Composite::Shell"

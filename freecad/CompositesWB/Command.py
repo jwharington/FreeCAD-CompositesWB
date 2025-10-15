@@ -33,19 +33,28 @@ class BaseCommand:
             for s in sel:
                 print(f"{type(s)} {s.TypeId}")
 
+        def add_array(s, item):
+            for q in present:
+                if q["key"] == item["key"]:
+                    q["value"].append(s)
+                    return
+            it = item | {"value": [s]}
+            present.append(it)
+
         def check_match(item):
             for k, s in enumerate(sel):
                 found = True
                 if ("type" in item) and not s.isDerivedFrom(item["type"]):
                     found = False
-                elif ("test" in item) and not item["test"](s):
+                if ("test" in item) and not item["test"](s):
                     found = False
                 if not found:
                     continue
-                it = item | {"value": s}
-                present.append(it)
-                if report:
-                    print(f"found {it}")
+                if "array" in item:
+                    add_array(s, item)
+                else:
+                    it = item | {"value": s}
+                    present.append(it)
                 del sel[k]
                 return True
             return False
@@ -60,8 +69,11 @@ class BaseCommand:
                     print(f"missing non-optional {item['key']}")
                 ok = False
 
+        res = {p["key"]: p["value"] for p in present}
+        if report:
+            print(res)
         if ok:
-            return {p["key"]: p["value"] for p in present}
+            return res
         return None
 
     def Activated(self):
