@@ -34,7 +34,11 @@ def get_model_layers(obj):
 def is_laminate(obj):
     if obj.TypeId != "App::FeaturePython":
         return False
+    if not hasattr(obj, "Proxy"):
+        return False
     if not obj.Proxy:
+        return False
+    if not hasattr(obj.Proxy, "Type"):
         return False
     if obj.Proxy.Type != "Fem::MaterialMechanicalLaminate":
         return False

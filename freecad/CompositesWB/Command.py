@@ -5,7 +5,7 @@ from typing import ClassVar
 
 # from .selection_utils import find_face_in_selection_object
 
-debug: bool = False
+debug: bool = True
 
 
 class BaseCommand:
@@ -27,43 +27,50 @@ class BaseCommand:
         }
 
     def check_sel(self, report: bool = False):
-        sel = FreeCADGui.Selection.getSelection()
-        present = []
-        missing = []
 
-        if report and debug:
-            for s in sel:
-                print(f"{type(s)} {s.TypeId}")
+        def add_scalar(s, item, present):
+            it = item | {"value": s}
+            present.append(it)
 
-        def add_array(s, item):
+        def add_array(s, item, present):
             for q in present:
                 if q["key"] == item["key"]:
                     q["value"].append(s)
                     return
-            it = item | {"value": [s]}
-            present.append(it)
+            add_scalar([s], item, present)
 
-        def check_match(item):
-            for k, s in enumerate(sel):
-                found = True
-                if ("type" in item) and not s.isDerivedFrom(item["type"]):
-                    found = False
-                if ("test" in item) and not item["test"](s):
-                    found = False
-                if not found:
-                    continue
-                if "array" in item:
-                    add_array(s, item)
+        def imatch(s, item):
+            if ("type" in item) and not s.isDerivedFrom(item["type"]):
+                return False
+            if ("test" in item) and not item["test"](s):
+                return False
+            return True
+
+        def check_match(sel, item, present):
+            ok = False
+            neglected = []
+            while len(sel):
+                s = sel.pop(0)
+                if imatch(s, item):
+                    if "array" in item:
+                        add_array(s, item, present)
+                    else:
+                        add_scalar(s, item, present)
+                    ok = True
                 else:
-                    it = item | {"value": s}
-                    present.append(it)
-                del sel[k]
-                return True
-            return False
+                    neglected.append(s)
+            if neglected:
+                sel.extend(neglected)
+            return ok
+
+        sel = FreeCADGui.Selection.getSelection()
+
+        present = []
+        missing = []
 
         ok = True
         for item in self.sel_args:
-            if check_match(item):
+            if check_match(sel, item, present):
                 continue
             missing.append(item)
             if "optional" not in item:
@@ -73,7 +80,7 @@ class BaseCommand:
 
         res = {p["key"]: p["value"] for p in present}
         if report and debug:
-            print(res)
+            print(f"res: {res}")
         if ok:
             return res
         return None
@@ -98,6 +105,6 @@ class BaseCommand:
         doc.recompute()
 
     def IsActive(self):
-        return (FreeCAD.ActiveDocument is not None) and (
-            self.check_sel(False) is not None
-        )
+        if FreeCAD.ActiveDocument is None:
+            return False
+        return self.check_sel(False) is not None

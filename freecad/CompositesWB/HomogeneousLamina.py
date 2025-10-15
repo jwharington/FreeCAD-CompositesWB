@@ -61,7 +61,7 @@ class HomogeneousLaminaCommand(BaseCommand):
     menu_text = "Homogeneous lamina"
     tool_tip = "Create homogeneous lamina"
     sel_args = []
-    type_id = "Part::FeaturePython"
+    type_id = "App::FeaturePython"
     instance_name = "HomogeneousLamina"
     cls_fp = HomogeneousLaminaFP
     cls_vp = ViewProviderHomogeneousLamina

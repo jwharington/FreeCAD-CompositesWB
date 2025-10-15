@@ -3,9 +3,13 @@ from .objects import Lamina
 
 
 def is_lamina(obj):
-    if obj.TypeId != "Part::FeaturePython":
+    if obj.TypeId != "App::FeaturePython":
+        return False
+    if not hasattr(obj, "Proxy"):
         return False
     if not obj.Proxy:
+        return False
+    if not hasattr(obj.Proxy, "Type"):
         return False
     if obj.Proxy.Type != "Fem::MaterialMechanicalLamina":
         return False

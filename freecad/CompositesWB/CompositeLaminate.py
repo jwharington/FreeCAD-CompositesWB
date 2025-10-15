@@ -35,6 +35,11 @@ class CompositeLaminateFP(LaminateFP):
             material_matrix=obj.ResinMaterial,
         )
 
+    def execute(self, obj):
+        if not obj.ResinMaterial:
+            raise ValueError("invalid resin material")
+        super().execute(obj)
+
 
 class ViewProviderCompositeLaminate(ViewProviderLaminate):
 

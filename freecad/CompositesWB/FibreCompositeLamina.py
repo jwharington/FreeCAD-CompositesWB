@@ -108,7 +108,7 @@ class FibreCompositeLaminaCommand(BaseCommand):
     menu_text = "Fibre composite lamina"
     tool_tip = "Create fibre composite lamina"
     sel_args = []
-    type_id = "Part::FeaturePython"
+    type_id = "App::FeaturePython"
     instance_name = "FibreCompositeLamina"
     cls_fp = FibreCompositeLaminaFP
     cls_vp = ViewProviderFibreCompositeLamina
