@@ -72,6 +72,13 @@ class Draper:
         delaunay_xyfs = Delaunay(xyfs, qhull_options="Qbb Qc Qz Q12 QJ")
         self.interp_xyfs = LinearNDInterpolator(delaunay_xyfs, uvs)
 
+    def get_tex_coord_at_point(self, point, offset_angle_deg=0):
+        # save texture coordinates for rendering pattern in 3d
+        T = self.get_rotation_with_offset(offset_angle_deg=offset_angle_deg)
+        ((u, v), _) = self.get_uv(point)
+        xyf = self.interp_uvf([u, v])[0]
+        return T * Vector(xyf[0], xyf[1], 0)
+
     def get_lcs_at_point(self, point: Vector):
 
         def jac(xyf):

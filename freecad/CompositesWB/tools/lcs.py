@@ -7,6 +7,7 @@ from Part import (
     Face,
 )
 from .draper import Draper
+import numpy as np
 
 
 # TransferLCStoPoint
@@ -29,6 +30,8 @@ def transfer_lcs_to_point(
     draper: Draper,
     position: Vector,
 ) -> tuple[Vector, Rotation]:
+
+    align_lcs_fibre(draper, position)
 
     # TODO check point is within bounds of draper
     # look up lcs rotation at specified point
@@ -77,3 +80,19 @@ def transfer_lcs_to_face(
     R_b = Rotation(x, y, normal_B, "ZXY")
 
     return (position, R_b)
+
+
+def align_lcs_fibre(
+    draper: Draper,
+    position: Vector,
+) -> float:
+
+    coords = draper.get_tex_coord_at_point(
+        position,
+        offset_angle_deg=0,
+    )
+    # TODO check point is within bounds of draper
+    # look up lcs rotation at specified point
+    # also, distance must be positive
+    angle = np.degrees(np.arctan2(coords[1], coords[0]))
+    return angle
