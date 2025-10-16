@@ -117,6 +117,11 @@ class CompositeShellFP:
             )
         return None
 
+    def get_draper(self):
+        if self.draper.isValid():
+            return self.draper
+        raise ValueError("Draper invalid")
+
     def get_drape_lcs(self, tris):
         if self.draper.isValid():
             return self.draper.get_lcs(tris)
@@ -168,7 +173,7 @@ class ViewProviderCompositeShell:
         obj.Proxy = self
 
     def getDisplayModes(self, obj):
-        return ["Shaded", "Grid"]
+        return ["Grid"]
 
     def getDefaultDisplayMode(self):
         return "Shaded"
@@ -207,6 +212,14 @@ class ViewProviderCompositeShell:
         if display_layer_opts:
             fp.ViewObject.DisplayLayer = display_layer_opts[0]
 
+    def update_visibility(self, vobj):
+        visible = vobj.Visibility
+        if vobj.DisplayMode != "Grid":
+            visible = False
+        self.Object.Mesh.Visibility = visible
+        if self.Object.LocalCoordinateSystem:
+            self.Object.LocalCoordinateSystem.Visibility = visible
+
     def updateData(self, fp, prop):
         match prop:
             case "LocalCoordinateSystem" | "Support":
@@ -220,11 +233,8 @@ class ViewProviderCompositeShell:
 
     def onChanged(self, vobj, prop):
         match prop:
-            case "Visibility":
-                visible = vobj.Visibility
-                if self.Object.LocalCoordinateSystem:
-                    self.Object.LocalCoordinateSystem.Visibility = visible
-                self.Object.Mesh.Visibility = visible
+            case "Visibility" | "DisplayMode":
+                self.update_visibility(vobj)
             case "Darken":
                 if self.grid_shader:
                     self.grid_shader.Darken = vobj.Darken

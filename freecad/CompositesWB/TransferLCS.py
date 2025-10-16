@@ -4,33 +4,83 @@ import Part
 from . import (
     TRANSFER_LCS_TOOL_ICON,
 )
+from .VPCompositeBase import VPCompositeBase
 from .Command import BaseCommand
 from .tools.lcs import (
+    transfer_lcs_to_point,
     transfer_lcs_to_edge,
     transfer_lcs_to_face,
-    transfer_lcs_to_point,
 )
 
-# from .CompositeShell import is_composite_shell
+from .CompositeShell import is_composite_shell
 
 
 class TransferLCSFP:
 
     Type = "Composite::TransferLCS"
 
-    def __init__(self, obj, shell=None):
-        obj.Proxy = self
+    def __init__(self, obj, shell=None, support=None):
         obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="CompositeShell",
             group="References",
-            doc="Primary composite shell",
+            doc="Composite shell (leading)",
         ).CompositeShell = shell
 
+        obj.addProperty(
+            type="App::PropertyLinkSubGlobal",
+            name="Support",
+            group="References",
+            doc="Supporting geometry (at follower)",
+        ).Support = support
+
+        obj.addProperty(
+            type="App::PropertyLinkGlobal",
+            name="LocalCoordinateSystem",
+            group="Materials",
+            doc="Local coordinate system (following)",
+        )
+        obj.LocalCoordinateSystem = obj.Document.addObject(
+            "Part::LocalCoordinateSystem",
+            "LCS",
+        )
+        obj.setPropertyStatus("LocalCoordinateSystem", "LockDynamic")
+        obj.setPropertyStatus("LocalCoordinateSystem", "ReadOnly")
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="Position",
+            group="Dimensions",
+            doc="Proportion of distance along edge",
+        ).Position = 0.5
+
+        obj.Proxy = self
+
     def execute(self, fp):
-        pass
+        if not fp.Support:
+            return
+        draper = fp.CompositeShell.Proxy.get_draper()
+
+        (sup, sub) = fp.Support
+        support = sup.getSubObject(sub)
+        res = None
+        match type(support[0]):
+            case Part.Edge:
+                res = transfer_lcs_to_edge(
+                    draper=draper,
+                    edge=support[0],
+                    fraction=fp.Position,
+                )
+            case Part.Vertex:
+                res = transfer_lcs_to_point(
+                    draper=draper,
+                    position=support[0].Point,
+                )
+            case _:
+                raise ValueError("Unhandled Support")
+        print(res)
 
     def onDocumentRestored(self, fp):
         # super().onDocumentRestored(fp)
@@ -42,23 +92,13 @@ class TransferLCSFP:
     #             fp.recompute()
 
 
-class ViewProviderTransferLCS:
+class ViewProviderTransferLCS(VPCompositeBase):
 
     def __init__(self, obj):
         obj.Proxy = self
 
-    def getDisplayModes(self, obj):
-        return []
-
-    def getDefaultDisplayMode(self):
-        return "Wireframe"
-
     def getIcon(self):
         return TRANSFER_LCS_TOOL_ICON
-
-    def attach(self, vobj):
-        self.Object = vobj.Object
-        self.ViewObject = vobj
 
     # def updateData(self, fp, prop):
     #     match prop:
@@ -76,13 +116,28 @@ class ViewProviderTransferLCS:
     def __setstate__(self, state):
         return None
 
+    def claimChildren(self):
+        return [
+            self.Object.LocalCoordinateSystem,
+        ]
+
 
 class TransferLCSCommand(BaseCommand):
 
     icon = TRANSFER_LCS_TOOL_ICON
     menu_text = "Transfer LCS"
     tool_tip = "Transfer LCS along composite shell"
-    sel_args = []
+    sel_args = [
+        {
+            "key": "shell",
+            "test": is_composite_shell,
+        },
+        {
+            "key": "support",
+            "type": "Part::Feature",
+            "optional": True,
+        },
+    ]
     type_id = "App::FeaturePython"
     instance_name = "TransferLCS"
     cls_fp = TransferLCSFP
