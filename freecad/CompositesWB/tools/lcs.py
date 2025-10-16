@@ -8,6 +8,7 @@ from Part import (
 )
 from .draper import Draper
 import numpy as np
+from ..util.geometry_util import normalise_orientation
 
 
 # TransferLCStoPoint
@@ -83,14 +84,20 @@ def transfer_lcs_to_face(
 def align_fibre_lcs(
     draper: Draper,
     position: Vector,
+    base_position: Vector,
 ) -> float:
 
     coords = draper.get_tex_coord_at_point(
         position,
         offset_angle_deg=0,
     )
+    base_coords = draper.get_tex_coord_at_point(
+        base_position,
+        offset_angle_deg=0,
+    )
+    delta = [coords[0] - base_coords[0], coords[1] - base_coords[1]]
     # TODO check point is within bounds of draper
     # look up lcs rotation at specified point
     # also, distance must be positive
-    angle = np.degrees(np.arctan2(coords[1], coords[0]))
+    angle = normalise_orientation(np.degrees(np.arctan2(delta[1], delta[0])))
     return angle

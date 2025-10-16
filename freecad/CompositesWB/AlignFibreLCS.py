@@ -34,6 +34,7 @@ class AlignFibreLCSFP(TransferLCSFP):
                 res = align_fibre_lcs(
                     draper=draper,
                     position=support[0].Point,
+                    base_position=fp.LocalCoordinateSystem.Placement.Base,
                 )
             case _:
                 raise ValueError("Unhandled Support")
@@ -68,6 +69,7 @@ class AlignFibreLCSCommand(TransferLCSCommand):
         {
             "key": "support",
             "type": "Part::Feature",
+            "optional": True,
         },
     ]
     type_id = "App::FeaturePython"
