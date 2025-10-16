@@ -1,8 +1,9 @@
 from FreeCAD import Vector, Rotation
 import numpy as np
 import flatmesh
-from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
+from scipy.interpolate import LinearNDInterpolator
 from scipy.spatial import Delaunay
+import Part
 
 
 class Draper:
@@ -10,7 +11,7 @@ class Draper:
     unwrap_steps = 5
     unwrap_relax_weight = 0.95
 
-    def __init__(self, mesh, lcs):
+    def __init__(self, mesh, lcs, shape):
 
         points = np.array([[i.x, i.y, i.z] for i in mesh.Points])
 
@@ -26,107 +27,85 @@ class Draper:
             return flattener
 
         self.mesh = mesh
+        self.shape = shape
         self.lcs = lcs
         self.flattener: flatmesh.FaceUnwrapper = get_flattener(mesh)
         if not self.flattener:
             return
-        self.T_local = self.lcs.getGlobalPlacement().inverse()
+        self.T_local = self.get_placement().inverse()
 
         self.T_fo = self.calc_flat_rotation()
-        self.make_interp()
+        self.make_interp(offset_angle_deg=0)
 
     def isValid(self):
         return self.flattener
 
-    def make_interp(self):
+    def get_placement(self):
+        return self.lcs.getGlobalPlacement()
 
-        def calc_local_mesh(tri):
-            (i_O, i_A, i_B) = tri
-            OX, OY, OZ = self.get_axes(i_O, i_A, i_B)
-            T_fl = Rotation(OX, OY, OZ, "ZXY").inverted()
+    def get_uv(self, p):
+        dmin = 100
+        padj = None
+        fmin: Part.Face = None
+        vert = Part.Vertex(p.x, p.y, p.z)
+        for f in self.shape.Faces:
+            distance, points, info = f.distToShape(vert)
+            if (not fmin) or (distance < dmin):
+                dmin = distance
+                padj = points[0][0]
+                fmin = f
+        return (fmin.Surface.parameter(padj), fmin)
 
-            center = (
-                self.mesh.Points[i_A].Vector
-                + self.mesh.Points[i_B].Vector
-                + self.mesh.Points[i_O].Vector
-            ) / 3
+    def make_interp(self, offset_angle_deg):
+        T = self.get_rotation_with_offset(offset_angle_deg)
 
-            OA = self.mesh.Points[i_A].Vector - self.mesh.Points[i_O].Vector
-            OB = self.mesh.Points[i_B].Vector - self.mesh.Points[i_O].Vector
+        uvs = []
+        xyfs = []
+        for p, fp in zip(self.mesh.Points, self.flattener.ze_nodes):
+            ((u, v), _) = self.get_uv(p)
+            uvs.append(np.array([u, v]))
+            xyf = T * Vector(*fp)
+            xyfs.append(np.array([xyf.x, xyf.y]))
 
-            # now map OA, OB back to flat:
-            OA_fd = T_fl * OA
-            OB_fd = T_fl * OB
+        delaunay_uvs = Delaunay(uvs, qhull_options="Qbb Qc Qz Q12 QJ")
+        self.interp_uvf = LinearNDInterpolator(delaunay_uvs, xyfs)
+        delaunay_xyfs = Delaunay(xyfs, qhull_options="Qbb Qc Qz Q12 QJ")
+        self.interp_xyfs = LinearNDInterpolator(delaunay_xyfs, uvs)
 
-            O_f = self.flat_vector(i_O)
-            OA_f = self.flat_vector(i_A) - O_f
-            OB_f = self.flat_vector(i_B) - O_f
+    def get_lcs_at_point(self, point: Vector):
 
-            strain = self.calculate_strain(OA_f, OB_f, OA_fd, OB_fd)
-            return center, T_fl, strain
+        def jac(xyf):
+            uv0 = self.interp_xyfs(xyf)[0]
 
-        # analyse distortion and save local axes ------------------------
-        centers = []
-        T_fls = []
-        # strains = []
-        for tri in self.mesh.Topology[1]:
-            center, T_fl, _ = calc_local_mesh(tri)
-            centers.append(np.array([center.x, center.y, center.z]))
-            T_fls.append(np.array(T_fl.Q))
-            # strains.append(strain)
+            def dd(ax):
+                def tr(s):
+                    delta = 1.0e-3
+                    xyfd = xyf.copy()
+                    xyfd[ax] += s * delta
+                    uvd = self.interp_xyfs(xyfd)[0]
+                    if np.any(np.isnan(uvd)):
+                        return None
+                    else:
+                        return (uvd - uv0) / (s * delta)
 
-        delaunay = Delaunay(centers, qhull_options="Qbb Qc Qz Q12 QJ")
-        self.interp_T = LinearNDInterpolator(delaunay, T_fls)
-        self.interp_Tn = NearestNDInterpolator(centers, T_fls)
+                for s in [-1, 1]:
+                    res = tr(s)
+                    if res is not None:
+                        return res
+                return [0, 0]
 
-    @staticmethod
-    def calculate_strain(OA, OB, OA_d, OB_d):
-        # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
-        # triangles counterclockwise i,j,m
+            return (dd(0), dd(1))
 
-        # xi, yi etc are locations (unloaded)
-        # ui, vi etc are displacements
+        ((u, v), surface) = self.get_uv(point)
+        dgp_duv = surface.derivative1At(u, v)
+        dgp_dzf = surface.normalAt(u, v)
 
-        x_i = 0
-        y_i = 0
-        x_j = OA.x
-        y_j = OA.y
-        x_m = OB.x
-        y_m = OB.y
+        xyf = self.interp_uvf([u, v])[0]
+        (duv_dxf, duv_dyf) = jac(xyf)
 
-        u_i = 0
-        v_i = 0
-        u_j = OA_d.x - OA.x
-        v_j = OA_d.y - OA.y
-        u_m = OB_d.x - OB.x
-        v_m = OB_d.y - OB.y
-
-        beta_i = y_j - y_m
-        beta_j = y_m - y_i
-        beta_m = y_i - y_j
-
-        gamma_i = x_m - x_j
-        gamma_j = x_i - x_m
-        gamma_m = x_j - x_i
-
-        two_A = x_i * (y_i - y_m) + x_j * (y_m - y_i) + x_m * (y_i - y_j)
-        # (A is area of triangle)
-
-        exx = 1 / (two_A) * (beta_i * u_i + beta_j * u_j + beta_m * u_m)
-        eyy = 1 / (two_A) * (gamma_i * v_i + gamma_j * v_j + gamma_m * v_m)
-        exy = (
-            1
-            / (two_A)
-            * (
-                gamma_i * u_i
-                + beta_i * v_i
-                + gamma_j * u_j
-                + beta_j * v_j
-                + gamma_m * u_m
-                + beta_m * v_m
-            )
-        )
-        return (exx, eyy, exy)
+        dgp_dxf = dgp_duv[0] * duv_dxf[0] + dgp_duv[1] * duv_dxf[0]
+        dgp_dyf = dgp_duv[0] * duv_dyf[0] + dgp_duv[1] * duv_dyf[1]
+        return Rotation(dgp_dxf, dgp_dyf, dgp_dzf, "ZXY").inverted()
 
     def find_nearest_vertex(self, vO):
         dmin = None
@@ -186,7 +165,7 @@ class Draper:
         (a, b) = self.find_y_axis_mix(OA_f, OB_f)
         OY = (a * OA + b * OB).normalize()
 
-        OZ = OA.cross(OB).normalize()
+        OZ = OX.cross(OY).normalize()
 
         return OX, OY, OZ
 
@@ -194,7 +173,7 @@ class Draper:
         # locate origin in meshes ---------------------------------------
         # track which point index is mapped from the reference vertex O
         #   in the shape at the LCS origin
-        v_O = self.lcs.getGlobalPlacement().Base
+        v_O = self.get_placement().Base
 
         # - find nearest vertex O in the mesh to the origin of the LCS
         i_O = self.find_nearest_vertex(v_O)
@@ -218,16 +197,6 @@ class Draper:
         T = self.get_rotation_with_offset(offset_angle_deg)
         return [T * Vector(*p) for p in self.flattener.ze_nodes]
 
-    def get_lcs_at_point(self, point: Vector):
-        def get_q(c):
-            q = self.interp_T(c)
-            if np.isnan(q[0][0]):
-                q = self.interp_Tn(c)
-            return q[0]
-
-        q = get_q([point.x, point.y, point.z])
-        return Rotation(*q)
-
     def get_lcs(self, tri):
         center = (tri[0] + tri[1] + tri[2]) / 3
         return self.get_lcs_at_point(center)
@@ -243,3 +212,79 @@ class Draper:
 
     def get_rotation_with_offset(self, offset_angle_deg):
         return self.T_fo * Rotation(Vector(0, 0, 1), offset_angle_deg)
+
+    ####### Work in progress below
+
+    def calc_local_mesh(self, tri):
+        (i_O, i_A, i_B) = tri
+        OX, OY, OZ = self.get_axes(i_O, i_A, i_B)
+        T_fl = Rotation(-OX, OY, OZ, "ZXY").inverted()
+
+        center = (
+            self.mesh.Points[i_A].Vector
+            + self.mesh.Points[i_B].Vector
+            + self.mesh.Points[i_O].Vector
+        ) / 3
+
+        OA = self.mesh.Points[i_A].Vector - self.mesh.Points[i_O].Vector
+        OB = self.mesh.Points[i_B].Vector - self.mesh.Points[i_O].Vector
+
+        # now map OA, OB back to flat:
+        OA_fd = T_fl * OA
+        OB_fd = T_fl * OB
+
+        O_f = self.flat_vector(i_O)
+        OA_f = self.flat_vector(i_A) - O_f
+        OB_f = self.flat_vector(i_B) - O_f
+
+        strain = self.calculate_strain(OA_f, OB_f, OA_fd, OB_fd)
+        return center, strain
+
+    @staticmethod
+    def calculate_strain(OA, OB, OA_d, OB_d):
+        # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
+        # triangles counterclockwise i,j,m
+
+        # xi, yi etc are locations (unloaded)
+        # ui, vi etc are displacements
+
+        x_i = 0
+        y_i = 0
+        x_j = OA.x
+        y_j = OA.y
+        x_m = OB.x
+        y_m = OB.y
+
+        u_i = 0
+        v_i = 0
+        u_j = OA_d.x - OA.x
+        v_j = OA_d.y - OA.y
+        u_m = OB_d.x - OB.x
+        v_m = OB_d.y - OB.y
+
+        beta_i = y_j - y_m
+        beta_j = y_m - y_i
+        beta_m = y_i - y_j
+
+        gamma_i = x_m - x_j
+        gamma_j = x_i - x_m
+        gamma_m = x_j - x_i
+
+        two_A = x_i * (y_i - y_m) + x_j * (y_m - y_i) + x_m * (y_i - y_j)
+        # (A is area of triangle)
+
+        exx = 1 / (two_A) * (beta_i * u_i + beta_j * u_j + beta_m * u_m)
+        eyy = 1 / (two_A) * (gamma_i * v_i + gamma_j * v_j + gamma_m * v_m)
+        exy = (
+            1
+            / (two_A)
+            * (
+                gamma_i * u_i
+                + beta_i * v_i
+                + gamma_j * u_j
+                + beta_j * v_j
+                + gamma_m * u_m
+                + beta_m * v_m
+            )
+        )
+        return (exx, eyy, exy)

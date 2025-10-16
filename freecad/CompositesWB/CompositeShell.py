@@ -92,7 +92,7 @@ class CompositeShellFP:
             return fp.Support
 
         mesh = self.update_mesh(fp)
-        self.draper = Draper(mesh, get_lcs())
+        self.draper = Draper(mesh, get_lcs(), fp.Shape)
         fp.Mesh.Mesh = mesh
         if fp.ViewObject:
             fp.ViewObject.update()

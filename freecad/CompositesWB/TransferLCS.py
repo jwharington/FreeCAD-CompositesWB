@@ -1,4 +1,3 @@
-import FreeCAD
 import FreeCADGui
 import Part
 from . import (
@@ -84,10 +83,9 @@ class TransferLCSFP:
                 raise ValueError("Unhandled Support")
         if res:
             (position, rotation) = res
-            print(res)
             lcs = fp.LocalCoordinateSystem
             lcs.Placement.Base = position
-            lcs.Placement.Rotation = rotation
+            lcs.Placement.Rotation = rotation.inverted()
 
     def onDocumentRestored(self, fp):
         # super().onDocumentRestored(fp)
@@ -106,22 +104,6 @@ class ViewProviderTransferLCS(VPCompositeBase):
 
     def getIcon(self):
         return TRANSFER_LCS_TOOL_ICON
-
-    # def updateData(self, fp, prop):
-    #     match prop:
-    #         case _:
-    #             return
-
-    # def onChanged(self, vobj, prop):
-    #     match prop:
-    #         case _:
-    #             pass
-
-    def __getstate__(self):
-        return None
-
-    def __setstate__(self, state):
-        return None
 
     def claimChildren(self):
         return [
