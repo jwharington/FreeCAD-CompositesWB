@@ -110,7 +110,7 @@ class Draper:
         xyf = self.interp_uvf([u, v])[0]
         (duv_dxf, duv_dyf) = jac(xyf)
 
-        dgp_dxf = dgp_duv[0] * duv_dxf[0] + dgp_duv[1] * duv_dxf[0]
+        dgp_dxf = dgp_duv[0] * duv_dxf[0] + dgp_duv[1] * duv_dxf[1]
         dgp_dyf = dgp_duv[0] * duv_dyf[0] + dgp_duv[1] * duv_dyf[1]
         return Rotation(dgp_dxf, dgp_dyf, dgp_dzf, "ZXY").inverted()
 
