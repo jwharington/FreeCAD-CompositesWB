@@ -31,8 +31,6 @@ def transfer_lcs_to_point(
     position: Vector,
 ) -> tuple[Vector, Rotation]:
 
-    align_lcs_fibre(draper, position)
-
     # TODO check point is within bounds of draper
     # look up lcs rotation at specified point
     return position, draper.get_lcs_at_point(position)
@@ -82,7 +80,7 @@ def transfer_lcs_to_face(
     return (position, R_b)
 
 
-def align_lcs_fibre(
+def align_fibre_lcs(
     draper: Draper,
     position: Vector,
 ) -> float:

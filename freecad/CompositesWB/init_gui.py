@@ -21,8 +21,10 @@ class CompositesWorkbench(Gui.Workbench):
 
         from . import CompositeShell  # noqa
         from . import Seam  # noqa
+
         from . import TransferLCS  # noqa
         from . import WrapLCS  # noqa
+        from . import AlignFibreLCS  # noqa
 
         from . import TexturePlan  # noqa
         from . import PartPlane  # noqa
@@ -37,8 +39,11 @@ class CompositesWorkbench(Gui.Workbench):
         cmds_structure = [
             "Composites_CompositeShell",
             "Composites_Seam",
+        ]
+        cmds_lcs = [
             "Composites_TransferLCS",
             "Composites_WrapLCS",
+            "Composites_AlignFibreLCS",
         ]
         cmds_manufacturing = [
             "Composites_TexturePlan",
@@ -49,6 +54,8 @@ class CompositesWorkbench(Gui.Workbench):
             cmds_section
             + ["Separator"]
             + cmds_structure
+            + ["Separator"]
+            + cmds_lcs
             + ["Separator"]
             + cmds_manufacturing
         )
