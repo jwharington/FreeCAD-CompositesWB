@@ -28,11 +28,11 @@ from .draper import Draper
 def transfer_lcs_to_point(
     draper: Draper,
     position: Vector,
-) -> Rotation:
+) -> tuple[Vector, Rotation]:
 
     # TODO check point is within bounds of draper
     # look up lcs rotation at specified point
-    return draper.get_lcs_at_point(position)
+    return position, draper.get_lcs_at_point(position)
 
 
 def transfer_lcs_to_edge(
@@ -41,7 +41,7 @@ def transfer_lcs_to_edge(
     fraction: float = 0.5,
 ) -> tuple[Vector, Rotation]:
 
-    t = fraction * edge.getParameterByLength(fraction * edge.Length)
+    t = edge.getParameterByLength(fraction * edge.Length)
     position = edge.valueAt(t)
     return transfer_lcs_to_point(draper, position)
 

@@ -65,6 +65,8 @@ class TransferLCSFP:
 
         (sup, sub) = fp.Support
         support = sup.getSubObject(sub)
+        if len(support) != 1:
+            raise ValueError("Unhandled Support")
         res = None
         match type(support[0]):
             case Part.Edge:
@@ -80,16 +82,21 @@ class TransferLCSFP:
                 )
             case _:
                 raise ValueError("Unhandled Support")
-        print(res)
+        if res:
+            (position, rotation) = res
+            print(res)
+            lcs = fp.LocalCoordinateSystem
+            lcs.Placement.Base = position
+            lcs.Placement.Rotation = rotation
 
     def onDocumentRestored(self, fp):
         # super().onDocumentRestored(fp)
         fp.recompute()
 
-    # def onChanged(self, fp, prop):
-    #     match prop:
-    #         case "CompositeShell":
-    #             fp.recompute()
+    def onChanged(self, fp, prop):
+        match prop:
+            case "CompositeShell" | "Support":
+                fp.recompute()
 
 
 class ViewProviderTransferLCS(VPCompositeBase):
