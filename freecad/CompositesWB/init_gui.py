@@ -22,6 +22,7 @@ class CompositesWorkbench(Gui.Workbench):
         from . import CompositeShell  # noqa
         from . import Seam  # noqa
         from . import TransferLCS  # noqa
+        from . import WrapLCS  # noqa
 
         from . import TexturePlan  # noqa
         from . import PartPlane  # noqa
@@ -37,6 +38,7 @@ class CompositesWorkbench(Gui.Workbench):
             "Composites_CompositeShell",
             "Composites_Seam",
             "Composites_TransferLCS",
+            "Composites_WrapLCS",
         ]
         cmds_manufacturing = [
             "Composites_TexturePlan",

@@ -8,7 +8,6 @@ from .Command import BaseCommand
 from .tools.lcs import (
     transfer_lcs_to_point,
     transfer_lcs_to_edge,
-    transfer_lcs_to_face,
 )
 
 from .CompositeShell import is_composite_shell
@@ -68,6 +67,13 @@ class TransferLCSFP:
             raise ValueError("Unhandled Support")
         res = None
         match type(support[0]):
+            case Part.Face:
+                res = self.handle_face(
+                    fp,
+                    draper=draper,
+                    edge=support[0],
+                    fraction=fp.Position,
+                )
             case Part.Edge:
                 res = transfer_lcs_to_edge(
                     draper=draper,
@@ -95,6 +101,9 @@ class TransferLCSFP:
         match prop:
             case "CompositeShell" | "Support":
                 fp.recompute()
+
+    def handle_face(self, fp, draper, edge, fraction):
+        raise ValueError("unhandled")
 
 
 class ViewProviderTransferLCS(VPCompositeBase):
