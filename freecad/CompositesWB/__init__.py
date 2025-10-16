@@ -28,6 +28,7 @@ FIBRE_COMPOSITE_LAMINA_TOOL_ICON = path.join(
     "FEM_MaterialFibreCompositeLamina.svg",
 )
 COMPOSITE_SHELL_TOOL_ICON = path.join(ICONPATH, "CompositeShell.svg")
+TRANSFER_LCS_TOOL_ICON = path.join(ICONPATH, "TransferLCS.svg")
 WB_ICON = path.join(ICONPATH, "CompositesWB.svg")
 
 

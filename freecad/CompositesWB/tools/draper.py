@@ -218,16 +218,19 @@ class Draper:
         T = self.get_rotation_with_offset(offset_angle_deg)
         return [T * Vector(*p) for p in self.flattener.ze_nodes]
 
-    def get_lcs(self, tri):
+    def get_lcs_at_point(self, point: Vector):
         def get_q(c):
             q = self.interp_T(c)
             if np.isnan(q[0][0]):
                 q = self.interp_Tn(c)
             return q[0]
 
-        center = (tri[0] + tri[1] + tri[2]) / 3
-        q = get_q([center.x, center.y, center.z])
+        q = get_q([point.x, point.y, point.z])
         return Rotation(*q)
+
+    def get_lcs(self, tri):
+        center = (tri[0] + tri[1] + tri[2]) / 3
+        return self.get_lcs_at_point(center)
 
     def get_boundaries(self, offset_angle_deg):
         T = self.get_rotation_with_offset(offset_angle_deg)
