@@ -1,10 +1,15 @@
-from FreeCAD import Vector, Rotation
+from FreeCAD import (
+    Vector,
+    Rotation,
+    Base,
+)
 import numpy as np
 import flatmesh
 import Part
 from ..util.mesh_util import (
     calc_lambda_vec,
-    deriv_mapped,
+    axes_mapped,
+    eval_lam,
 )
 
 
@@ -33,216 +38,93 @@ class Draper:
         self.flattener: flatmesh.FaceUnwrapper = get_flattener()
         if not self.flattener:
             return
-        print(self.flattener.ze_nodes[0])
-        self.T_local = self.get_placement().inverse()
 
-        self.T_fo = self._calc_flat_rotation()
-        self.make_interp()
-
-        self.test()
+        self.calc_flat_rotation()
 
     def isValid(self):
         return self.flattener
 
-    def get_placement(self):
-        return self.lcs.getGlobalPlacement()
+    def calc_flat_rotation(self):
+        lcs = self.lcs.getGlobalPlacement()
+
+        center = lcs.Base
+        tri_global, tri_fabric = self._get_facet(center)
+        lam = calc_lambda_vec(center, tri_global)
+
+        T_lcs = lcs.Rotation.inverted()
+        q = axes_mapped(lam, tri_fabric, tri_global, T_lcs)
+        R = Rotation(q[0], q[1], Vector(0, 0, 1), "ZXY").inverted()
+        origin = Vector(eval_lam(lam, tri_fabric))
+        P = Base.Placement(-origin, R, origin)
+        self.T_fo = P
 
     def get_uv(self, p):
         dmin = None
-        padj = None
+        pint = None
         fmin: Part.Face = None
         vert = Part.Vertex(p.x, p.y, p.z)
         for f in self.shape.Faces:
             distance, points, info = f.distToShape(vert)
             if (not fmin) or (distance < dmin):
                 dmin = distance
-                padj = points[0][0]
+                pint = points[0][0]
                 fmin = f
-        return (fmin.Surface.parameter(padj), fmin)
+        return (fmin.Surface.parameter(pint), fmin)
 
     def get_normal_projected(self, point):
         ((u, v), surface) = self.get_uv(point)
-        p = surface.valueAt(u, v)
-        return p, surface.normalAt(u, v)
+        return surface.valueAt(u, v), surface.normalAt(u, v)
 
     def get_tris(self, i):
         simp = self.mesh.Topology[1][i]
 
-        def g_to_v(i):
-            p = self.mesh.Points[i]
-            return Vector(p.x, p.y, p.z)
-
         def f_to_v(i):
             return Vector(*self.flattener.ze_nodes[i])
 
-        tri_global = [g_to_v(i) for i in simp]
+        tri_global = [self.mesh.Points[i].Vector for i in simp]
         tri_fabric = [f_to_v(i) for i in simp]
         return tri_global, tri_fabric
 
     def _get_facet(self, center: Vector):
-        facet = 0
+        dist = [center.distanceToPoint(p.Vector) for p in self.mesh.Points]
+
+        def tri_dist(tri):
+            return np.sum([dist[i] for i in tri])
+
+        totd = [tri_dist(tri) for tri in self.mesh.Topology[1]]
+        facet = np.argmin(totd)
         return self.get_tris(facet)
-
-    def _calc_flat_rotation(self):
-        facet = 0  # !!!
-        tri_global, tri_fabric = self.get_tris(facet)
-        center = tri_global[0]
-        lam = calc_lambda_vec(center, tri_global)
-
-        q = deriv_mapped(lam, tri_fabric, tri_global, self.T_local)
-        return Rotation(q[0], q[1], Vector(0, 0, 1), "ZXY").inverted()
 
     def _get_lcs_at_point(self, center: Vector, normal: Vector):
         tri_global, tri_fabric = self._get_facet(center)
 
         lam = calc_lambda_vec(center, tri_global)
-        d = deriv_mapped(lam, tri_global, tri_fabric, self.T_fo)
-        print(f"p {center} lam {lam} d {d}")
-        R = Rotation(d[0], d[1], normal, "ZXY").inverted()
-        print(f"R {R}")
-        return R
+        d = axes_mapped(lam, tri_global, tri_fabric, self.T_fo)
+        return Rotation(d[0], d[1], normal, "ZXY").inverted()
+
+    def get_lcs_at_point(self, center: Vector):
+        p, normal = self.get_normal_projected(center)
+        return self._get_lcs_at_point(p, normal)
 
     def get_lcs(self, tri):
-        normal = (tri[1] - tri[0]).cross(tri[2] - tri[1]).normalize()
         center = (tri[0] + tri[1] + tri[2]) / 3
+        normal = (tri[1] - tri[0]).cross(tri[2] - tri[1]).normalize()
         return self._get_lcs_at_point(center, normal)
 
-    def test(self):
-        tri_global, tri_fabric = self.get_tris(0)
-        self.get_lcs(tri_global)
+    def get_rotation_with_offset(self, offset_angle_deg):
+        return self.T_fo * Rotation(Vector(0, 0, 1), offset_angle_deg)
 
     def get_tex_coords(self, offset_angle_deg):
         # save texture coordinates for rendering pattern in 3d
         T = self.get_rotation_with_offset(offset_angle_deg)
         return [T * Vector(*p) for p in self.flattener.ze_nodes]
 
-    def get_rotation_with_offset(self, offset_angle_deg):
-        return self.T_fo * Rotation(Vector(0, 0, 1), offset_angle_deg)
-
-    ###########################
-
-    def make_interp(self):
-        from scipy.interpolate import LinearNDInterpolator
-        from scipy.spatial import Delaunay
-
-        T = self.get_rotation_with_offset(0)
-
-        uvs = []
-        xyfs = []
-        for p, fp in zip(self.mesh.Points, self.flattener.ze_nodes):
-            ((u, v), _) = self.get_uv(p)
-            uvs.append(np.array([u, v]))
-            xyf = T * Vector(*fp)
-            xyfs.append(np.array([xyf.x, xyf.y]))
-
-        delaunay_uvs = Delaunay(uvs, qhull_options="Qbb Qc Qz Q12 QJ")
-        self.interp_uvf = LinearNDInterpolator(delaunay_uvs, xyfs)
-        delaunay_xyfs = Delaunay(xyfs, qhull_options="Qbb Qc Qz Q12 QJ")
-        self.interp_xyfs = LinearNDInterpolator(delaunay_xyfs, uvs)
-
     def get_tex_coord_at_point(self, point, offset_angle_deg=0):
         # save texture coordinates for rendering pattern in 3d
+        tri_global, tri_fabric = self._get_facet(point)
+        lam = calc_lambda_vec(point, tri_global)
         T = self.get_rotation_with_offset(offset_angle_deg=offset_angle_deg)
-        ((u, v), _) = self.get_uv(point)
-        xyf = self.interp_uvf([u, v])[0]
-        return T * Vector(xyf[0], xyf[1], 0)
-
-    def get_lcs_at_point(self, point: Vector):
-
-        def jac(xyf):
-            uv0 = self.interp_xyfs(xyf)[0]
-
-            def dd(ax):
-                def tr(s):
-                    delta = 1.0e-3
-                    xyfd = xyf.copy()
-                    xyfd[ax] += s * delta
-                    uvd = self.interp_xyfs(xyfd)[0]
-                    if np.any(np.isnan(uvd)):
-                        return None
-                    else:
-                        return (uvd - uv0) / (s * delta)
-
-                for s in [-1, 1]:
-                    res = tr(s)
-                    if res is not None:
-                        return res
-                return [0, 0]
-
-            return (dd(0), dd(1))
-
-        ((u, v), surface) = self.get_uv(point)
-        dgp_duv = surface.derivative1At(u, v)
-        dgp_dzf = surface.normalAt(u, v)
-
-        xyf = self.interp_uvf([u, v])[0]
-        (duv_dxf, duv_dyf) = jac(xyf)
-
-        dgp_dxf = dgp_duv[0] * duv_dxf[0] + dgp_duv[1] * duv_dxf[1]
-        dgp_dyf = dgp_duv[0] * duv_dyf[0] + dgp_duv[1] * duv_dyf[1]
-        return Rotation(dgp_dxf, dgp_dyf, dgp_dzf, "ZXY").inverted()
-
-    def find_nearest_vertex(self, vO):
-        dmin = None
-        imin = None
-        for i, p in enumerate(self.mesh.Points):
-            d = vO.distanceToPoint(p.Vector)
-            if (dmin is None) or (d < dmin):
-                dmin = d
-                imin = i
-        return imin
-
-    def find_containing_triangle(self, i_O) -> list[int]:
-        for tri in self.mesh.Topology[1]:
-            if i_O in tri:
-                return list(tri)
-        return []
-
-    @staticmethod
-    def find_x_axis_mix(OA_f, OB_f):
-        if abs(OA_f.y) < abs(OB_f.y):
-            # b = -(OA_y / OB_y ) a
-            # a. OA_x - (OA_y / OB_y ) a OB_x = 1
-            a = 1 / (OA_f.x - OA_f.y / OB_f.y)
-            b = -(OA_f.y / OB_f.y) * a
-        else:
-            # a = -(OB_y / OA_y ) b
-            # (OB_y / OA_y ) b . OA_x - b OB_x = 1
-            b = 1 / (OB_f.x - OB_f.y / OA_f.y)
-            a = -(OB_f.y / OA_f.y) * b
-        return (a, b)
-
-    @staticmethod
-    def find_y_axis_mix(OA_f, OB_f):
-        if abs(OA_f.x) < abs(OB_f.x):
-            a = 1 / (OA_f.y - OA_f.x / OB_f.x)
-            b = -(OA_f.x / OB_f.x) * a
-        else:
-            b = 1 / (OB_f.y - OB_f.x / OA_f.x)
-            a = -(OB_f.x / OA_f.x) * b
-        return (a, b)
-
-    def flat_vector(self, i):
-        return Vector(*self.flattener.ze_nodes[i])
-
-    def get_axes(self, i_O, i_A, i_B):
-        # mix OA, OB to make vertical line
-        O_f = self.flat_vector(i_O)
-        OA_f = self.flat_vector(i_A) - O_f
-        OB_f = self.flat_vector(i_B) - O_f
-        OO = self.mesh.Points[i_O].Vector
-        OA = self.mesh.Points[i_A].Vector - OO
-        OB = self.mesh.Points[i_B].Vector - OO
-
-        (a, b) = self.find_x_axis_mix(OA_f, OB_f)
-        OX = (a * OA + b * OB).normalize()
-
-        (a, b) = self.find_y_axis_mix(OA_f, OB_f)
-        OY = (a * OA + b * OB).normalize()
-
-        OZ = OX.cross(OY).normalize()
-
-        return OX, OY, OZ
+        return T * eval_lam(lam, tri_fabric)
 
     def get_boundaries(self, offset_angle_deg):
         T = self.get_rotation_with_offset(offset_angle_deg)

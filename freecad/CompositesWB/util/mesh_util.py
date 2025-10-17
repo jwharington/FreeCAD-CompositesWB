@@ -16,22 +16,22 @@ def eval_lam(lam, tri):
     return lam[0] * tri[0] + lam[1] * tri[1] + lam[2] * tri[2]
 
 
-def deriv_mapped(lam, tri_a, tri_b, T=Rotation()):
+def axes_mapped(lam, tri_a, tri_b, T=Rotation()):
     a0 = eval_lam(lam, tri_a)
     b0 = eval_lam(lam, tri_b)
 
-    def deriv(dv):
+    def deriv(axis):
         delta = 1.0e-4
-        b1 = b0 + delta * dv
+        b1 = b0 + delta * axis
         lam1 = calc_lambda_vec(b1, tri_b)
         a1 = eval_lam(lam1, tri_a)
         return Vector((a1 - a0) / delta)
 
     return [
-        deriv(ax)
-        for ax in [
-            T * Vector(1, 0, 0),
-            T * Vector(0, 1, 0),
+        deriv(T * axis)
+        for axis in [
+            Vector(1, 0, 0),
+            Vector(0, 1, 0),
         ]
     ]
 
