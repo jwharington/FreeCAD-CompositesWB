@@ -1,9 +1,11 @@
 from FreeCAD import Vector, Rotation
 import numpy as np
 import flatmesh
-from scipy.interpolate import LinearNDInterpolator
-from scipy.spatial import Delaunay
 import Part
+from ..util.mesh_util import (
+    calc_lambda_vec,
+    deriv_mapped,
+)
 
 
 class Draper:
@@ -13,12 +15,11 @@ class Draper:
 
     def __init__(self, mesh, lcs, shape):
 
-        points = np.array([[i.x, i.y, i.z] for i in mesh.Points])
-
-        def get_flattener(_mesh) -> flatmesh.FaceUnwrapper:
-            faces = np.array([list(i) for i in _mesh.Topology[1]])
+        def get_flattener() -> flatmesh.FaceUnwrapper:
             if not mesh.Points:
                 return None
+            points = np.array([[i.x, i.y, i.z] for i in mesh.Points])
+            faces = np.array([list(i) for i in mesh.Topology[1]])
             flattener = flatmesh.FaceUnwrapper(points, faces)
             flattener.findFlatNodes(
                 self.unwrap_steps,
@@ -29,13 +30,16 @@ class Draper:
         self.mesh = mesh
         self.shape = shape
         self.lcs = lcs
-        self.flattener: flatmesh.FaceUnwrapper = get_flattener(mesh)
+        self.flattener: flatmesh.FaceUnwrapper = get_flattener()
         if not self.flattener:
             return
+        print(self.flattener.ze_nodes[0])
         self.T_local = self.get_placement().inverse()
 
-        self.T_fo = self.calc_flat_rotation()
-        self.make_interp(offset_angle_deg=0)
+        self.T_fo = self._calc_flat_rotation()
+        self.make_interp()
+
+        self.test()
 
     def isValid(self):
         return self.flattener
@@ -44,7 +48,7 @@ class Draper:
         return self.lcs.getGlobalPlacement()
 
     def get_uv(self, p):
-        dmin = 100
+        dmin = None
         padj = None
         fmin: Part.Face = None
         vert = Part.Vertex(p.x, p.y, p.z)
@@ -56,8 +60,72 @@ class Draper:
                 fmin = f
         return (fmin.Surface.parameter(padj), fmin)
 
-    def make_interp(self, offset_angle_deg):
+    def get_normal_projected(self, point):
+        ((u, v), surface) = self.get_uv(point)
+        p = surface.valueAt(u, v)
+        return p, surface.normalAt(u, v)
+
+    def get_tris(self, i):
+        simp = self.mesh.Topology[1][i]
+
+        def g_to_v(i):
+            p = self.mesh.Points[i]
+            return Vector(p.x, p.y, p.z)
+
+        def f_to_v(i):
+            return Vector(*self.flattener.ze_nodes[i])
+
+        tri_global = [g_to_v(i) for i in simp]
+        tri_fabric = [f_to_v(i) for i in simp]
+        return tri_global, tri_fabric
+
+    def _get_facet(self, center: Vector):
+        facet = 0
+        return self.get_tris(facet)
+
+    def _calc_flat_rotation(self):
+        facet = 0  # !!!
+        tri_global, tri_fabric = self.get_tris(facet)
+        center = tri_global[0]
+        lam = calc_lambda_vec(center, tri_global)
+
+        q = deriv_mapped(lam, tri_fabric, tri_global, self.T_local)
+        return Rotation(q[0], q[1], Vector(0, 0, 1), "ZXY").inverted()
+
+    def _get_lcs_at_point(self, center: Vector, normal: Vector):
+        tri_global, tri_fabric = self._get_facet(center)
+
+        lam = calc_lambda_vec(center, tri_global)
+        d = deriv_mapped(lam, tri_global, tri_fabric, self.T_fo)
+        print(f"p {center} lam {lam} d {d}")
+        R = Rotation(d[0], d[1], normal, "ZXY").inverted()
+        print(f"R {R}")
+        return R
+
+    def get_lcs(self, tri):
+        normal = (tri[1] - tri[0]).cross(tri[2] - tri[1]).normalize()
+        center = (tri[0] + tri[1] + tri[2]) / 3
+        return self._get_lcs_at_point(center, normal)
+
+    def test(self):
+        tri_global, tri_fabric = self.get_tris(0)
+        self.get_lcs(tri_global)
+
+    def get_tex_coords(self, offset_angle_deg):
+        # save texture coordinates for rendering pattern in 3d
         T = self.get_rotation_with_offset(offset_angle_deg)
+        return [T * Vector(*p) for p in self.flattener.ze_nodes]
+
+    def get_rotation_with_offset(self, offset_angle_deg):
+        return self.T_fo * Rotation(Vector(0, 0, 1), offset_angle_deg)
+
+    ###########################
+
+    def make_interp(self):
+        from scipy.interpolate import LinearNDInterpolator
+        from scipy.spatial import Delaunay
+
+        T = self.get_rotation_with_offset(0)
 
         uvs = []
         xyfs = []
@@ -124,7 +192,7 @@ class Draper:
                 imin = i
         return imin
 
-    def find_triangle(self, i_O) -> list[int]:
+    def find_containing_triangle(self, i_O) -> list[int]:
         for tri in self.mesh.Topology[1]:
             if i_O in tri:
                 return list(tri)
@@ -176,38 +244,6 @@ class Draper:
 
         return OX, OY, OZ
 
-    def calc_flat_rotation(self):
-        # locate origin in meshes ---------------------------------------
-        # track which point index is mapped from the reference vertex O
-        #   in the shape at the LCS origin
-        v_O = self.get_placement().Base
-
-        # - find nearest vertex O in the mesh to the origin of the LCS
-        i_O = self.find_nearest_vertex(v_O)
-
-        # determine rotation required for flattened --------------------
-        # - find a triangle (OAB) in 3d mesh that includes the reference
-        # point O
-
-        (i_O, i_A, i_B) = self.find_triangle(i_O)
-        OX, OY, OZ = self.get_axes(i_O, i_A, i_B)
-        R = self.T_local.Rotation
-        OX = R * OX
-        OY = R * OY
-        OZ = R * OZ
-        OZ = Vector(0, 0, 1)
-        T_proj = Rotation(OX, OY, OZ, "ZXY").inverted()
-        return T_proj.inverted()
-
-    def get_tex_coords(self, offset_angle_deg):
-        # save texture coordinates for rendering pattern in 3d
-        T = self.get_rotation_with_offset(offset_angle_deg)
-        return [T * Vector(*p) for p in self.flattener.ze_nodes]
-
-    def get_lcs(self, tri):
-        center = (tri[0] + tri[1] + tri[2]) / 3
-        return self.get_lcs_at_point(center)
-
     def get_boundaries(self, offset_angle_deg):
         T = self.get_rotation_with_offset(offset_angle_deg)
         wires = []
@@ -216,9 +252,6 @@ class Draper:
             points = [T * Vector(*node) for node in edge]
             wires.append(points)
         return wires
-
-    def get_rotation_with_offset(self, offset_angle_deg):
-        return self.T_fo * Rotation(Vector(0, 0, 1), offset_angle_deg)
 
     ####### Work in progress below
 
@@ -295,3 +328,12 @@ class Draper:
             )
         )
         return (exx, eyy, exy)
+
+
+# precompute and store:
+# - normal in global coords for all triangles
+# - area of each triangle
+#
+#  mesh: find nearest simplex
+#           calc barycentric coordinates
+#  mesh.nearestFacetOnRay()
