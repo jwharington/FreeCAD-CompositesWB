@@ -47,12 +47,13 @@ class Draper:
     def calc_flat_rotation(self):
         lcs = self.lcs.getGlobalPlacement()
 
-        center = lcs.Base
+        T_lcs = lcs.Rotation.inverted()
+        center = T_lcs * lcs.Base
         tri_global, tri_fabric = self._get_facet(center)
+        tri_global = [T_lcs * p for p in tri_global]
         lam = calc_lambda_vec(center, tri_global)
 
-        T_lcs = lcs.Rotation.inverted()
-        q = axes_mapped(lam, tri_fabric, tri_global, T_lcs)
+        q = axes_mapped(lam, tri_fabric, tri_global)
         R = Rotation(q[0], q[1], Vector(0, 0, 1), "ZXY").inverted()
         origin = Vector(eval_lam(lam, tri_fabric))
         P = Base.Placement(-origin, R, origin)
@@ -97,9 +98,10 @@ class Draper:
 
     def _get_lcs_at_point(self, center: Vector, normal: Vector):
         tri_global, tri_fabric = self._get_facet(center)
+        tri_fabric = [self.T_fo * p for p in tri_fabric]
 
         lam = calc_lambda_vec(center, tri_global)
-        d = axes_mapped(lam, tri_global, tri_fabric, self.T_fo)
+        d = axes_mapped(lam, tri_global, tri_fabric)
         return Rotation(d[0], d[1], normal, "ZXY").inverted()
 
     def get_lcs_at_point(self, center: Vector):

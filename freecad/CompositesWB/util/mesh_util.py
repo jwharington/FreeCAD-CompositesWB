@@ -16,7 +16,7 @@ def eval_lam(lam, tri):
     return lam[0] * tri[0] + lam[1] * tri[1] + lam[2] * tri[2]
 
 
-def axes_mapped(lam, tri_a, tri_b, T=Rotation()):
+def axes_mapped(lam, tri_a, tri_b):
     a0 = eval_lam(lam, tri_a)
     b0 = eval_lam(lam, tri_b)
 
@@ -28,7 +28,7 @@ def axes_mapped(lam, tri_a, tri_b, T=Rotation()):
         return Vector((a1 - a0) / delta)
 
     return [
-        deriv(T * axis)
+        deriv(axis)
         for axis in [
             Vector(1, 0, 0),
             Vector(0, 1, 0),
