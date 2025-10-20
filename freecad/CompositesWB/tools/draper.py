@@ -6,11 +6,7 @@ from FreeCAD import (
 import numpy as np
 import flatmesh
 import Part
-from ..util.mesh_util import (
-    calc_lambda_vec,
-    axes_mapped,
-    eval_lam,
-)
+from ..util.mesh_util import calc_lambda_vec, axes_mapped, eval_lam, perp
 
 
 class Draper:
@@ -40,6 +36,10 @@ class Draper:
             return
 
         self.calc_flat_rotation()
+
+        # for i, tri in enumerate(mesh.Topology[1]):
+        #     self.calc_strain(i)
+        self.calc_strain(0)
 
     def isValid(self):
         return self.flattener
@@ -137,9 +137,7 @@ class Draper:
             wires.append(points)
         return wires
 
-    ####### Work in progress below
-
-    def calculate_strain(self, facet):
+    def calc_strain(self, facet):
         # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
         # triangles counterclockwise i,j,m
 
@@ -147,12 +145,19 @@ class Draper:
         # ui, vi etc are displacements
         tri_global, tri_fabric = self.get_tris(facet)
 
-        # locations
+        # locations (unstrained in original flat fibre)
         A = tri_fabric[0]
         B = tri_fabric[1]
         C = tri_fabric[2]
 
-        n_g = (tri_global[1] - tri_global[0]).cross(tri_global[2] - tri_global[1])
+        # locations in 3d space (these are considered the strained locations)
+        n_g = (
+            (tri_global[1] - tri_global[0]).cross(tri_global[2] - tri_global[0])
+        ).normalize()
+
+        Ad = perp(tri_global[0], n_g)
+        Bd = perp(tri_global[1], n_g)
+        Cd = perp(tri_global[2], n_g)
 
         # displacements
         u = Vector(Ad.x - A.x, Bd.x - B.x, Cd.x - C.x)
@@ -161,12 +166,14 @@ class Draper:
         beta = Vector(B.y - C.y, C.y - A.y, A.y - B.y)
         gamma = Vector(C.x - B.x, A.x - C.x, B.x - A.x)
 
-        two_area = abs((B - A).cross(C - B))
-
+        two_area = abs(((B - A).cross(C - A)).z)
         exx = beta.dot(u)
         eyy = gamma.dot(v)
         exy = gamma.dot(u) + beta.dot(v)
-        return np.array([exx, eyy, exy]) / two_area
+        strains = np.array([exx, eyy, exy]) / two_area
+
+        print(strains)
+        return strains
 
 
 # precompute and store:
