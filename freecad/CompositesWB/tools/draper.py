@@ -139,79 +139,34 @@ class Draper:
 
     ####### Work in progress below
 
-    def calc_local_mesh(self, tri):
-        (i_O, i_A, i_B) = tri
-        OX, OY, OZ = self.get_axes(i_O, i_A, i_B)
-        T_fl = Rotation(-OX, OY, OZ, "ZXY").inverted()
-
-        center = (
-            self.mesh.Points[i_A].Vector
-            + self.mesh.Points[i_B].Vector
-            + self.mesh.Points[i_O].Vector
-        ) / 3
-
-        OA = self.mesh.Points[i_A].Vector - self.mesh.Points[i_O].Vector
-        OB = self.mesh.Points[i_B].Vector - self.mesh.Points[i_O].Vector
-
-        # now map OA, OB back to flat:
-        OA_fd = T_fl * OA
-        OB_fd = T_fl * OB
-
-        O_f = self.flat_vector(i_O)
-        OA_f = self.flat_vector(i_A) - O_f
-        OB_f = self.flat_vector(i_B) - O_f
-
-        strain = self.calculate_strain(OA_f, OB_f, OA_fd, OB_fd)
-        return center, strain
-
-    @staticmethod
-    def calculate_strain(OA, OB, OA_d, OB_d):
+    def calculate_strain(self, facet):
         # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
         # triangles counterclockwise i,j,m
 
         # xi, yi etc are locations (unloaded)
         # ui, vi etc are displacements
+        tri_global, tri_fabric = self.get_tris(facet)
 
-        x_i = 0
-        y_i = 0
-        x_j = OA.x
-        y_j = OA.y
-        x_m = OB.x
-        y_m = OB.y
+        # locations
+        A = tri_fabric[0]
+        B = tri_fabric[1]
+        C = tri_fabric[2]
 
-        u_i = 0
-        v_i = 0
-        u_j = OA_d.x - OA.x
-        v_j = OA_d.y - OA.y
-        u_m = OB_d.x - OB.x
-        v_m = OB_d.y - OB.y
+        n_g = (tri_global[1] - tri_global[0]).cross(tri_global[2] - tri_global[1])
 
-        beta_i = y_j - y_m
-        beta_j = y_m - y_i
-        beta_m = y_i - y_j
+        # displacements
+        u = Vector(Ad.x - A.x, Bd.x - B.x, Cd.x - C.x)
+        v = Vector(Ad.y - A.y, Bd.y - B.y, Cd.y - C.y)
 
-        gamma_i = x_m - x_j
-        gamma_j = x_i - x_m
-        gamma_m = x_j - x_i
+        beta = Vector(B.y - C.y, C.y - A.y, A.y - B.y)
+        gamma = Vector(C.x - B.x, A.x - C.x, B.x - A.x)
 
-        two_A = x_i * (y_i - y_m) + x_j * (y_m - y_i) + x_m * (y_i - y_j)
-        # (A is area of triangle)
+        two_area = abs((B - A).cross(C - B))
 
-        exx = 1 / (two_A) * (beta_i * u_i + beta_j * u_j + beta_m * u_m)
-        eyy = 1 / (two_A) * (gamma_i * v_i + gamma_j * v_j + gamma_m * v_m)
-        exy = (
-            1
-            / (two_A)
-            * (
-                gamma_i * u_i
-                + beta_i * v_i
-                + gamma_j * u_j
-                + beta_j * v_j
-                + gamma_m * u_m
-                + beta_m * v_m
-            )
-        )
-        return (exx, eyy, exy)
+        exx = beta.dot(u)
+        eyy = gamma.dot(v)
+        exy = gamma.dot(u) + beta.dot(v)
+        return np.array([exx, eyy, exy]) / two_area
 
 
 # precompute and store:

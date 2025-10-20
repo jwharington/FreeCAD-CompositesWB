@@ -1,3 +1,4 @@
+import FreeCAD
 import FreeCADGui as Gui
 from . import WB_ICON
 
@@ -81,3 +82,5 @@ class CompositesWorkbench(Gui.Workbench):
 
 
 Gui.addWorkbench(CompositesWorkbench())
+FreeCAD.__unit_test__ += [ "TestCompositesGui" ]
+

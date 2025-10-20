@@ -105,3 +105,5 @@ def getCompositesContainer() -> FreeCAD.Document:
 #                     res.append(o)
 #             return res
 #     return []
+
+FreeCAD.__unit_test__ += [ "TestCompositesApp" ]
