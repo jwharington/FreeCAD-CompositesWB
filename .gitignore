@@ -1,2 +1,5 @@
 .env
 *.pyc
+*.FCStd*
+*.FCBak
+*.swp
