@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
+<package format="1">
+  <name>Composites workbench</name>
+  <description>Additional tools to define and manipulate laminated composites structures.</description>
+  <version>0.1.0</version>
+  <maintainer email="jwharington@gmail.com">John Wharington</maintainer>
+  <license file="LICENSE">LGPL-2.1</license>
+  <url type="repository" branch="main">https://github.com/jwharington/FreeCAD-CompositesWB</url>
+  <url type="documentation">https://github.com/jwharington/FreeCAD-CompositesWB/doc</url>
+
+  <content>
+    <workbench>
+      <name>Composites workbench</name>
+      <classname>CompositesWorkbench</classname>
+      <description>Additional tools to define and manipulate laminated composites structures.</description>
+      <version>0.1.0</version>
+      <subdirectory>./</subdirectory>
+      <icon>freecad/CompositesWB/resources/icons/CompositeShell.svg</icon>
+      <freecadmin>1.1.0</freecadmin>
+      <depend>numpy</depend>
+      <depend>scipy</depend>
+      <tag>curves</tag>
+      <tag>nurbs</tag>
+    </workbench>
+  </content>
+
+</package>
