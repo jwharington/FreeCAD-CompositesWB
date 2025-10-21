@@ -7,10 +7,10 @@ from .TransferLCS import (
     ViewProviderTransferLCS,
     TransferLCSCommand,
 )
-from . import (
+from .. import (
     WRAP_LCS_TOOL_ICON,
 )
-from .tools.lcs import (
+from ..tools.lcs import (
     transfer_lcs_to_face,
 )
 from .CompositeShell import is_composite_shell

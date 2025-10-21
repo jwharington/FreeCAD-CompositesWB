@@ -4,7 +4,7 @@
 import FreeCAD
 import FreeCADGui
 import Part
-from . import (
+from .. import (
     TEXTURE_PLAN_TOOL_ICON,
 )
 from .Command import BaseCommand

@@ -2,15 +2,15 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
-from . import (
+from .. import (
     HOMOGENEOUS_LAMINA_TOOL_ICON,
 )
-from .objects import (
+from ..objects import (
     HomogeneousLamina,
     Lamina,
 )
+from ..taskpanels import task_homogeneous_lamina
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
-from .taskpanels import task_homogeneous_lamina
 from .Command import BaseCommand
 
 

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from . import is_comp_type
+from .. import is_comp_type
+from ..objects import Lamina
 from .VPCompositeBase import VPCompositeBase
-from .objects import Lamina
 
 
 def is_lamina(obj):

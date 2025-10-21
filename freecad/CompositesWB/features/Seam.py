@@ -4,10 +4,10 @@
 from FreeCAD import Console
 import Part
 import FreeCADGui
-from . import (
+from .. import (
     SEAM_TOOL_ICON,
 )
-from .tools.seam import make_seam
+from ..tools.seam import make_seam
 
 
 class CompositeSeamCommand:

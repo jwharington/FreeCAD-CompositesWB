@@ -3,20 +3,20 @@
 
 import FreeCAD
 import FreeCADGui
-from . import (
+from .. import (
     LAMINATE_TOOL_ICON,
     is_comp_type,
 )
-from .mechanics import StackModelType
-from .util.fem_util import (
+from ..mechanics import StackModelType
+from ..util.fem_util import (
     get_layers_ccx,
     write_lamina_materials_ccx,
     write_shell_section_ccx,
 )
-from .util.bom_util import (
+from ..util.bom_util import (
     get_layers_bom,
 )
-from .objects import (
+from ..objects import (
     Laminate,
     SymmetryType,
 )

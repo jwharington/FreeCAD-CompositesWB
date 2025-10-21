@@ -3,16 +3,15 @@
 
 import FreeCADGui
 import Part
-from . import (
+from .. import (
     TRANSFER_LCS_TOOL_ICON,
 )
-from .VPCompositeBase import VPCompositeBase
-from .Command import BaseCommand
-from .tools.lcs import (
+from ..tools.lcs import (
     transfer_lcs_to_point,
     transfer_lcs_to_edge,
 )
-
+from .VPCompositeBase import VPCompositeBase
+from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
 
 

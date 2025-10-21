@@ -2,19 +2,19 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
-from . import (
+from .. import (
     COMPOSITE_LAMINATE_TOOL_ICON,
 )
+from ..objects import (
+    CompositeLaminate,
+    SymmetryType,
+)
+from ..taskpanels import task_composite_laminate
 from .Composite import add_composite_props
 from .Laminate import (
     LaminateFP,
     ViewProviderLaminate,
 )
-from .objects import (
-    CompositeLaminate,
-    SymmetryType,
-)
-from .taskpanels import task_composite_laminate
 from .Laminate import LaminateCommand
 
 

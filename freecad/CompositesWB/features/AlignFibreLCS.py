@@ -3,10 +3,10 @@
 
 import FreeCADGui
 import Part
-from . import (
+from .. import (
     ALIGN_FIBRE_LCS_TOOL_ICON,
 )
-from .tools.lcs import (
+from ..tools.lcs import (
     align_fibre_lcs,
 )
 

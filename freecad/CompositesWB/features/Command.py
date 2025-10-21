@@ -3,10 +3,10 @@
 
 import FreeCAD
 import FreeCADGui
-from . import getCompositesContainer
 from typing import ClassVar
+from .. import getCompositesContainer
 
-# from .selection_utils import find_face_in_selection_object
+# from .util.selection_utils import find_face_in_selection_object
 
 debug: bool = True
 

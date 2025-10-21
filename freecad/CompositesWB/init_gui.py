@@ -18,21 +18,21 @@ class CompositesWorkbench(Gui.Workbench):
         function.
         """
 
-        from . import Laminate  # noqa
-        from . import CompositeLaminate  # noqa
-        from . import FibreCompositeLamina  # noqa
-        from . import HomogeneousLamina  # noqa
+        from .features import Laminate  # noqa
+        from .features import CompositeLaminate  # noqa
+        from .features import FibreCompositeLamina  # noqa
+        from .features import HomogeneousLamina  # noqa
 
-        from . import CompositeShell  # noqa
-        from . import Seam  # noqa
+        from .features import CompositeShell  # noqa
+        from .features import Seam  # noqa
 
-        from . import TransferLCS  # noqa
-        from . import WrapLCS  # noqa
-        from . import AlignFibreLCS  # noqa
+        from .features import TransferLCS  # noqa
+        from .features import WrapLCS  # noqa
+        from .features import AlignFibreLCS  # noqa
 
-        from . import TexturePlan  # noqa
-        from . import PartPlane  # noqa
-        from . import Mould  # noqa
+        from .features import TexturePlan  # noqa
+        from .features import PartPlane  # noqa
+        from .features import Mould  # noqa
 
         cmds_section = [
             "Composites_Laminate",

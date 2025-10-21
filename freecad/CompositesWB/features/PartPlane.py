@@ -2,10 +2,10 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
-from . import (
+from .. import (
     PART_PLANE_TOOL_ICON,
 )
-from .tools.part_plane import (
+from ..tools.part_plane import (
     # make_part_plane,
     # make_part_plane2,
     make_part_plane3,

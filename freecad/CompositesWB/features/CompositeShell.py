@@ -4,12 +4,12 @@
 import FreeCADGui
 import Mesh
 import MeshPart
-from . import (
+from .. import (
     COMPOSITE_SHELL_TOOL_ICON,
     is_comp_type,
 )
-from .tools.draper import Draper
-from .shaders.MeshGridShader import MeshGridShader
+from ..tools.draper import Draper
+from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Laminate import is_laminate
 

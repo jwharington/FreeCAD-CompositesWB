@@ -2,10 +2,10 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
-from . import (
+from .. import (
     MOULD_TOOL_ICON,
 )
-from .tools.mould import make_moulds
+from ..tools.mould import make_moulds
 from .Command import BaseCommand
 
 

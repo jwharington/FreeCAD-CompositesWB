@@ -3,18 +3,18 @@
 
 import FreeCAD
 import FreeCADGui
-from . import (
+from .. import (
     FIBRE_COMPOSITE_LAMINA_TOOL_ICON,
 )
-from .objects.weave_type import WeaveType
-from .objects import (
+from ..objects import (
     FibreCompositeLamina,
     SimpleFabric,
     Lamina,
+    WeaveType,
 )
+from ..taskpanels import task_fibre_composite_lamina
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
-from .taskpanels import task_fibre_composite_lamina
 from .Command import BaseCommand
 
 
