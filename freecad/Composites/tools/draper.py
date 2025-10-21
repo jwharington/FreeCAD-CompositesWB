@@ -37,20 +37,19 @@ class Draper:
 
         self.mesh = mesh
         self.shape = shape
-        self.lcs = lcs
         self.flattener: flatmesh.FaceUnwrapper = get_flattener()
         if not self.flattener:
             return
 
         self.fabric_points = [Vector(*n) for n in self.flattener.ze_nodes]
 
-        def calc_flat_rotation():
-            lcs = self.lcs.getGlobalPlacement()
+        def calc_flat_placement():
+            placement = lcs.getGlobalPlacement()
 
-            T_lcs = lcs.Rotation.inverted()
-            center = T_lcs * lcs.Base
-            tri_global, tri_fabric = self._get_facet(center)
+            T_lcs = placement.Rotation.inverted()
+            tri_global, tri_fabric = self._get_facet(placement.Base)
             tri_global = [T_lcs * p for p in tri_global]
+            center = T_lcs * placement.Base
             lam = calc_lambda_vec(center, tri_global)
 
             q = axes_mapped(lam, tri_fabric, tri_global)
@@ -58,7 +57,7 @@ class Draper:
             origin = Vector(eval_lam(lam, tri_fabric))
             return Base.Placement(-origin, R, origin)
 
-        self.T_fo = calc_flat_rotation()
+        self.T_fo = calc_flat_placement()
         self.fabric_points = [self.T_fo * p for p in self.fabric_points]
 
         # for i, tri in enumerate(mesh.Topology[1]):
