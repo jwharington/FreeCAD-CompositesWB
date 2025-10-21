@@ -18,10 +18,10 @@ class CompositesWorkbench(Gui.Workbench):
         function.
         """
 
-        from .features import Laminate  # noqa
-        from .features import CompositeLaminate  # noqa
         from .features import FibreCompositeLamina  # noqa
         from .features import HomogeneousLamina  # noqa
+        from .features import Laminate  # noqa
+        from .features import CompositeLaminate  # noqa
 
         from .features import CompositeShell  # noqa
         from .features import Seam  # noqa
@@ -35,10 +35,10 @@ class CompositesWorkbench(Gui.Workbench):
         from .features import Mould  # noqa
 
         cmds_section = [
-            "Composites_Laminate",
-            "Composites_CompositeLaminate",
             "Composites_FibreCompositeLamina",
             "Composites_HomogeneousLamina",
+            "Composites_Laminate",
+            "Composites_CompositeLaminate",
         ]
         cmds_structure = [
             "Composites_CompositeShell",
