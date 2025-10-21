@@ -11,24 +11,23 @@ ICONPATH = os.path.join(MODULE_PATH, "resources", "icons")
 UIPATH = os.path.join(MODULE_PATH, "resources", "ui")
 MATPATH = os.path.join(MODULE_PATH, "resources", "materials")
 
-TEXTURE_PLAN_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")
-DRAPE_TOOL_ICON = path.join(ICONPATH, "CompositeTexturePlanCommand.svg")
-MOULD_TOOL_ICON = path.join(ICONPATH, "CompositeMouldCommand.svg")
-PART_PLANE_TOOL_ICON = path.join(ICONPATH, "CompositePartPlaneCommand.svg")
-SEAM_TOOL_ICON = path.join(ICONPATH, "CompositeSeamCommand.svg")
+TEXTURE_PLAN_TOOL_ICON = path.join(ICONPATH, "TexturePlan.svg")
+MOULD_TOOL_ICON = path.join(ICONPATH, "Mould.svg")
+PART_PLANE_TOOL_ICON = path.join(ICONPATH, "PartPlane.svg")
+SEAM_TOOL_ICON = path.join(ICONPATH, "Seam.svg")
 
-LAMINATE_TOOL_ICON = path.join(ICONPATH, "FEM_MaterialLaminate.svg")
+LAMINATE_TOOL_ICON = path.join(ICONPATH, "Laminate.svg")
 COMPOSITE_LAMINATE_TOOL_ICON = path.join(
     ICONPATH,
-    "FEM_MaterialCompositeLaminate.svg",
+    "CompositeLaminate.svg",
 )
 HOMOGENEOUS_LAMINA_TOOL_ICON = path.join(
     ICONPATH,
-    "FEM_MaterialHomogeneousLamina.svg",
+    "HomogeneousLamina.svg",
 )
 FIBRE_COMPOSITE_LAMINA_TOOL_ICON = path.join(
     ICONPATH,
-    "FEM_MaterialFibreCompositeLamina.svg",
+    "FibreCompositeLamina.svg",
 )
 COMPOSITE_SHELL_TOOL_ICON = path.join(ICONPATH, "CompositeShell.svg")
 TRANSFER_LCS_TOOL_ICON = path.join(ICONPATH, "TransferLCS.svg")

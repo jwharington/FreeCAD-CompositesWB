@@ -15,7 +15,7 @@
       <description>Additional tools to define and manipulate laminated composites structures.</description>
       <version>0.1.0</version>
       <subdirectory>./</subdirectory>
-      <icon>freecad/CompositesWB/resources/icons/CompositeShell.svg</icon>
+      <icon>freecad/Composites/resources/icons/CompositeShell.svg</icon>
       <freecadmin>1.1.0</freecadmin>
       <depend>numpy</depend>
       <depend>scipy</depend>
