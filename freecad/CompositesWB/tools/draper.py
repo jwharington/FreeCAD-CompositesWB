@@ -9,6 +9,10 @@ import Part
 from ..util.mesh_util import calc_lambda_vec, axes_mapped, eval_lam
 
 
+def z_rotation(offset_angle_deg):
+    return Rotation(Vector(0, 0, 1), offset_angle_deg)
+
+
 class Draper:
 
     unwrap_steps = 5
@@ -109,23 +113,19 @@ class Draper:
         normal = (tri[1] - tri[0]).cross(tri[2] - tri[1]).normalize()
         return self._get_lcs_at_point(center, normal)
 
-    def get_rotation_with_offset(self, offset_angle_deg):
-        return Rotation(Vector(0, 0, 1), offset_angle_deg)
-
     def get_tex_coords(self, offset_angle_deg):
         # save texture coordinates for rendering pattern in 3d
-        T = self.get_rotation_with_offset(offset_angle_deg)
+        T = z_rotation(offset_angle_deg)
         return [T * p for p in self.fabric_points]
 
     def get_tex_coord_at_point(self, point, offset_angle_deg=0):
         # save texture coordinates for rendering pattern in 3d
         tri_global, tri_fabric = self._get_facet(point)
         lam = calc_lambda_vec(point, tri_global)
-        T = self.get_rotation_with_offset(offset_angle_deg=offset_angle_deg)
-        return T * eval_lam(lam, tri_fabric)
+        return z_rotation(offset_angle_deg) * eval_lam(lam, tri_fabric)
 
     def get_boundaries(self, offset_angle_deg):
-        T = self.T_fo * self.get_rotation_with_offset(offset_angle_deg)
+        T = self.T_fo * z_rotation(offset_angle_deg)
         wires = []
         boundaries = self.flattener.getFlatBoundaryNodes()
         for edge in boundaries:
