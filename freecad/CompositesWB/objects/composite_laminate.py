@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 from dataclasses import dataclass, field
 from typing import List
 from .ply import Ply

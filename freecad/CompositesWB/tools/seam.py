@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
+
 import Part
 import numpy as np
 from .geom_utils import find_uv_intersection

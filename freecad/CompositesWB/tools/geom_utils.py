@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
+
 def get_line_intersection(p0_x, p0_y, p1_x, p1_y, p2_x, p2_y, p3_x, p3_y):
 
     s1_x = p1_x - p0_x

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 from FreeCAD import (
     Vector,
     Rotation,
@@ -9,22 +12,6 @@ from Part import (
 from .draper import Draper
 import numpy as np
 from ..util.geometry_util import normalise_orientation
-
-
-# TransferLCStoPoint
-# - draper
-# - vector position
-#
-# TransferLCStoEdge
-# - draper
-# - edge
-# - (length proportion)
-#
-# TransferLCStoFace
-# - draper
-# - face
-# - edge < if missing, find one common to both
-# - (length proportion)
 
 
 def transfer_lcs_to_point(

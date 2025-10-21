@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 from . import is_comp_type
 from .VPCompositeBase import VPCompositeBase
 from .objects import Lamina

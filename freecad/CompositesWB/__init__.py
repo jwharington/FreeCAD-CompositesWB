@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 import os
 import FreeCAD
 from os import path
@@ -106,4 +109,4 @@ def getCompositesContainer() -> FreeCAD.Document:
 #             return res
 #     return []
 
-FreeCAD.__unit_test__ += [ "TestCompositesApp" ]
+FreeCAD.__unit_test__ += ["TestCompositesApp"]

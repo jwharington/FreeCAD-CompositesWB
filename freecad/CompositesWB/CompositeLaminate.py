@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 import FreeCADGui
 from . import (
     COMPOSITE_LAMINATE_TOOL_ICON,

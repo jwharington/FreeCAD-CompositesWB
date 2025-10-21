@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
+
 from ..util.plot_util import illustrateLayup
 from ..mechanics import StackModelType
 from ..mechanics.fibre_composite_model import calc_fibre_composite_model

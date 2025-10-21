@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 from ..mechanics.stack_model_type import StackModelType
 from ..objects.homogeneous_lamina import HomogeneousLamina
 from ..objects.laminate import Laminate

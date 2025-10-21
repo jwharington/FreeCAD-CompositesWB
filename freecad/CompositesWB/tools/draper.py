@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+# Copyright 2025 John Wharington jwharington@gmail.com
+
 from FreeCAD import (
     Vector,
     Rotation,
@@ -60,7 +63,7 @@ class Draper:
 
         # for i, tri in enumerate(mesh.Topology[1]):
         #     self.calc_strain(i)
-        print(self.calc_strain(502))
+        # print(self.calc_strain(502))
 
     def isValid(self):
         return self.flattener
