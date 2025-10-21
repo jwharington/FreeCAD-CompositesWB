@@ -172,8 +172,8 @@ class Draper:
 
         G, F = self._get_tris(facet)
         R = self.get_lcs(G)
-        G = [R * g for g in G]
-        D = [g - f for f, g in zip(F, G)]
+        Gp = [R * g for g in G]
+        D = [g - f for g, f in zip(Gp, F)]
 
         u = Vector(*[d.x for d in D])
         v = Vector(*[d.y for d in D])
