@@ -6,7 +6,7 @@ from FreeCAD import (
 import numpy as np
 import flatmesh
 import Part
-from ..util.mesh_util import calc_lambda_vec, axes_mapped, eval_lam, perp
+from ..util.mesh_util import calc_lambda_vec, axes_mapped, eval_lam
 
 
 class Draper:
@@ -39,7 +39,6 @@ class Draper:
 
         # for i, tri in enumerate(mesh.Topology[1]):
         #     self.calc_strain(i)
-        self.calc_strain(0)
 
     def isValid(self):
         return self.flattener
@@ -139,27 +138,19 @@ class Draper:
 
     def calc_strain(self, facet):
         # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
-        # triangles counterclockwise i,j,m
 
-        # xi, yi etc are locations (unloaded)
-        # ui, vi etc are displacements
         tri_global, tri_fabric = self.get_tris(facet)
 
         # locations (unstrained in original flat fibre)
-        A = tri_fabric[0]
-        B = tri_fabric[1]
-        C = tri_fabric[2]
+        A = self.T_fo * tri_fabric[0]
+        B = self.T_fo * tri_fabric[1]
+        C = self.T_fo * tri_fabric[2]
 
-        # locations in 3d space (these are considered the strained locations)
-        n_g = (
-            (tri_global[1] - tri_global[0]).cross(tri_global[2] - tri_global[0])
-        ).normalize()
+        R = self.get_lcs(tri_global)
+        Ad = R * tri_global[0]
+        Bd = R * tri_global[1]
+        Cd = R * tri_global[2]
 
-        Ad = perp(tri_global[0], n_g)
-        Bd = perp(tri_global[1], n_g)
-        Cd = perp(tri_global[2], n_g)
-
-        # displacements
         u = Vector(Ad.x - A.x, Bd.x - B.x, Cd.x - C.x)
         v = Vector(Ad.y - A.y, Bd.y - B.y, Cd.y - C.y)
 
@@ -170,10 +161,7 @@ class Draper:
         exx = beta.dot(u)
         eyy = gamma.dot(v)
         exy = gamma.dot(u) + beta.dot(v)
-        strains = np.array([exx, eyy, exy]) / two_area
-
-        print(strains)
-        return strains
+        return np.array([exx, eyy, exy]) / two_area
 
 
 # precompute and store:
