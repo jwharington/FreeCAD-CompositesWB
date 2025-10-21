@@ -4,11 +4,9 @@
 import FreeCAD
 import FreeCADGui
 from typing import ClassVar
-from .. import getCompositesContainer
+from .. import getCompositesContainer, debug
 
 # from .util.selection_utils import find_face_in_selection_object
-
-debug: bool = True
 
 
 class BaseCommand:

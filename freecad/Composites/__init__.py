@@ -6,6 +6,9 @@ import FreeCAD
 from os import path
 from .version import __version__  # noqa
 
+debug = False
+
+
 MODULE_PATH = os.path.dirname(__file__)
 ICONPATH = os.path.join(MODULE_PATH, "resources", "icons")
 UIPATH = os.path.join(MODULE_PATH, "resources", "ui")
