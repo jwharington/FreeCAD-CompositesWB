@@ -66,23 +66,30 @@ class Draper:
         return self.flattener
 
     # internal use only
-    def _get_tris(self, i):
+    def _get_tris(self, i: np.intp):
         simp = self.mesh.Topology[1][i]
         tri_global = [self.mesh.Points[i].Vector for i in simp]
         tri_fabric = [self.fabric_points[i] for i in simp]
         return tri_global, tri_fabric
 
-    def _get_facet(self, center: Vector):
+    def _get_facet(
+        self,
+        center: Vector,
+    ):
         dist = [center.distanceToPoint(p.Vector) for p in self.mesh.Points]
 
         def tri_dist(tri):
             return np.sum([dist[i] for i in tri])
 
         totd = [tri_dist(tri) for tri in self.mesh.Topology[1]]
-        facet = np.argmin(totd)
+        facet: np.intp = np.argmin(totd)
         return self._get_tris(facet)
 
-    def _get_lcs_at_point(self, center: Vector, normal: Vector):
+    def _get_lcs_at_point(
+        self,
+        center: Vector,
+        normal: Vector,
+    ):
         tri_global, tri_fabric = self._get_facet(center)
 
         lam = calc_lambda_vec(center, tri_global)
@@ -90,15 +97,21 @@ class Draper:
         return Rotation(d[0], d[1], normal, "ZXY").inverted()
 
     # use by FEM given fem triangles
-    def get_lcs(self, tri):
+    def get_lcs(
+        self,
+        tri: list[Vector],
+    ):
         center = (tri[0] + tri[1] + tri[2]) / 3
         normal = (tri[1] - tri[0]).cross(tri[2] - tri[1]).normalize()
         return self._get_lcs_at_point(center, normal)
 
     # use by LCS transfer tools
-    def get_lcs_at_point(self, center: Vector):
+    def get_lcs_at_point(
+        self,
+        center: Vector,
+    ):
 
-        def get_uv(p):
+        def get_uv(p: Vector):
             dmin = None
             pint = None
             fmin: Part.Face = None
@@ -111,7 +124,7 @@ class Draper:
                     fmin = f
             return (fmin.Surface.parameter(pint), fmin)
 
-        def get_normal_projected(point):
+        def get_normal_projected(point: Vector):
             ((u, v), surface) = get_uv(point)
             return surface.valueAt(u, v), surface.normalAt(u, v)
 
@@ -119,7 +132,11 @@ class Draper:
         return self._get_lcs_at_point(p, normal)
 
     # use by external alignment tools
-    def get_tex_coord_at_point(self, point, offset_angle_deg=0):
+    def get_tex_coord_at_point(
+        self,
+        point: Vector,
+        offset_angle_deg: float = 0,
+    ):
         # save texture coordinates for rendering pattern in 3d
         tri_global, tri_fabric = self._get_facet(point)
         lam = calc_lambda_vec(point, tri_global)
@@ -128,13 +145,19 @@ class Draper:
     # operations across whole mesh
 
     # use by grid rendering
-    def get_tex_coords(self, offset_angle_deg=0):
+    def get_tex_coords(
+        self,
+        offset_angle_deg: float = 0,
+    ):
         # save texture coordinates for rendering pattern in 3d
         T = z_rotation(offset_angle_deg)
         return [T * p for p in self.fabric_points]
 
     # use by texture plan
-    def get_boundaries(self, offset_angle_deg):
+    def get_boundaries(
+        self,
+        offset_angle_deg: float = 0,
+    ):
         T = self.T_fo * z_rotation(offset_angle_deg)
         wires = []
         boundaries = self.flattener.getFlatBoundaryNodes()
@@ -144,7 +167,7 @@ class Draper:
         return wires
 
     # use by ? texture plan analysis or grid rendering
-    def calc_strain(self, facet):
+    def calc_strain(self, facet: np.intp):
         # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
 
         G, F = self._get_tris(facet)
