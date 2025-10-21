@@ -47,7 +47,7 @@ if hasattr(FreeCAD.Base, "Precision"):
 
 # Add materials to the user config dir
 material_base = "BaseApp/Preferences/Mod/Material/Resources/Modules"
-materials = FreeCAD.ParamGet("User parameter:{material_base}/CompositesWB")
+materials = FreeCAD.ParamGet("User parameter:{material_base}/Composites")
 materials.SetString(
     "ModuleIcon",
     COMPOSITE_LAMINATE_TOOL_ICON,
