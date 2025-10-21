@@ -6,6 +6,7 @@ from FreeCAD import Vector
 import numpy as np
 import TechDraw
 from . import splitAPI
+from CAM import Path
 
 
 def removeDuplicateEdges(edges):
