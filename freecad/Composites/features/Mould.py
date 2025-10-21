@@ -78,7 +78,7 @@ class CompositeMouldCommand(BaseCommand):
 
     icon = MOULD_TOOL_ICON
     menu_text = "Mould"
-    tool_tip = "Generate two part mould"
+    tool_tip = "Generate two part mould.  WORK-IN-PROGRESS"
     sel_args = [
         {
             "key": "source",

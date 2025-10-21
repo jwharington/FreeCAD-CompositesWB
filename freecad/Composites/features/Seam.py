@@ -17,7 +17,7 @@ class CompositeSeamCommand:
         return {
             "Pixmap": SEAM_TOOL_ICON,
             "MenuText": "Seam",
-            "ToolTip": "Generate seam",
+            "ToolTip": "Generate seam edge.  WORK-IN-PROGRESS",
         }
 
     def check_sel(self):
