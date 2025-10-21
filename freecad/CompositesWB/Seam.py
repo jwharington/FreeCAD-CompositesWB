@@ -1,4 +1,5 @@
 from FreeCAD import Console
+import Part
 import FreeCADGui
 from . import (
     SEAM_TOOL_ICON,
@@ -28,7 +29,7 @@ class CompositeSeamCommand:
 
     def Activated(self):
         if sel := self.check_sel():
-            make_seam(sel[0], sel[1])
+            Part.show(make_seam(sel[0], sel[1]))
         else:
             Console.PrintError("Select two faces\r\n")
         return
