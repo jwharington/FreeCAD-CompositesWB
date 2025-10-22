@@ -47,15 +47,10 @@ class HomogeneousLaminaFP(BaseLaminaFP):
 
 class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 
+    _taskPanel = task_homogeneous_lamina._TaskPanel
+
     def getIcon(self):
         return HOMOGENEOUS_LAMINA_TOOL_ICON
-
-    def setEdit(self, vobj, mode=0, TaskPanel=None):
-        return super().setEdit(
-            vobj,
-            mode,
-            task_homogeneous_lamina._TaskPanel,
-        )
 
 
 class HomogeneousLaminaCommand(BaseCommand):

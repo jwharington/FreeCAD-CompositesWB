@@ -8,6 +8,7 @@ from pivy import coin
 
 class VPCompositeBase:
     # based on view_base_femobject.py
+    _taskPanel = None
 
     def __init__(self, vobj):
         vobj.Proxy = self
@@ -20,13 +21,13 @@ class VPCompositeBase:
         self.standard = coin.SoGroup()
         vobj.addDisplayMode(self.standard, "Standard")
 
-    def setEdit(self, vobj, mode=0, TaskPanel=None):
-        if TaskPanel is None:
+    def setEdit(self, vobj, mode=0):
+        if self._taskPanel is None:
             # avoid edit mode by return False
             # https://forum.freecad.org/viewtopic.php?t=12139&start=10#p161062
             return False
         # show task panel
-        task = TaskPanel(vobj.Object)
+        task = self._taskPanel(vobj.Object)
         FreeCADGui.Control.showDialog(task)
         return True
 

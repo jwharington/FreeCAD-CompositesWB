@@ -94,15 +94,10 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
 
 class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
 
+    _taskPanel = task_fibre_composite_lamina._TaskPanel
+
     def getIcon(self):
         return FIBRE_COMPOSITE_LAMINA_TOOL_ICON
-
-    def setEdit(self, vobj, mode=0, TaskPanel=None):
-        return super().setEdit(
-            vobj,
-            mode,
-            task_fibre_composite_lamina._TaskPanel,
-        )
 
 
 class FibreCompositeLaminaCommand(BaseCommand):

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+from FreeCAD import Vector
 import FreeCADGui
 from .. import (
     PART_PLANE_TOOL_ICON,
@@ -38,6 +39,13 @@ class PartPlaneFP:
             "Ruled",
             locked=True,
         ).Ruled = True
+
+        obj.addProperty(
+            "App::PropertyVector",
+            "ViewDir",
+            "ReflectLines",
+            "View direction",
+        ).ViewDir = Vector(0, 0, 1)
 
         obj.Proxy = self
 

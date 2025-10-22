@@ -51,7 +51,7 @@ class BaseCommand:
             ok = False
             neglected = []
             while len(sel):
-                s = sel.pop(0)
+                s = sel.pop(0).Object
                 if imatch(s, item):
                     if "array" in item:
                         add_array(s, item, present)
@@ -64,7 +64,7 @@ class BaseCommand:
                 sel.extend(neglected)
             return ok
 
-        sel = FreeCADGui.Selection.getSelection()
+        sel = FreeCADGui.Selection.getSelectionEx()
 
         present = []
         missing = []
@@ -100,7 +100,8 @@ class BaseCommand:
         if FreeCAD.GuiUp:
             cls = self.cls_vp
             cls(obj.ViewObject)
-            FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
+            if hasattr(cls, "_taskPanel") and cls._taskPanel:
+                FreeCADGui.ActiveDocument.setEdit(doc.ActiveObject)
         getCompositesContainer().addObject(obj)
         FreeCADGui.Selection.clearSelection()
         doc.recompute()

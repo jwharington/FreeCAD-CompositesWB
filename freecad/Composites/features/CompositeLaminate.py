@@ -46,15 +46,10 @@ class CompositeLaminateFP(LaminateFP):
 
 class ViewProviderCompositeLaminate(ViewProviderLaminate):
 
+    _taskPanel = task_composite_laminate._TaskPanel
+
     def getIcon(self):
         return COMPOSITE_LAMINATE_TOOL_ICON
-
-    def setEdit(self, vobj, mode=0, TaskPanel=None):
-        return super().setEdit(
-            vobj,
-            mode,
-            task_composite_laminate._TaskPanel,
-        )
 
 
 class CompositeLaminateCommand(LaminateCommand):
