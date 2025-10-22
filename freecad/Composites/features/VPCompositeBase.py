@@ -6,6 +6,23 @@ import FreeCADGui
 from pivy import coin
 
 
+class FPBase:
+    def __init__(self, obj):
+        obj.addExtension("App::SuppressibleExtensionPython")
+        obj.Proxy = self
+
+    def __getstate__(self):
+        return {}
+
+    def __setstate__(self, state):
+        return None
+
+    def onDocumentRestored(self, obj):
+        if not obj.hasExtension("App::SuppressibleExtensionPython"):
+            obj.addExtension("App::SuppressibleExtensionPython")
+        obj.recompute()
+
+
 class VPCompositeBase:
     # based on view_base_femobject.py
     _taskPanel = None
@@ -61,6 +78,10 @@ class VPCompositeBase:
     def setDisplayMode(self, mode):
         return mode
 
+    def updateData(self, vobj, prop):
+        # Update visual data based on feature properties
+        pass
+
     def __getstate__(self):
         return {}
 
@@ -75,3 +96,6 @@ class VPCompositeBase:
 
     def loads(self, state):
         return None
+
+    def claimChildren(self):
+        return []

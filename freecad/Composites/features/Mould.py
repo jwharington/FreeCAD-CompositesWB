@@ -7,9 +7,10 @@ from .. import (
 )
 from ..tools.mould import make_moulds
 from .Command import BaseCommand
+from .VPCompositeBase import VPCompositeBase, FPBase
 
 
-class MouldFP:
+class MouldFP(FPBase):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",
@@ -43,35 +44,17 @@ class MouldFP:
             locked=True,
         ).ZOverhang = "5.0 mm"
 
-        obj.Proxy = self
-
-    def onChanged(self, fp, prop):
-        return
+        super().__init__(obj)
 
     def execute(self, fp):
         buffer = [fp.XOverhang.Value, fp.YOverhang.Value, fp.ZOverhang.Value]
         fp.Shape = make_moulds(fp.Source.Shape, buffer)
 
 
-class ViewProviderMould:
-    def __init__(self, obj):
-        self.obj = obj
-        obj.Proxy = self
+class ViewProviderMould(VPCompositeBase):
 
-    def onChanged(self, obj, prop):
-        return
-
-    def updateData(self, fp, prop):
-        return
-
-    def claimChildren(self):
-        return []  # [self.obj.Object.Source]
-
-    def __getstate__(self):
-        return None
-
-    def __setstate__(self, state):
-        return None
+    def getIcon(self):
+        return MOULD_TOOL_ICON
 
 
 class CompositeMouldCommand(BaseCommand):

@@ -12,9 +12,10 @@ from ..tools.part_plane import (
     make_part_plane3,
 )
 from .Command import BaseCommand
+from .VPCompositeBase import VPCompositeBase, FPBase
 
 
-class PartPlaneFP:
+class PartPlaneFP(FPBase):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",
@@ -47,10 +48,7 @@ class PartPlaneFP:
             "View direction",
         ).ViewDir = Vector(0, 0, 1)
 
-        obj.Proxy = self
-
-    def onChanged(self, fp, prop):
-        return
+        super().__init__(obj)
 
     def execute(self, fp):
         shape = make_part_plane3(
@@ -59,25 +57,10 @@ class PartPlaneFP:
         fp.Shape = shape
 
 
-class ViewProviderPartPlane:
-    def __init__(self, obj):
-        self.obj = obj
-        obj.Proxy = self
+class ViewProviderPartPlane(VPCompositeBase):
 
-    def onChanged(self, obj, prop):
-        return
-
-    def updateData(self, fp, prop):
-        return
-
-    def claimChildren(self):
-        return []  # [self.obj.Object.Source]
-
-    def __getstate__(self):
-        return None
-
-    def __setstate__(self, state):
-        return None
+    def getIcon(self):
+        return PART_PLANE_TOOL_ICON
 
 
 class CompositePartPlaneCommand(BaseCommand):

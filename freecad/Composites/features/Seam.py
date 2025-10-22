@@ -9,12 +9,12 @@ from ..tools.seam import (
     make_join_seam,
     make_edge_seam,
 )
-from .VPCompositeBase import VPCompositeBase
+from .VPCompositeBase import VPCompositeBase, FPBase
 from .Command import BaseCommand
 
 
-class SeamFP:
-    def __init__(self, obj):
+class SeamFP(FPBase):
+    def __init__(self, obj, source):
 
         obj.addProperty(
             "App::PropertyLink",
@@ -22,7 +22,7 @@ class SeamFP:
             "References",
             "Link to the shape",
             locked=True,
-        ).Source = None
+        ).Source = source
 
         obj.addProperty(
             "App::PropertyLinkSubList",
@@ -40,13 +40,13 @@ class SeamFP:
             locked=True,
         ).Overlap = "10.0 mm"
 
-        obj.Proxy = self
-
-    def onChanged(self, fp, prop):
-        return
+        super().__init__(obj)
 
     def execute(self, fp):
         edges = [e[0].getSubObject(e[1])[0] for e in fp.Edges]
+
+        if not edges:
+            raise ValueError("missing edges")
 
         shape = make_edge_seam(
             shape=fp.Source.Shape,
@@ -54,9 +54,6 @@ class SeamFP:
             overlap=fp.Overlap,
         )
         fp.Shape = shape
-
-    def onDocumentRestored(self, fp):
-        fp.recompute()
 
 
 class ViewProviderSeam(VPCompositeBase):
@@ -74,10 +71,10 @@ class CompositeSeamCommand(BaseCommand):
     menu_text = "Seam"
     tool_tip = "Generate seam edge. WORK-IN-PROGRESS"
     sel_args = [
-        # {
-        #     "key": "source",
-        #     "type": "Part::Feature",
-        # },
+        {
+            "key": "source",
+            "type": "Part::Feature",
+        },
     ]
     type_id = "Part::FeaturePython"
     instance_name = "Seam"

@@ -9,22 +9,22 @@ from .. import (
 )
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
+from .VPCompositeBase import VPCompositeBase, FPBase
 
 
-class TexturePlanFP:
+class TexturePlanFP(FPBase):
 
     Type = "Composite::TexturePlan"
 
     def __init__(self, obj, shells=[]):
-        obj.Proxy = self
-        obj.addExtension("App::SuppressibleExtensionPython")
-
         obj.addProperty(
             type="App::PropertyLinkListGlobal",
             name="CompositeShell",
             group="References",
             doc="Composite Shells to unwrap",
         ).CompositeShell = shells
+
+        super().__init__(obj)
 
     def execute(self, fp):
         shapes = []
@@ -44,20 +44,13 @@ class TexturePlanFP:
 
         # fp.ViewObject.update()
 
-    def onDocumentRestored(self, fp):
-        # super().onDocumentRestored(fp)
-        fp.recompute()
-
     def onChanged(self, fp, prop):
         match prop:
             case "CompositeShell":
                 fp.recompute()
 
 
-class ViewProviderTexturePlan:
-
-    def __init__(self, obj):
-        obj.Proxy = self
+class ViewProviderTexturePlan(VPCompositeBase):
 
     def getDisplayModes(self, obj):
         return []
@@ -71,22 +64,6 @@ class ViewProviderTexturePlan:
     def attach(self, vobj):
         self.Object = vobj.Object
         self.ViewObject = vobj
-
-    # def updateData(self, fp, prop):
-    #     match prop:
-    #         case _:
-    #             return
-
-    # def onChanged(self, vobj, prop):
-    #     match prop:
-    #         case _:
-    #             pass
-
-    def __getstate__(self):
-        return None
-
-    def __setstate__(self, state):
-        return None
 
 
 class TexturePlanCommand(BaseCommand):

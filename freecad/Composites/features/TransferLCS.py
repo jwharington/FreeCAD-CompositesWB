@@ -10,17 +10,16 @@ from ..tools.lcs import (
     transfer_lcs_to_point,
     transfer_lcs_to_edge,
 )
-from .VPCompositeBase import VPCompositeBase
+from .VPCompositeBase import VPCompositeBase, FPBase
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
 
 
-class TransferLCSFP:
+class TransferLCSFP(FPBase):
 
     Type = "Composite::TransferLCS"
 
     def __init__(self, obj, shell=None, support=None):
-        obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
@@ -56,7 +55,7 @@ class TransferLCSFP:
             doc="Proportion of distance along edge",
         ).Position = 0.5
 
-        obj.Proxy = self
+        super().__init__(obj)
 
     def execute(self, fp):
         if not fp.Support:
@@ -95,10 +94,6 @@ class TransferLCSFP:
             lcs.Placement.Base = position
             lcs.Placement.Rotation = rotation.inverted()
 
-    def onDocumentRestored(self, fp):
-        # super().onDocumentRestored(fp)
-        fp.recompute()
-
     def onChanged(self, fp, prop):
         match prop:
             case "CompositeShell" | "Support":
@@ -109,9 +104,6 @@ class TransferLCSFP:
 
 
 class ViewProviderTransferLCS(VPCompositeBase):
-
-    def __init__(self, obj):
-        obj.Proxy = self
 
     def getIcon(self):
         return TRANSFER_LCS_TOOL_ICON

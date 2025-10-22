@@ -20,7 +20,7 @@ from ..objects import (
     Laminate,
     SymmetryType,
 )
-from .VPCompositeBase import VPCompositeBase
+from .VPCompositeBase import VPCompositeBase, FPBase
 from .Command import BaseCommand
 from .Lamina import is_lamina
 
@@ -44,12 +44,11 @@ def is_laminate(obj):
     )
 
 
-class LaminateFP:
+class LaminateFP(FPBase):
 
     Type = "Fem::MaterialMechanicalLaminate"
 
     def __init__(self, obj, laminae=[]):
-        obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
             "App::PropertyLinkListGlobal",
@@ -100,7 +99,7 @@ class LaminateFP:
         )
         obj.setPropertyStatus("Thickness", "ReadOnly")
 
-        obj.Proxy = self
+        super().__init__(obj)
 
         # obj.addProperty(
         #     "App::PropertyPythonObject",
@@ -110,11 +109,6 @@ class LaminateFP:
         #     0,
         #     True,
         # ).FEMLayers = []
-
-    def onDocumentRestored(self, obj):
-        if not obj.hasExtension("App::SuppressibleExtensionPython"):
-            obj.addExtension("App::SuppressibleExtensionPython")
-        obj.recompute()
 
     def execute(self, obj):
         laminate = self.get_model(obj)
@@ -152,12 +146,6 @@ class LaminateFP:
             prefix=obj.Name,
             layers=self.FEMLayers,
         )
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        return None
 
     def get_model(self, obj) -> Laminate:
         if model_layers := get_model_layers(obj):

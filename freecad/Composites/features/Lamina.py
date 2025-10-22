@@ -3,7 +3,7 @@
 
 from .. import is_comp_type
 from ..objects import Lamina
-from .VPCompositeBase import VPCompositeBase
+from .VPCompositeBase import VPCompositeBase, FPBase
 
 
 def is_lamina(obj):
@@ -14,13 +14,11 @@ def is_lamina(obj):
     )
 
 
-class BaseLaminaFP:
+class BaseLaminaFP(FPBase):
 
     Type = "Fem::MaterialMechanicalLamina"
 
     def __init__(self, obj):
-        obj.Proxy = self
-        obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
             "App::PropertyBool",
@@ -43,18 +41,11 @@ class BaseLaminaFP:
             "Thickness of layer",
         ).Thickness = 0.1
 
+        super().__init__(obj)
+
     def get_model(self, obj) -> Lamina:
-        return None
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
         return None
 
 
 class BaseViewProviderLamina(VPCompositeBase):
-
-    def updateData(self, vobj, prop):
-        # Update visual data based on feature properties
-        pass
+    pass

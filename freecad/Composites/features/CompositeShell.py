@@ -12,6 +12,7 @@ from ..tools.draper import Draper
 from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Laminate import is_laminate
+from .VPCompositeBase import FPBase
 
 
 def is_composite_shell(obj):
@@ -22,12 +23,11 @@ def is_composite_shell(obj):
     )
 
 
-class CompositeShellFP:
+class CompositeShellFP(FPBase):
 
     Type = "Composite::Shell"
 
     def __init__(self, obj, support=None, laminate=None, lcs=None):
-        obj.addExtension("App::SuppressibleExtensionPython")
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
@@ -81,7 +81,8 @@ class CompositeShellFP:
         obj.LocalCoordinateSystem = lcs
         obj.Laminate = laminate
         obj.Support = support
-        obj.Proxy = self
+
+        super().__init__(obj)
 
     def execute(self, fp):
         if (not fp.Support) or (not fp.Laminate):
@@ -99,10 +100,6 @@ class CompositeShellFP:
         fp.Mesh.Mesh = mesh
         if fp.ViewObject:
             fp.ViewObject.update()
-
-    def onDocumentRestored(self, fp):
-        # super().onDocumentRestored(fp)
-        fp.recompute()
 
     def onChanged(self, fp, prop):
         match prop:
@@ -144,12 +141,6 @@ class CompositeShellFP:
         shape = fp.Shape
         maxl = max(ml, shape.BoundBox.DiagonalLength / 50.0)
         return MeshPart.meshFromShape(Shape=shape, MaxLength=maxl)
-
-    def __getstate__(self):
-        return {}
-
-    def __setstate__(self, state):
-        return None
 
 
 class ViewProviderCompositeShell:
