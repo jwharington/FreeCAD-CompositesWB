@@ -9,10 +9,10 @@ from .. import (
 )
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 
 
-class TexturePlanFP(FPBase):
+class TexturePlanFP(BaseFP):
 
     Type = "Composite::TexturePlan"
 

@@ -6,7 +6,7 @@ import FreeCADGui
 from pivy import coin
 
 
-class FPBase:
+class BaseFP:
     def __init__(self, obj):
         obj.addExtension("App::SuppressibleExtensionPython")
         obj.Proxy = self

@@ -7,10 +7,10 @@ from .. import (
 )
 from ..tools.mould import make_moulds
 from .Command import BaseCommand
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 
 
-class MouldFP(FPBase):
+class MouldFP(BaseFP):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",

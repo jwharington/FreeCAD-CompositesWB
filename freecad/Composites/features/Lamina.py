@@ -3,7 +3,7 @@
 
 from .. import is_comp_type
 from ..objects import Lamina
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 
 
 def is_lamina(obj):
@@ -14,7 +14,7 @@ def is_lamina(obj):
     )
 
 
-class BaseLaminaFP(FPBase):
+class BaseLaminaFP(BaseFP):
 
     Type = "Fem::MaterialMechanicalLamina"
 

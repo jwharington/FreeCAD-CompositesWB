@@ -10,12 +10,12 @@ from ..tools.lcs import (
     transfer_lcs_to_point,
     transfer_lcs_to_edge,
 )
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
 
 
-class TransferLCSFP(FPBase):
+class TransferLCSFP(BaseFP):
 
     Type = "Composite::TransferLCS"
 

@@ -9,11 +9,11 @@ from ..tools.seam import (
     make_join_seam,
     make_edge_seam,
 )
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 from .Command import BaseCommand
 
 
-class SeamFP(FPBase):
+class SeamFP(BaseFP):
     def __init__(self, obj, source):
 
         obj.addProperty(

@@ -12,10 +12,10 @@ from ..tools.part_plane import (
     make_part_plane3,
 )
 from .Command import BaseCommand
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 
 
-class PartPlaneFP(FPBase):
+class PartPlaneFP(BaseFP):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",

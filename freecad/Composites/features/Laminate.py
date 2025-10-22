@@ -20,7 +20,7 @@ from ..objects import (
     Laminate,
     SymmetryType,
 )
-from .VPCompositeBase import VPCompositeBase, FPBase
+from .VPCompositeBase import VPCompositeBase, BaseFP
 from .Command import BaseCommand
 from .Lamina import is_lamina
 
@@ -44,7 +44,7 @@ def is_laminate(obj):
     )
 
 
-class LaminateFP(FPBase):
+class LaminateFP(BaseFP):
 
     Type = "Fem::MaterialMechanicalLaminate"
 

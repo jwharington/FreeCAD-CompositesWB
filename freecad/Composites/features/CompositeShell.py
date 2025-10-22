@@ -12,7 +12,7 @@ from ..tools.draper import Draper
 from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Laminate import is_laminate
-from .VPCompositeBase import FPBase
+from .VPCompositeBase import BaseFP
 
 
 def is_composite_shell(obj):
@@ -23,7 +23,7 @@ def is_composite_shell(obj):
     )
 
 
-class CompositeShellFP(FPBase):
+class CompositeShellFP(BaseFP):
 
     Type = "Composite::Shell"
 
