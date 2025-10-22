@@ -67,18 +67,28 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         val = obj.FibreMaterial["Density"]
         return FreeCAD.Units.Quantity(val)
 
-    def onChanged(self, obj, prop):
-        density = self.get_density(obj)
-        if not density:
-            return
-        if "Thickness" == prop:
-            obj.ArealWeight = FreeCAD.Units.Quantity(obj.Thickness) * density
-
-    def get_model(self, obj) -> Lamina:
+    def get_volume_fraction(self, obj):
         if volume_fraction := obj.FibreVolumeFraction:
             volume_fraction *= 0.01
         else:
             volume_fraction = 0.0
+        return volume_fraction
+
+    def update_areal_weight(self, obj):
+        density = self.get_density(obj)
+        if not density:
+            return
+        vf = self.get_volume_fraction(obj)
+        if not vf:
+            return
+        t = FreeCAD.Units.Quantity(obj.Thickness)
+        obj.ArealWeight = t * density * vf
+
+    def onChanged(self, obj, prop):
+        if "Thickness" == prop:
+            self.update_areal_weight(obj)
+
+    def get_model(self, obj) -> Lamina:
         if not obj.FibreMaterial:
             raise ValueError("No fibre material")
         weave_type = WeaveType[obj.WeaveType]
@@ -87,9 +97,13 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
             thickness=obj.Thickness.Value,
             orientation=obj.Angle.Value,
             weave=weave_type,
-            volume_fraction_fibre=volume_fraction,
+            volume_fraction_fibre=self.get_volume_fraction(obj),
         )
         return FibreCompositeLamina(fibre=fabric)
+
+    def onDocumentRestored(self, obj):
+        super().onDocumentRestored(obj)
+        self.update_areal_weight(obj)
 
 
 class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
