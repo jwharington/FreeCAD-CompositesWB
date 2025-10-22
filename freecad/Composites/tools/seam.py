@@ -23,13 +23,13 @@ def generate_seam_tube(wire: Part.Wire, overlap: float):
 
 
 def make_edge_seam(
-    face: Part.Face,
+    shape: Part.Shape,
     edges: list[Part.Edge],
     overlap: float = 10,
 ):
     sedges = Part.__sortEdges__(edges)
     tools = [generate_seam_tube(Part.Wire(e), overlap) for e in sedges]
-    return splitAPI.slice(face, tools, "Split", 1e-6)
+    return splitAPI.slice(shape, tools, "Split", 1e-6)
 
 
 def get_partner_edges(

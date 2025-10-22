@@ -9,6 +9,7 @@ from ..tools.seam import (
     make_join_seam,
     make_edge_seam,
 )
+from .VPCompositeBase import VPCompositeBase
 from .Command import BaseCommand
 
 
@@ -16,12 +17,12 @@ class SeamFP:
     def __init__(self, obj):
 
         obj.addProperty(
-            "App::PropertyLinkSub",
-            "SourceA",
+            "App::PropertyLink",
+            "Source",
             "References",
             "Link to the shape",
             locked=True,
-        ).SourceA = None
+        ).Source = None
 
         obj.addProperty(
             "App::PropertyLinkSubList",
@@ -45,12 +46,10 @@ class SeamFP:
         return
 
     def execute(self, fp):
-
-        face = fp.SourceA[0].getSubObject(fp.SourceA[1])[0]
         edges = [e[0].getSubObject(e[1])[0] for e in fp.Edges]
 
         shape = make_edge_seam(
-            face=face,
+            shape=fp.Source.Shape,
             edges=edges,
             overlap=fp.Overlap,
         )
@@ -60,19 +59,13 @@ class SeamFP:
         fp.recompute()
 
 
-class ViewProviderSeam:
-    def __init__(self, obj):
-        self.obj = obj
-        obj.Proxy = self
+class ViewProviderSeam(VPCompositeBase):
 
     def claimChildren(self):
-        return []  # [self.obj.Object.Source]
+        return [self.Object.Source]
 
-    def __getstate__(self):
-        return None
-
-    def __setstate__(self, state):
-        return None
+    def getIcon(self):
+        return SEAM_TOOL_ICON
 
 
 class CompositeSeamCommand(BaseCommand):
