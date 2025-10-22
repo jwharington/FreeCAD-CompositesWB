@@ -51,7 +51,7 @@ class BaseCommand:
             ok = False
             neglected = []
             while len(sel):
-                s = sel.pop(0).Object
+                s = sel.pop(0)  # .Object  when using Ex
                 if imatch(s, item):
                     if "array" in item:
                         add_array(s, item, present)
@@ -64,7 +64,7 @@ class BaseCommand:
                 sel.extend(neglected)
             return ok
 
-        sel = FreeCADGui.Selection.getSelectionEx()
+        sel = FreeCADGui.Selection.getSelection()  # Ex()
 
         present = []
         missing = []
@@ -81,7 +81,7 @@ class BaseCommand:
 
         res = {p["key"]: p["value"] for p in present}
         if report and debug:
-            print(f"res: {res}")
+            print(f"{self.__class__} res: {res}")
         if ok:
             return res
         return None
