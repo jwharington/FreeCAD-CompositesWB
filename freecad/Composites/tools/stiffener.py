@@ -58,15 +58,26 @@ class StiffenerSectionType(Enum):
 # obj.setPropertyStatus(property_name, 'Hidden')
 
 
-def get_spoint(
+def get_axes(
     origin_wire: Part.Wire,
     direction: Vector,
-    coord,
 ):
     e0 = origin_wire.Edges[0]
     x = e0.tangentAt(e0.FirstParameter)
     y = x.cross(direction).normalize()
     o = origin_wire.Edges[0].firstVertex().Point
+    return x, y, o
+
+
+def get_spoint(
+    origin_wire: Part.Wire,
+    direction: Vector,
+    coord,
+):
+    _, y, o = get_axes(
+        origin_wire=origin_wire,
+        direction=direction,
+    )
     return Vector(coord[0] * y + coord[1] * direction + o)
 
 
@@ -75,10 +86,26 @@ def generate_origin_wire(
     base_wire: Part.Wire,
     direction: Vector,
 ):
-    return support.makeParallelProjection(base_wire, direction)
+    shape = support.makeParallelProjection(base_wire, direction)
+    return Part.Wire(shape.Edges)
 
 
 def generate_surface_edge(
+    support: Part.Shape,
+    origin_wire: Part.Wire,
+    offset: float,
+    direction: Vector,
+):
+    _, y, _ = get_axes(
+        origin_wire=origin_wire,
+        direction=direction,
+    )
+    wire = origin_wire.copy()
+    wire.Placement.move(y * offset)
+    return support.makeParallelProjection(wire, direction)
+
+
+def generate_surface_edge2(
     support: Part.Shape,
     origin_wire: Part.Wire,
     offset: float,
@@ -94,7 +121,8 @@ def generate_surface_edge(
     # shell for flattened base
     s = origin_wire.makePipeShell([make_section()], makeSolid, isFrenet)
     # projection onto support
-    return support.makeParallelProjection(Part.Wire(s.Edges), direction)
+    pp = support.makeParallelProjection(Part.Wire(s.Edges), direction)
+    return pp  # Part.Wire(pp.Edges[0:2])
 
 
 def generate_free_edge(
@@ -114,7 +142,7 @@ def generate_free_edge(
         )
 
     def make_section(flip):
-        delta = np.array([1.0, 0])
+        delta = np.array([1.0, 1.0])
 
         p0 = get_spoint(origin_wire, direction, coord)
         if flip:
@@ -136,7 +164,7 @@ def generate_stiffener(
     origin_wire: Part.Wire,
     direction: Vector,
 ):
-    points = [[0, 0], [0, 5], [5, 5]]
+    points = [[0, 0], [0.01, 4], [-3, 4]]
     edges = [
         generate_free_edge(
             support=support,
@@ -146,32 +174,11 @@ def generate_stiffener(
         )
         for p in points
     ]
-
     return Part.makeLoft(
         edges,
         solid=False,
         ruled=True,
     )
-
-    pf = [get_spoint(origin_wire, direction, np.array(p)) for p in points]
-
-    def make_section():
-        plast = None
-        edges = []
-        for p in pf:
-            if plast:
-                edges.append(Part.LineSegment(plast, p).toShape())
-            plast = p
-        return Part.Wire(edges)
-
-    # Part.makeLoft(wires, solid=False, ruled=True,)
-
-    makeSolid = False
-    isFrenet = True
-    return origin_wire.makePipeShell([make_section()], makeSolid, isFrenet)
-
-
-#    return splitAPI.slice(support, [proj], "Split", 1e-6)
 
 
 def make_stiffener(
@@ -179,33 +186,35 @@ def make_stiffener(
     edges: list[Part.Edge],
     direction: Vector = Vector(
         0,
-        1,
         0,
+        1,
     ),
 ):
+
     def process_edge(e):
         origin_wire = generate_origin_wire(
             support=support,
             base_wire=Part.Wire(e),
             direction=direction,
         )
-        origin_wire = Part.Wire(origin_wire.Edges)
-        surface = generate_surface_edge(
+        surface_edge = generate_surface_edge(
             support=support,
             origin_wire=origin_wire,
             direction=direction,
-            offset=3.0,
+            offset=5.0,
         )
         stiffener = generate_stiffener(
             support=support,
             origin_wire=origin_wire,
             direction=direction,
         )
-        return stiffener
+        return (stiffener, [origin_wire, surface_edge])
 
     sedges = Part.__sortEdges__(edges)
-    # tools = [process_edge(e) for e in sedges]
-    tools = [process_edge(sedges)]
-    print(tools)
-    return tools[0]
-    # return splitAPI.slice(shape, tools, "Split", 1e-6)
+    parts = [process_edge(e) for e in sedges]
+    stiffeners = [p[0] for p in parts]
+    return stiffeners[0]
+    tools = []
+    for p in parts:
+        tools.extend(p[1])
+    return splitAPI.slice(support, tools, "Split", 1e-6)
