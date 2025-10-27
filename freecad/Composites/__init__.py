@@ -18,6 +18,7 @@ TEXTURE_PLAN_TOOL_ICON = path.join(ICONPATH, "TexturePlan.svg")
 MOULD_TOOL_ICON = path.join(ICONPATH, "Mould.svg")
 PART_PLANE_TOOL_ICON = path.join(ICONPATH, "PartPlane.svg")
 SEAM_TOOL_ICON = path.join(ICONPATH, "Seam.svg")
+STIFFENER_TOOL_ICON = path.join(ICONPATH, "Stiffener.svg")
 
 LAMINATE_TOOL_ICON = path.join(ICONPATH, "Laminate.svg")
 COMPOSITE_LAMINATE_TOOL_ICON = path.join(

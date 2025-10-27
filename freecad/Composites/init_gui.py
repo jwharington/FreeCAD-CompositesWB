@@ -25,6 +25,7 @@ class CompositesWorkbench(Gui.Workbench):
 
         from .features import CompositeShell  # noqa
         from .features import Seam  # noqa
+        from .features import Stiffener  # noqa
 
         from .features import TransferLCS  # noqa
         from .features import WrapLCS  # noqa
@@ -43,6 +44,7 @@ class CompositesWorkbench(Gui.Workbench):
         cmds_structure = [
             "Composites_CompositeShell",
             "Composites_Seam",
+            "Composites_Stiffener",
         ]
         cmds_lcs = [
             "Composites_TransferLCS",
