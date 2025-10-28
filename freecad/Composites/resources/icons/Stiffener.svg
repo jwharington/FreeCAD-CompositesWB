@@ -7,7 +7,7 @@
    viewBox="0 0 64.0 64.0"
    version="1.1"
    id="SVGRoot"
-   sodipodi:docname="CompositeSeamCommand.svg"
+   sodipodi:docname="Stiffener.svg"
    inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
@@ -25,8 +25,8 @@
      inkscape:document-units="px"
      showgrid="true"
      inkscape:zoom="6.7277216"
-     inkscape:cx="22.816045"
-     inkscape:cy="18.654161"
+     inkscape:cx="18.654161"
+     inkscape:cy="18.802799"
      inkscape:window-width="1536"
      inkscape:window-height="891"
      inkscape:window-x="0"
@@ -44,17 +44,28 @@
      inkscape:groupmode="layer"
      id="layer1">
     <path
-       style="fill:#a05a2c;stroke:#1a1a1a;stroke-width:2.9;stroke-dashoffset:0.29"
-       d="M 2.6701536,61.58126 29.936461,53.809162 46.163004,61.705948 55.106466,6.2103483 50.595122,1.6622335 21.332416,3.3619987 Z"
+       style="fill:#a05a2c;stroke:#1a1a1a;stroke-width:2.67077;stroke-dashoffset:0.29"
+       d="m 1.8790819,60.721061 31.8727341,-1.168049 22.18793,-0.0076 4.590681,-42.754139 0.772968,-5.451185 -47.257675,0.545837 z"
        id="path1094"
        sodipodi:nodetypes="ccccccc" />
     <path
-       style="fill:none;stroke:#1a1a1a;stroke-width:3.16827;stroke-dasharray:3.16827, 3.16827;stroke-dashoffset:0"
-       d="M 0.75249893,30.142464 37.766732,26.108545 62.960195,37.832696"
-       id="path1246" />
+       style="fill:#b79179;stroke:#000000;stroke-width:1.87414;fill-opacity:1"
+       d="M 34.086329,59.618679 48.033538,11.404735 48.065742,1.1036091 34.758679,0.82909688 17.698694,46.218285 32.235208,45.934431 32.631005,59.821088"
+       id="path345"
+       sodipodi:nodetypes="ccccccc" />
     <path
-       style="fill:none;stroke:#f2f2f2;stroke-width:3.16827;stroke-dasharray:3.16827, 3.16827;stroke-dashoffset:0"
-       d="M 1.0080435,27.276347 38.022276,23.242428 63.215739,34.966579"
-       id="path1246-3" />
+       style="fill:#8b634a;fill-opacity:1;stroke:none;stroke-width:2.035;stroke-dasharray:2.035, 2.035"
+       d="M 33.301045,44.771684 46.988845,1.9024197 47.74386,11.135979 34.08491,57.861854 Z"
+       id="path1570"
+       sodipodi:nodetypes="ccccc" />
+    <path
+       style="fill:#8b7d75;stroke:#000000;stroke-width:1.87414;stroke-dasharray:1.87414, 1.87414;stroke-dashoffset:0"
+       d="M 31.672392,45.71392 47.032436,1.6227791"
+       id="path347"
+       sodipodi:nodetypes="cc" />
   </g>
+  <g
+     inkscape:groupmode="layer"
+     id="layer2"
+     inkscape:label="Layer 2" />
 </svg>
