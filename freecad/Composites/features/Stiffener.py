@@ -44,6 +44,7 @@ class StiffenerFP(BaseFP):
             edges=edges,
         )
         fp.Shape = shape
+        fp.Source.Visibility = False
 
 
 class ViewProviderStiffener(VPCompositeBase):

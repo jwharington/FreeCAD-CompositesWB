@@ -58,15 +58,26 @@ class StiffenerSectionType(Enum):
 # obj.setPropertyStatus(property_name, 'Hidden')
 
 
+def wire_first_point(wire: Part.Wire):
+    return wire.Edges[0].firstVertex().Point
+
+
+def wire_last_point(wire: Part.Wire):
+    return wire.Edges[-1].lastVertex().Point
+
+
 def get_axes(
     origin_wire: Part.Wire,
     direction: Vector,
 ):
     e0 = origin_wire.Edges[0]
+    o = wire_first_point(origin_wire)
     x = e0.tangentAt(e0.FirstParameter)
-    y = x.cross(direction).normalize()
-    o = origin_wire.Edges[0].firstVertex().Point
-    return x, y, o
+    # y = x.cross(direction).normalize()
+    # z = direction
+    z = e0.normalAt(e0.FirstParameter)
+    y = x.cross(z).normalize()
+    return x, y, z, o
 
 
 def get_spoint(
@@ -74,11 +85,11 @@ def get_spoint(
     direction: Vector,
     coord,
 ):
-    _, y, o = get_axes(
+    _, y, z, o = get_axes(
         origin_wire=origin_wire,
         direction=direction,
     )
-    return Vector(coord[0] * y + coord[1] * direction + o)
+    return Vector(coord[0] * y + coord[1] * z + o)
 
 
 def generate_origin_wire(
@@ -96,7 +107,7 @@ def generate_surface_edge(
     offset: float,
     direction: Vector,
 ):
-    _, y, _ = get_axes(
+    _, y, _, _ = get_axes(
         origin_wire=origin_wire,
         direction=direction,
     )
@@ -123,6 +134,61 @@ def generate_surface_edge2(
     # projection onto support
     pp = support.makeParallelProjection(Part.Wire(s.Edges), direction)
     return pp  # Part.Wire(pp.Edges[0:2])
+
+
+def find_surface_pairs(xsect: list, invert: bool = False):
+    s_pairs = []
+    for pair in xsect:
+        is_surface = (pair[0][1] == 0) and (pair[1][1] == 0)
+        if invert != is_surface:
+            s_pairs.append(pair)
+    return s_pairs
+
+
+def generate_surface_tool(
+    support: Part.Shape,
+    origin_wire: Part.Wire,
+    direction: Vector,
+    xsect: list,
+):
+    _, y, _, _ = get_axes(
+        origin_wire=origin_wire,
+        direction=direction,
+    )
+    # scan points for lines on surface
+    s_pairs = find_surface_pairs(xsect, invert=False)
+
+    tools = []
+    for pair in s_pairs:
+        # get moved line
+        # stitch into closed shape
+        # project to support
+        def make_wire(p):
+            wire = origin_wire.copy()
+            wire.Placement.move(y * p[0])
+            return wire
+
+        wires = [make_wire(p) for p in pair]
+
+        p00 = wire_first_point(wires[0])
+        p01 = wire_first_point(wires[1])
+        p10 = wire_last_point(wires[0])
+        p11 = wire_last_point(wires[1])
+
+        if p00.distanceToPoint(p10) > 0:
+            wires.append(Part.Wire(Part.LineSegment(p00, p01).toShape()))
+            wires.append(Part.Wire(Part.LineSegment(p10, p11).toShape()))
+
+        def add_tool(w, sign):
+            shape = support.makeParallelProjection(w, sign * direction)
+            if not shape.isNull():
+                tools.append(shape)
+
+        for w in wires:
+            add_tool(w, 1)
+            add_tool(w, -1)
+
+    return tools
 
 
 def generate_free_edge(
@@ -156,29 +222,37 @@ def generate_free_edge(
     isFrenet = True
     s0 = origin_wire.makePipeShell([make_section(True)], makeSolid, isFrenet)
     s1 = origin_wire.makePipeShell([make_section(False)], makeSolid, isFrenet)
-    return s0.section(s1)
+    return Part.Wire(s0.section(s1).Edges)
 
 
 def generate_stiffener(
     support: Part.Shape,
     origin_wire: Part.Wire,
     direction: Vector,
+    xsect: list,
 ):
-    points = [[0, 0], [0.01, 4], [-3, 4]]
-    edges = [
-        generate_free_edge(
-            support=support,
-            origin_wire=origin_wire,
-            direction=direction,
-            coord=p,
+    s_pairs = find_surface_pairs(xsect, invert=True)
+    shapes = []
+    for pair in s_pairs:
+
+        def get_edge(p):
+            edge = generate_free_edge(
+                support=support,
+                origin_wire=origin_wire,
+                direction=direction,
+                coord=p,
+            )
+            return edge
+
+        edges = [get_edge(p) for p in pair]
+        shape = Part.makeLoft(
+            edges,
+            solid=False,
+            ruled=True,
         )
-        for p in points
-    ]
-    return Part.makeLoft(
-        edges,
-        solid=False,
-        ruled=True,
-    )
+        shapes.append(shape)
+
+    return Part.makeCompound(shapes)
 
 
 def make_stiffener(
@@ -190,6 +264,11 @@ def make_stiffener(
         1,
     ),
 ):
+    xsect = [
+        [[-3, 0], [0, 0]],
+        [[0, 0], [0.01, 4]],
+        [[0.01, 4], [-3, 4]],
+    ]
 
     def process_edge(e):
         origin_wire = generate_origin_wire(
@@ -197,24 +276,32 @@ def make_stiffener(
             base_wire=Part.Wire(e),
             direction=direction,
         )
-        surface_edge = generate_surface_edge(
+        tool = generate_surface_tool(
             support=support,
             origin_wire=origin_wire,
             direction=direction,
-            offset=5.0,
+            xsect=xsect,
         )
         stiffener = generate_stiffener(
             support=support,
             origin_wire=origin_wire,
             direction=direction,
+            xsect=xsect,
         )
-        return (stiffener, [origin_wire, surface_edge])
+        return (stiffener, tool)
 
     sedges = Part.__sortEdges__(edges)
     parts = [process_edge(e) for e in sedges]
     stiffeners = [p[0] for p in parts]
-    return stiffeners[0]
+    # return stiffeners[0]
     tools = []
     for p in parts:
         tools.extend(p[1])
-    return splitAPI.slice(support, tools, "Split", 1e-6)
+    return Part.makeCompound(tools + stiffeners + [support])
+
+    # sections = splitAPI.slice(support, tools, "Split", 1e-6)
+    sections = splitAPI.booleanFragments([support] + tools, "Split", 1e-6)
+    return Part.makeCompound([sections] + stiffeners)
+    # sections.SubShapes
+    # return Part.Wire(sections.SubShapes[1].Edges)
+    # return common([support] + tools)
