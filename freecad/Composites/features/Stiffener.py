@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+from FreeCAD import Vector
 import FreeCADGui
 from .. import (
     STIFFENER_TOOL_ICON,
@@ -13,44 +14,58 @@ from .Command import BaseCommand
 
 
 class StiffenerFP(BaseFP):
-    def __init__(self, obj, source):
+    def __init__(self, obj, support=None, plan=None, profile=None):
 
         obj.addProperty(
             "App::PropertyLink",
-            "Source",
+            "Support",
             "References",
             "Link to the shape",
             locked=True,
-        ).Source = source
+        ).Support = support
 
         obj.addProperty(
-            "App::PropertyLinkSubList",
-            "Edges",
-            "References",
-            "Edges",
+            "App::PropertyLink",
+            "Plan",
+            "Layout",
+            "Plan layout",
             locked=True,
-        ).Edges = []
+        ).Plan = plan
+
+        obj.addProperty(
+            "App::PropertyVector",
+            "Direction",
+            "Layout",
+            "Projection direction",
+        ).Direction = Vector(0, 0, 1)
+
+        obj.addProperty(
+            "App::PropertyLink",
+            "Profile",
+            "Dimensions",
+            "Profile section of the stiffener",
+        ).Profile = profile
 
         super().__init__(obj)
 
     def execute(self, fp):
-        edges = [e[0].getSubObject(e[1])[0] for e in fp.Edges]
-
-        if not edges:
-            raise ValueError("missing edges")
-
         shape = make_stiffener(
-            support=fp.Source.Shape,
-            edges=edges,
+            support=fp.Support.Shape,
+            plan=fp.Plan,
+            profile=fp.Profile,
+            direction=fp.Direction,
         )
         fp.Shape = shape
-        fp.Source.Visibility = False
+
+        fp.Plan.Visibility = False
+        fp.Support.Visibility = False
+        fp.Profile.Visibility = False
 
 
 class ViewProviderStiffener(VPCompositeBase):
 
     def claimChildren(self):
-        return [self.Object.Source]
+        return [self.Object.Support, self.Object.Plan, self.Object.Profile]
 
     def getIcon(self):
         return STIFFENER_TOOL_ICON
@@ -77,8 +92,18 @@ class CompositeStiffenerCommand(BaseCommand):
     tool_tip = "Generate stiffener. WORK-IN-PROGRESS"
     sel_args = [
         {
-            "key": "source",
+            "key": "plan",
+            "type": "Sketcher::SketchObject",
+        },
+        {
+            "key": "profile",
+            "type": "Sketcher::SketchObject",
+            "optional": True,
+        },
+        {
+            "key": "support",
             "type": "Part::Feature",
+            "optional": True,
         },
     ]
     type_id = "Part::FeaturePython"

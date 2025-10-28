@@ -4,58 +4,24 @@
 
 from FreeCAD import Vector
 import Part
-from enum import Enum, auto
-from . import splitAPI
-import numpy as np
 
-
-# start with ref edge 'e_ref', shape and projection direction (z)
-#  at edge start location 'o',
-#    calc x axis which is orthogonal to edge tangent y and proj direction z
+# from . import splitAPI
 #
-# # collect swept edges of section points
-# for each point 'i' in section:
-# - place vertex 'o_i_y' at y offset from 'o'
-# - sweep along e_ref to produce e_ref_i_y
-# - project through shape to produce e_proj_i_y
-# - if point has a z offset:
-#     place vertex 'o_i_yz' at z offset from start of e_proj_i_y
-#     sweep along e_proj_i_y to produce and return e_proj_i_yz
-#   else
-#     return e_proj_i_y
 #
-# # for each segment pair i,j in section:
-# - if i and j are on base:
-#     slice ref shape between i and j to produce surf_ij
-#   else
-#     make ruled surface between i and j to produce surf_ij
+# class StiffenerSectionType(Enum):
+#     L = auto()  # or J
+#     Z = auto()  # or S
+#     T = auto()
 #
-# make compound/union of all surfaces
-
-
-class StiffenerSectionType(Enum):
-    L = auto()  # or J
-    Z = auto()  # or S
-    T = auto()
-
-    I = auto()  # or H
-
-    C = auto()
-
-    Omega = auto()  # or Semicircular, pi
-    Hat = auto()
-    Trapezoid = auto()
-
-    Box = auto()
-
-
-# dimensions:
-# - height
-# - major width
-# - interface_flange_width
-# - minor width (for trap)
-
-# obj.setPropertyStatus(property_name, 'Hidden')
+#     I = auto()  # or H
+#
+#     C = auto()
+#
+#     Omega = auto()  # or Semicircular, pi
+#     Hat = auto()
+#     Trapezoid = auto()
+#
+#     Box = auto()
 
 
 def wire_first_point(wire: Part.Wire):
@@ -83,13 +49,13 @@ def get_axes(
 def get_spoint(
     origin_wire: Part.Wire,
     direction: Vector,
-    coord,
+    coord: Vector,
 ):
     _, y, z, o = get_axes(
         origin_wire=origin_wire,
         direction=direction,
     )
-    return Vector(coord[0] * y + coord[1] * z + o)
+    return Vector(coord.x * y + coord.y * z + o)
 
 
 def generate_origin_wire(
@@ -116,33 +82,14 @@ def generate_surface_edge(
     return support.makeParallelProjection(wire, direction)
 
 
-def generate_surface_edge2(
-    support: Part.Shape,
-    origin_wire: Part.Wire,
-    offset: float,
-    direction: Vector,
-):
-    def make_section():
-        p0 = get_spoint(origin_wire, direction, np.array([0, 0]))
-        p1 = get_spoint(origin_wire, direction, np.array([offset, 0]))
-        return Part.Wire([Part.LineSegment(p0, p1).toShape()])
+def find_surface_edges(xsect: list, invert: bool = False):
+    def include(edge):
+        is_surface = (edge.firstVertex().Point.y == 0) and (
+            edge.lastVertex().Point.y == 0
+        )
+        return invert != is_surface
 
-    makeSolid = False
-    isFrenet = True
-    # shell for flattened base
-    s = origin_wire.makePipeShell([make_section()], makeSolid, isFrenet)
-    # projection onto support
-    pp = support.makeParallelProjection(Part.Wire(s.Edges), direction)
-    return pp  # Part.Wire(pp.Edges[0:2])
-
-
-def find_surface_pairs(xsect: list, invert: bool = False):
-    s_pairs = []
-    for pair in xsect:
-        is_surface = (pair[0][1] == 0) and (pair[1][1] == 0)
-        if invert != is_surface:
-            s_pairs.append(pair)
-    return s_pairs
+    return [e for e in xsect if include(e)]
 
 
 def generate_surface_tool(
@@ -156,19 +103,22 @@ def generate_surface_tool(
         direction=direction,
     )
     # scan points for lines on surface
-    s_pairs = find_surface_pairs(xsect, invert=False)
+    p_edges = find_surface_edges(xsect, invert=False)
 
     tools = []
-    for pair in s_pairs:
+    for p_edge in p_edges:
         # get moved line
         # stitch into closed shape
         # project to support
         def make_wire(p):
             wire = origin_wire.copy()
-            wire.Placement.move(y * p[0])
+            wire.Placement.move(y * p.x)
             return wire
 
-        wires = [make_wire(p) for p in pair]
+        wires = [
+            make_wire(p_edge.firstVertex().Point),
+            make_wire(p_edge.lastVertex().Point),
+        ]
 
         p00 = wire_first_point(wires[0])
         p01 = wire_first_point(wires[1])
@@ -195,20 +145,20 @@ def generate_free_edge(
     support: Part.Shape,
     origin_wire: Part.Wire,
     direction: Vector,
-    coord,
+    coord: Vector,
 ):
-    if coord[1] == 0:
-        if coord[0] == 0:
+    if coord.y == 0:
+        if coord.x == 0:
             return origin_wire
         return generate_surface_edge(
             support=support,
             origin_wire=origin_wire,
-            offset=coord[0],
+            offset=coord.x,
             direction=direction,
         )
 
     def make_section(flip):
-        delta = np.array([1.0, 1.0])
+        delta = Vector(1.0, 1.0, 0.0)
 
         p0 = get_spoint(origin_wire, direction, coord)
         if flip:
@@ -231,9 +181,9 @@ def generate_stiffener(
     direction: Vector,
     xsect: list,
 ):
-    s_pairs = find_surface_pairs(xsect, invert=True)
+    p_edges = find_surface_edges(xsect, invert=True)
     shapes = []
-    for pair in s_pairs:
+    for p_edge in p_edges:
 
         def get_edge(p):
             edge = generate_free_edge(
@@ -244,7 +194,10 @@ def generate_stiffener(
             )
             return edge
 
-        edges = [get_edge(p) for p in pair]
+        edges = [
+            get_edge(p_edge.firstVertex().Point),
+            get_edge(p_edge.lastVertex().Point),
+        ]
         shape = Part.makeLoft(
             edges,
             solid=False,
@@ -255,20 +208,48 @@ def generate_stiffener(
     return Part.makeCompound(shapes)
 
 
+def get_edges(sketch):
+    return [e.toShape() for e in sketch.Geometry]
+
+
+def get_xsect(sketch):
+    points = {}
+    links = []
+    for geo in sketch.Geometry:
+
+        def add_vertex(v):
+            for k, pp in points.items():
+                if v.Point.distanceToPoint(pp) < 1.0e-3:
+                    return k
+            hash = v.hashCode()
+            points[hash] = v.Point
+            return hash
+
+        e = geo.toShape()
+
+        link = [
+            add_vertex(e.firstVertex()),
+            add_vertex(e.lastVertex()),
+        ]
+        links.append(link)
+
+    for k in points.keys():
+        points[k] += Vector(1.0e-3 * points[k].y, 0, 0)
+
+    def make_element(link):
+        return Part.LineSegment(points[link[0]], points[link[1]]).toShape()
+
+    return [make_element(link) for link in links]
+
+
 def make_stiffener(
     support: Part.Shape,
-    edges: list[Part.Edge],
-    direction: Vector = Vector(
-        0,
-        0,
-        1,
-    ),
+    plan,
+    profile,
+    direction: Vector = Vector(0, 0, 1),
 ):
-    xsect = [
-        [[-3, 0], [0, 0]],
-        [[0, 0], [0.01, 4]],
-        [[0.01, 4], [-3, 4]],
-    ]
+    edges = get_edges(plan)
+    xsect = get_xsect(profile)
 
     def process_edge(e):
         origin_wire = generate_origin_wire(
