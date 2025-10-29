@@ -53,13 +53,30 @@ class BaseCommand:
             ok = False
             neglected = []
             while len(sel):
-                s = sel.pop(0)  # .Object  when using Ex
-                if imatch(s, item):
-                    ok = True
+                s = sel.pop(0)
+
+                def check_match(o, item, entry):
+                    if imatch(o, item):
+                        if "array" in item:
+                            add_array(entry, item, present)
+                        else:
+                            add_scalar(entry, item, present)
+                        return True
+                    return False
+
+                ok |= check_match(s.Object, item, s.Object)
+                if (not ok) and s.HasSubObjects:
+                    for sub, name in zip(s.SubObjects, s.SubElementNames):
+                        if check_match(sub, item, (s.Object, name)):
+                            ok = True
+                            if "array" in item:
+                                continue
+                            else:
+                                break
+                if ok:
                     if "array" in item:
-                        add_array(s, item, present)
+                        continue
                     else:
-                        add_scalar(s, item, present)
                         break
                 else:
                     neglected.append(s)
@@ -67,7 +84,10 @@ class BaseCommand:
                 sel.extend(neglected)
             return ok
 
-        sel = FreeCADGui.Selection.getSelection()  # Ex()
+        sel = FreeCADGui.Selection.getSelectionEx()
+        if debug or self.debug:
+            sel_objs = [s.Object for s in sel]
+            print(f"selected {sel_objs}")
 
         present = []
         missing = []
