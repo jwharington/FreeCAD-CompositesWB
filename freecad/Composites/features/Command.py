@@ -20,6 +20,8 @@ class BaseCommand:
     cls_fp: ClassVar[type]
     cls_vp: ClassVar[type]
 
+    debug: bool = False
+
     def GetResources(self):
         return {
             "Pixmap": self.icon,
@@ -53,11 +55,12 @@ class BaseCommand:
             while len(sel):
                 s = sel.pop(0)  # .Object  when using Ex
                 if imatch(s, item):
+                    ok = True
                     if "array" in item:
                         add_array(s, item, present)
                     else:
                         add_scalar(s, item, present)
-                    ok = True
+                        break
                 else:
                     neglected.append(s)
             if neglected:
@@ -75,12 +78,12 @@ class BaseCommand:
                 continue
             missing.append(item)
             if "optional" not in item:
-                if report and debug:
+                if report and (debug or self.debug):
                     print(f"missing non-optional {item['key']}")
                 ok = False
 
         res = {p["key"]: p["value"] for p in present}
-        if report and debug:
+        if report and (debug or self.debug):
             print(f"{self.__class__} res: {res}")
         if ok:
             return res
@@ -109,4 +112,4 @@ class BaseCommand:
     def IsActive(self):
         if FreeCAD.ActiveDocument is None:
             return False
-        return self.check_sel(False or debug) is not None
+        return self.check_sel(False or self.debug) is not None

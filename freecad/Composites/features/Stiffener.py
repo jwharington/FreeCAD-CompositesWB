@@ -96,14 +96,12 @@ class CompositeStiffenerCommand(BaseCommand):
             "type": "Sketcher::SketchObject",
         },
         {
-            "key": "profile",
-            "type": "Sketcher::SketchObject",
-            "optional": True,
-        },
-        {
             "key": "support",
             "type": "Part::Feature",
-            "optional": True,
+        },
+        {
+            "key": "profile",
+            "type": "Sketcher::SketchObject",
         },
     ]
     type_id = "Part::FeaturePython"
