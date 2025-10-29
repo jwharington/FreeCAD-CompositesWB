@@ -281,8 +281,8 @@ def make_stiffener(
     return Part.makeCompound(tools + stiffeners + [support])
 
     # sections = splitAPI.slice(support, tools, "Split", 1e-6)
-    sections = splitAPI.booleanFragments([support] + tools, "Split", 1e-6)
-    return Part.makeCompound([sections] + stiffeners)
+    # sections = splitAPI.booleanFragments([support] + tools, "Split", 1e-6)
+    # return Part.makeCompound([sections] + stiffeners)
     # sections.SubShapes
     # return Part.Wire(sections.SubShapes[1].Edges)
     # return common([support] + tools)
