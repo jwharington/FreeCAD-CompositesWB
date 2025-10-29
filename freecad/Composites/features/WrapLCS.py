@@ -52,7 +52,8 @@ class WrapLCSCommand(TransferLCSCommand):
 
     icon = WRAP_LCS_TOOL_ICON
     menu_text = "Wrap LCS"
-    tool_tip = "Wrap LCS onto adjacent shell"
+    tool_tip = """Wrap LCS onto adjacent shell.
+        Select composite shell, follower shell, and support feature."""
     sel_args = [
         {
             "key": "shell",

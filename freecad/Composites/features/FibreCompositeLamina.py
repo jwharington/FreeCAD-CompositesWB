@@ -118,7 +118,7 @@ class FibreCompositeLaminaCommand(BaseCommand):
 
     icon = FIBRE_COMPOSITE_LAMINA_TOOL_ICON
     menu_text = "Fibre composite lamina"
-    tool_tip = "Create fibre composite lamina"
+    tool_tip = "Create fibre composite lamina."
     sel_args = []
     type_id = "App::FeaturePython"
     instance_name = "FibreCompositeLamina"

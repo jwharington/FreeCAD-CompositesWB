@@ -70,7 +70,8 @@ class TexturePlanCommand(BaseCommand):
 
     icon = TEXTURE_PLAN_TOOL_ICON
     menu_text = "Texture plan"
-    tool_tip = "Create texture plan"
+    tool_tip = """Create texture plan.
+    Select composite shells."""
     sel_args = [
         {
             "key": "shells",

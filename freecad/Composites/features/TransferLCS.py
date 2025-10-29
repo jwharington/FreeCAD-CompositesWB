@@ -118,7 +118,8 @@ class TransferLCSCommand(BaseCommand):
 
     icon = TRANSFER_LCS_TOOL_ICON
     menu_text = "Transfer LCS"
-    tool_tip = "Transfer LCS along composite shell"
+    tool_tip = """Transfer LCS along composite shell.
+        Select composite shell and support."""
     sel_args = [
         {
             "key": "shell",

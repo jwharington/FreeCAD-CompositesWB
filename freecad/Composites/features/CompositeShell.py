@@ -292,7 +292,8 @@ class CompositeShellCommand(BaseCommand):
 
     icon = COMPOSITE_SHELL_TOOL_ICON
     menu_text = "Composite shell"
-    tool_tip = "Create composite shell"
+    tool_tip = """Create composite shell.
+        Select support feature, laminate and local coordinate system."""
     sel_args = [
         {
             "key": "support",

@@ -175,7 +175,8 @@ class LaminateCommand(BaseCommand):
 
     icon = LAMINATE_TOOL_ICON
     menu_text = "Laminate"
-    tool_tip = "Create laminate"
+    tool_tip = """Create laminate.
+        Select laminae."""
     type_id = "App::FeaturePython"
     instance_name = "LaminatedShell"
     cls_fp = LaminateFP

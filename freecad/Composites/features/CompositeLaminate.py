@@ -56,7 +56,8 @@ class CompositeLaminateCommand(LaminateCommand):
 
     icon = COMPOSITE_LAMINATE_TOOL_ICON
     menu_text = "Composite laminate"
-    tool_tip = "Create composite laminate"
+    tool_tip = """Create composite laminate.
+        Select laminae."""
     instance_name = "CompositeLaminate"
     cls_fp = CompositeLaminateFP
     cls_vp = ViewProviderCompositeLaminate

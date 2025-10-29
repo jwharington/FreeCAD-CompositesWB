@@ -77,7 +77,9 @@ class CompositeSeamCommand(BaseCommand):
 
     icon = SEAM_TOOL_ICON
     menu_text = "Seam"
-    tool_tip = "Generate seam edge. WORK-IN-PROGRESS"
+    tool_tip = """Generate seam edge.
+        Select one or more edges of a shape.
+        WORK-IN-PROGRESS"""
     sel_args = [
         {
             "key": "edges",

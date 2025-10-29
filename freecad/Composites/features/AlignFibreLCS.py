@@ -63,7 +63,8 @@ class AlignFibreLCSCommand(TransferLCSCommand):
 
     icon = ALIGN_FIBRE_LCS_TOOL_ICON
     menu_text = "Align fibre LCS"
-    tool_tip = "Align fibre LCS along composite shell"
+    tool_tip = """Align fibre LCS along composite shell.
+        Select composite shell and support feature."""
     sel_args = [
         {
             "key": "shell",

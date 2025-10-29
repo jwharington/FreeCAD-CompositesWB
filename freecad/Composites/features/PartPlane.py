@@ -67,7 +67,9 @@ class CompositePartPlaneCommand(BaseCommand):
 
     icon = PART_PLANE_TOOL_ICON
     menu_text = "Part plane"
-    tool_tip = "Generate two part mould plane. WORK-IN-PROGRESS"
+    tool_tip = """Generate two part mould plane.
+        Select source feature.
+        WORK-IN-PROGRESS"""
     sel_args = [
         {
             "key": "source",

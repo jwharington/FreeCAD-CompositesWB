@@ -57,7 +57,7 @@ class HomogeneousLaminaCommand(BaseCommand):
 
     icon = HOMOGENEOUS_LAMINA_TOOL_ICON
     menu_text = "Homogeneous lamina"
-    tool_tip = "Create homogeneous lamina"
+    tool_tip = "Create homogeneous lamina."
     sel_args = []
     type_id = "App::FeaturePython"
     instance_name = "HomogeneousLamina"

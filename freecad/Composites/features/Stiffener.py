@@ -89,7 +89,10 @@ class CompositeStiffenerCommand(BaseCommand):
 
     icon = STIFFENER_TOOL_ICON
     menu_text = "Stiffener"
-    tool_tip = "Generate stiffener. WORK-IN-PROGRESS"
+    tool_tip = """Generate stiffener.
+        Select a sketch for the plan layout, support feature,
+        and profile sketch.
+        WORK-IN-PROGRESS"""
     sel_args = [
         {
             "key": "plan",
