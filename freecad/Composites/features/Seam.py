@@ -14,15 +14,7 @@ from .Command import BaseCommand
 
 
 class SeamFP(BaseFP):
-    def __init__(self, obj, source):
-
-        obj.addProperty(
-            "App::PropertyLink",
-            "Source",
-            "References",
-            "Link to the shape",
-            locked=True,
-        ).Source = source
+    def __init__(self, obj, edges=[]):
 
         obj.addProperty(
             "App::PropertyLinkSubList",
@@ -30,7 +22,7 @@ class SeamFP(BaseFP):
             "References",
             "Edges",
             locked=True,
-        ).Edges = []
+        ).Edges = edges
 
         obj.addProperty(
             "App::PropertyLength",
@@ -44,25 +36,41 @@ class SeamFP(BaseFP):
 
     def execute(self, fp):
         edges = [e[0].getSubObject(e[1])[0] for e in fp.Edges]
+        source = fp.Edges[0][0]
 
         if not edges:
             raise ValueError("missing edges")
 
         shape = make_edge_seam(
-            shape=fp.Source.Shape,
+            shape=source.Shape,
             edges=edges,
             overlap=fp.Overlap,
         )
         fp.Shape = shape
+        source.Visibility = False
 
 
 class ViewProviderSeam(VPCompositeBase):
 
     def claimChildren(self):
-        return [self.Object.Source]
+        return []
 
     def getIcon(self):
         return SEAM_TOOL_ICON
+
+    def attach(self, vobj):
+        self.Object = vobj.Object
+        self.ViewObject = vobj
+
+    def getDisplayModes(self, obj):
+        modes = []
+        return modes
+
+    def getDefaultDisplayMode(self) -> str:
+        return "Flat Lines"
+
+    def setDisplayMode(self, mode):
+        return mode
 
 
 class CompositeSeamCommand(BaseCommand):
@@ -72,8 +80,9 @@ class CompositeSeamCommand(BaseCommand):
     tool_tip = "Generate seam edge. WORK-IN-PROGRESS"
     sel_args = [
         {
-            "key": "source",
-            "type": "Part::Feature",
+            "key": "edges",
+            "type": "Part::TopoShape",
+            "array": True,
         },
     ]
     type_id = "Part::FeaturePython"
