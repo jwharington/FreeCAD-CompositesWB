@@ -4,6 +4,7 @@
 import FreeCAD
 import FreeCADGui
 from pivy import coin
+from typing import List
 
 
 class BaseFP:
@@ -69,10 +70,10 @@ class VPCompositeBase:
             FreeCAD.Console.PrintError(message + "\n")
         return True
 
-    def getDisplayModes(self, obj):
+    def getDisplayModes(self, obj) -> List[str]:
         return ["Standard"]
 
-    def getDefaultDisplayMode(self):
+    def getDefaultDisplayMode(self) -> str:
         return "Standard"
 
     def setDisplayMode(self, mode):

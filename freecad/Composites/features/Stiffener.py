@@ -78,7 +78,7 @@ class ViewProviderStiffener(VPCompositeBase):
         modes = []
         return modes
 
-    def getDefaultDisplayMode(self):
+    def getDefaultDisplayMode(self) -> str:
         return "Flat Lines"
 
     def setDisplayMode(self, mode):
