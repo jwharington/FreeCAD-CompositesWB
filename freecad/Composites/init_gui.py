@@ -18,50 +18,27 @@ class CompositesWorkbench(Gui.Workbench):
         function.
         """
 
-        from .features import FibreCompositeLamina  # noqa
-        from .features import HomogeneousLamina  # noqa
-        from .features import Laminate  # noqa
-        from .features import CompositeLaminate  # noqa
-
         from .features import CompositeShell  # noqa
-        from .features import Seam  # noqa
-        from .features import Stiffener  # noqa
-
-        from .features import TransferLCS  # noqa
-        from .features import WrapLCS  # noqa
-        from .features import AlignFibreLCS  # noqa
-
         from .features import TexturePlan  # noqa
-        from .features import PartPlane  # noqa
-        from .features import Mould  # noqa
+        from .features import ToolbarGroup  # noqa
 
         cmds_section = [
-            "Composites_FibreCompositeLamina",
-            "Composites_HomogeneousLamina",
-            "Composites_Laminate",
-            "Composites_CompositeLaminate",
+            "Composites_LaminaTools",
+            "Composites_LaminateTools",
         ]
         cmds_structure = [
             "Composites_CompositeShell",
-            "Composites_Seam",
-            "Composites_Stiffener",
-        ]
-        cmds_lcs = [
-            "Composites_TransferLCS",
-            "Composites_WrapLCS",
-            "Composites_AlignFibreLCS",
+            "Composites_StructureTools",
+            "Composites_LCSTools",
         ]
         cmds_manufacturing = [
             "Composites_TexturePlan",
-            "Composites_PartPlane",
-            "Composites_Mould",
+            "Composites_MouldTools",
         ]
         self.list = (
             cmds_section
             + ["Separator"]
             + cmds_structure
-            + ["Separator"]
-            + cmds_lcs
             + ["Separator"]
             + cmds_manufacturing
         )
