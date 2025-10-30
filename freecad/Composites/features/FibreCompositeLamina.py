@@ -85,8 +85,9 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         obj.ArealWeight = t * density * vf
 
     def onChanged(self, obj, prop):
-        if "Thickness" == prop:
-            self.update_areal_weight(obj)
+        match prop:
+            case "Thickness" | "FibreVolumeFraction" | "FibreMaterial":
+                self.update_areal_weight(obj)
 
     def get_model(self, obj) -> Lamina:
         if not obj.FibreMaterial:
