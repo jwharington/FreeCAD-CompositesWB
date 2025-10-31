@@ -1,4 +1,4 @@
-from VPCompositeBase import (
+from .VPCompositeBase import (
     CompositeBaseFP,
     VPCompositeBase,
 )
