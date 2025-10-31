@@ -7,10 +7,13 @@ from .. import (
 )
 from ..tools.mould import make_moulds
 from .Command import BaseCommand
-from .VPCompositeBase import VPCompositeBase, BaseFP
+from .VPCompositePart import (
+    VPCompositePart,
+    CompositePartFP,
+)
 
 
-class MouldFP(BaseFP):
+class MouldFP(CompositePartFP):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",
@@ -51,7 +54,7 @@ class MouldFP(BaseFP):
         fp.Shape = make_moulds(fp.Source.Shape, buffer)
 
 
-class ViewProviderMould(VPCompositeBase):
+class ViewProviderMould(VPCompositePart):
 
     def getIcon(self):
         return MOULD_TOOL_ICON

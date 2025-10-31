@@ -12,10 +12,13 @@ from ..tools.part_plane import (
     make_part_plane3,
 )
 from .Command import BaseCommand
-from .VPCompositeBase import VPCompositeBase, BaseFP
+from .VPCompositePart import (
+    VPCompositePart,
+    CompositePartFP,
+)
 
 
-class PartPlaneFP(BaseFP):
+class PartPlaneFP(CompositePartFP):
     def __init__(self, obj, source):
         obj.addProperty(
             "App::PropertyLink",
@@ -57,7 +60,7 @@ class PartPlaneFP(BaseFP):
         fp.Shape = shape
 
 
-class ViewProviderPartPlane(VPCompositeBase):
+class ViewProviderPartPlane(VPCompositePart):
 
     def getIcon(self):
         return PART_PLANE_TOOL_ICON

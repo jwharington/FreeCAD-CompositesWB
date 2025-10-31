@@ -9,10 +9,13 @@ from .. import (
 )
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
-from .VPCompositeBase import VPCompositeBase, BaseFP
+from .VPCompositePart import (
+    VPCompositePart,
+    CompositePartFP,
+)
 
 
-class TexturePlanFP(BaseFP):
+class TexturePlanFP(CompositePartFP):
 
     Type = "Composite::TexturePlan"
 
@@ -35,7 +38,9 @@ class TexturePlanFP(BaseFP):
             # TODO: lay out separate shapes for each layer in the composites
             for key, orientation in obj.Laminate.StackAssembly.items():
                 print(f"name {obj.Name} key {key} orientation {orientation}")
-                boundaries = obj.Proxy.get_boundaries(offset_angle_deg=int(orientation))
+                boundaries = obj.Proxy.get_boundaries(
+                    offset_angle_deg=int(orientation),
+                )
                 if not boundaries:
                     continue
                 for w in boundaries:
@@ -50,20 +55,13 @@ class TexturePlanFP(BaseFP):
                 fp.recompute()
 
 
-class ViewProviderTexturePlan(VPCompositeBase):
-
-    def getDisplayModes(self, obj):
-        return []
+class ViewProviderTexturePlan(VPCompositePart):
 
     def getDefaultDisplayMode(self):
         return "Wireframe"
 
     def getIcon(self):
         return TEXTURE_PLAN_TOOL_ICON
-
-    def attach(self, vobj):
-        self.Object = vobj.Object
-        self.ViewObject = vobj
 
 
 class TexturePlanCommand(BaseCommand):

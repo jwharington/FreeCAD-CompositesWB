@@ -7,7 +7,7 @@ from pivy import coin
 from typing import List
 
 
-class BaseFP:
+class CompositeBaseFP:
     def __init__(self, obj):
         obj.addExtension("App::SuppressibleExtensionPython")
         obj.Proxy = self

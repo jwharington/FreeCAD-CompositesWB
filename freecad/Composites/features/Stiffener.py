@@ -9,11 +9,14 @@ from .. import (
 from ..tools.stiffener import (
     make_stiffener,
 )
-from .VPCompositeBase import VPCompositeBase, BaseFP
+from .VPCompositePart import (
+    VPCompositePart,
+    CompositePartFP,
+)
 from .Command import BaseCommand
 
 
-class StiffenerFP(BaseFP):
+class StiffenerFP(CompositePartFP):
     def __init__(self, obj, support=None, plan=None, profile=None):
 
         obj.addProperty(
@@ -62,27 +65,13 @@ class StiffenerFP(BaseFP):
         fp.Profile.Visibility = False
 
 
-class ViewProviderStiffener(VPCompositeBase):
+class ViewProviderStiffener(VPCompositePart):
 
     def claimChildren(self):
         return [self.Object.Support, self.Object.Plan, self.Object.Profile]
 
     def getIcon(self):
         return STIFFENER_TOOL_ICON
-
-    def attach(self, vobj):
-        self.Object = vobj.Object
-        self.ViewObject = vobj
-
-    def getDisplayModes(self, obj):
-        modes = []
-        return modes
-
-    def getDefaultDisplayMode(self) -> str:
-        return "Flat Lines"
-
-    def setDisplayMode(self, mode):
-        return mode
 
 
 class CompositeStiffenerCommand(BaseCommand):

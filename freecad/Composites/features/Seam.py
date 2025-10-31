@@ -6,14 +6,14 @@ from .. import (
     SEAM_TOOL_ICON,
 )
 from ..tools.seam import (
-    make_join_seam,
+    # make_join_seam,
     make_edge_seam,
 )
-from .VPCompositeBase import VPCompositeBase, BaseFP
+from .VPCompositePart import VPCompositePart, CompositePartFP
 from .Command import BaseCommand
 
 
-class SeamFP(BaseFP):
+class SeamFP(CompositePartFP):
     def __init__(self, obj, edges=[]):
 
         obj.addProperty(
@@ -50,27 +50,13 @@ class SeamFP(BaseFP):
         source.Visibility = False
 
 
-class ViewProviderSeam(VPCompositeBase):
+class ViewProviderSeam(VPCompositePart):
 
     def claimChildren(self):
         return []
 
     def getIcon(self):
         return SEAM_TOOL_ICON
-
-    def attach(self, vobj):
-        self.Object = vobj.Object
-        self.ViewObject = vobj
-
-    def getDisplayModes(self, obj):
-        modes = []
-        return modes
-
-    def getDefaultDisplayMode(self) -> str:
-        return "Flat Lines"
-
-    def setDisplayMode(self, mode):
-        return mode
 
 
 class CompositeSeamCommand(BaseCommand):
