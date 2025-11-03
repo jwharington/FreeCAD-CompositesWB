@@ -178,22 +178,71 @@ def split_mesh_at_edge(mesh, edges):
             for idx in ref.dart_points:
                 check_point(idx)
 
-    return analysis_points, chain
+    # - make lookup from poly index to which group it belongs to
+    #  (this should be unique)
+    poly_cluster = {}
+    delta = {}
+    n_delta = {}
+    for cluster_idx, cluster in enumerate(chain):
+        for ref in cluster:
+            poly_cluster[ref.poly_idx] = cluster_idx
+
+            for p in ref.dart_points:
+                k = (p, cluster_idx)
+                delta[k] = Vector()
+                n_delta[k] = 0
+
+    for cluster_idx, cluster in enumerate(chain):
+        for ref in cluster:
+
+            def point_index_to_vector(i):
+                p = mesh.Points[i]
+                return Vector(p.x, p.y, p.z)
+
+            if len(ref.dart_points) != 2:
+                continue
+
+            pl = list(mesh.Topology[1][ref.poly_idx])
+            n = len(pl)
+            if n != 3:
+                continue
+
+            for i in range(n):
+                p = [pl[(i + j) % n] for j in range(n)]
+
+                if frozenset([p[0], p[1]]) != ref.dart_points:
+                    continue
+
+                X = point_index_to_vector(p[1]) - point_index_to_vector(p[0])
+                Y = point_index_to_vector(p[2]) - point_index_to_vector(p[0])
+                Z = X.cross(Y).normalize()
+
+                def inc(j):
+                    k = (p[j], cluster_idx)
+                    delta[k] += Z
+                    n_delta[k] += 1
+
+                inc(0)
+                inc(1)
+
+    for cluster_idx, cluster in enumerate(chain):
+        for ref in cluster:
+            poly_cluster[ref.poly_idx] = cluster_idx
+
+            for p in ref.dart_points:
+                k = (p, cluster_idx)
+                if n_delta[k]:
+                    delta[k] /= n_delta[k]
+
+    return analysis_points, poly_cluster, delta
 
 
-def make_dart(shape, edges, max_length=4.0):
+def make_dart(shape, edges, max_length=4.0, gap_length=0.1):
     # - convert shape to mesh
     mesh = MeshPart.meshFromShape(Shape=shape, MaxLength=max_length)
 
     # - analyse mesh
-    analysis_points, chain = split_mesh_at_edge(mesh, edges)
-
-    # - make lookup from poly index to which group it belongs to
-    #  (this should be unique)
-    poly_cluster = {}
-    for cluster_idx, cluster in enumerate(chain):
-        for ref in cluster:
-            poly_cluster[ref.poly_idx] = cluster_idx
+    analysis_points, poly_cluster, delta = split_mesh_at_edge(mesh, edges)
 
     # - generate new mesh
     mesh2 = Mesh.Mesh()
@@ -212,7 +261,7 @@ def make_dart(shape, edges, max_length=4.0):
                 and (i in analysis_points)
                 and (cluster_idx in analysis_points[i])
             ):
-                return v + Vector(0, 0, cluster_idx)
+                return v + delta[(i, cluster_idx)] * gap_length
             return v
 
         vecs = [point_index_to_vector(i) for i in list(poly)]

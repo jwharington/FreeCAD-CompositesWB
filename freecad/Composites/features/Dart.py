@@ -31,6 +31,13 @@ class DartFP(CompositePartFP):
             hidden=True,
         )
 
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="GapLength",
+            group="Dimensions",
+            doc="Gap length at cut",
+        ).GapLength = 0.1
+
         obj.Mesh = obj.Document.addObject(
             "Mesh::Feature",
             "DrapeMesh",
@@ -48,6 +55,7 @@ class DartFP(CompositePartFP):
         mesh = make_dart(
             shape=source.Shape,
             edges=edges,
+            gap_length=fp.GapLength,
         )
         fp.Mesh.Mesh = mesh
         source.Visibility = False
