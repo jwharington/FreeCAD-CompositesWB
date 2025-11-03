@@ -23,6 +23,19 @@ class DartFP(CompositePartFP):
             locked=True,
         ).Edges = edges
 
+        obj.addProperty(
+            type="App::PropertyLinkGlobal",
+            name="Mesh",
+            group="Orthographic",
+            doc="Mesh for orthotropic materials",
+            hidden=True,
+        )
+
+        obj.Mesh = obj.Document.addObject(
+            "Mesh::Feature",
+            "DrapeMesh",
+        )
+
         super().__init__(obj)
 
     def execute(self, fp):
@@ -32,18 +45,20 @@ class DartFP(CompositePartFP):
         if not edges:
             raise ValueError("missing edges")
 
-        shape = make_dart(
+        mesh = make_dart(
             shape=source.Shape,
             edges=edges,
         )
-        fp.Shape = shape
+        fp.Mesh.Mesh = mesh
         source.Visibility = False
 
 
 class ViewProviderDart(VPCompositePart):
 
     def claimChildren(self):
-        return []
+        return [
+            self.Object.Mesh,
+        ]
 
     def getIcon(self):
         return DART_TOOL_ICON

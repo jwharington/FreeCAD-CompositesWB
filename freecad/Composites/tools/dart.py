@@ -1,4 +1,6 @@
 from Part import Vertex
+from FreeCAD import Vector
+import Mesh
 import MeshPart
 from collections import namedtuple
 
@@ -34,7 +36,6 @@ def split_mesh_at_edge(mesh, edges):
     dart_point_indices = frozenset(
         [i for i, p in enumerate(mesh.Points) if is_point_on_edges(p, edges)]
     )
-    print(f"dart point indices {dart_point_indices}")
 
     def points_on_dart(poly):
         return frozenset(set(poly) & dart_point_indices)
@@ -63,6 +64,7 @@ def split_mesh_at_edge(mesh, edges):
         edge_polys.append(DartPoly(poly_idx, get_key_edges(), pd))
 
     # sort and cluster
+    end_polys = edge_polys.copy()
 
     chain = []
 
@@ -110,7 +112,17 @@ def split_mesh_at_edge(mesh, edges):
             cluster = new_cluster()
 
     # split clusters
-    print(f"chain {chain}")
+
+    def border_edge(poly: DartPoly, idx):
+        free_edges = poly.key_edges
+        for other in end_polys:
+            if idx not in other.dart_points:
+                continue
+            if other.poly_idx == poly.poly_idx:
+                continue
+            free_edges -= free_edges & other.key_edges
+        return len(free_edges)
+
     analysis_points = {k: [] for k in dart_point_indices}
 
     for cluster_idx, cluster in enumerate(chain):
@@ -119,6 +131,9 @@ def split_mesh_at_edge(mesh, edges):
             if len(ref.dart_points) < 2:
                 continue
             ref_last = cluster[-1]
+
+        # multilinks always cut  ab,bc -> a-(b)-c
+
         for ref in cluster:
             if len(ref.dart_points) < 2:
                 continue
@@ -129,21 +144,60 @@ def split_mesh_at_edge(mesh, edges):
             if len(common) == 1:
                 analysis_points[list(common)[0]].append(cluster_idx)
             ref_last = ref
-        # find singles
-        for ref in cluster:
-            if len(ref.dart_points) > 1:
-                continue
-            idx = list(ref.dart_points)[0]
-            if cluster_idx in analysis_points[idx]:
-                continue
-            analysis_points[idx].append(cluster_idx)
 
-    print(f"analysis_points {analysis_points}")
-    return mesh
+        # address remaining end points
+        for ref in cluster:
+
+            def check_point(idx):
+                if cluster_idx in analysis_points[idx]:
+                    return
+                for e_idx, poly in enumerate(end_polys):
+                    if idx not in poly.dart_points:
+                        continue
+                    if border_edge(poly, idx):
+                        analysis_points[idx].append(cluster_idx)
+                        end_polys.pop(e_idx)
+                        return
+
+            for idx in ref.dart_points:
+                check_point(idx)
+
+    return analysis_points, chain
 
 
 def make_dart(shape, edges, max_length=3.0):
     # - convert shape to mesh
     mesh = MeshPart.meshFromShape(Shape=shape, MaxLength=max_length)
-    # - generate mesh
-    return split_mesh_at_edge(mesh, edges)
+
+    # - analyse mesh
+    analysis_points, chain = split_mesh_at_edge(mesh, edges)
+
+    poly_group = {}
+    for group_idx, cluster in enumerate(chain):
+        for ref in cluster:
+            poly_group[ref.poly_idx] = group_idx
+
+    # - generate new mesh
+    mesh2 = Mesh.Mesh()
+    for poly_idx, poly in enumerate(mesh.Topology[1]):
+
+        if poly_idx not in poly_group:
+            group_idx = -1
+        else:
+            group_idx = poly_group[poly_idx]
+
+        def point_index_to_vector(i):
+            p = mesh.Points[i]
+            v = Vector(p.x, p.y, p.z)
+            if (
+                (group_idx > 0)
+                and (i in analysis_points)
+                and (group_idx in analysis_points[i])
+            ):
+                return v + Vector(0, 0, group_idx)
+            return v
+
+        vs = [point_index_to_vector(i) for i in list(poly)]
+        mesh2.addFacet(*vs)
+
+    return mesh2
