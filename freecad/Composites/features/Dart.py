@@ -3,17 +3,16 @@
 
 import FreeCADGui
 from .. import (
-    SEAM_TOOL_ICON,
+    DART_TOOL_ICON,
 )
-from ..tools.seam import (
-    # make_join_seam,
-    make_edge_seam,
+from ..tools.dart import (
+    make_dart,
 )
 from .VPCompositePart import VPCompositePart, CompositePartFP
 from .Command import BaseCommand
 
 
-class SeamFP(CompositePartFP):
+class DartFP(CompositePartFP):
     def __init__(self, obj, edges=[]):
 
         obj.addProperty(
@@ -24,14 +23,6 @@ class SeamFP(CompositePartFP):
             locked=True,
         ).Edges = edges
 
-        obj.addProperty(
-            "App::PropertyLength",
-            "Overlap",
-            "Dimension",
-            "Overlap length",
-            locked=True,
-        ).Overlap = "10.0 mm"
-
         super().__init__(obj)
 
     def execute(self, fp):
@@ -41,29 +32,28 @@ class SeamFP(CompositePartFP):
         if not edges:
             raise ValueError("missing edges")
 
-        shape = make_edge_seam(
+        shape = make_dart(
             shape=source.Shape,
             edges=edges,
-            overlap=fp.Overlap,
         )
         fp.Shape = shape
         source.Visibility = False
 
 
-class ViewProviderSeam(VPCompositePart):
+class ViewProviderDart(VPCompositePart):
 
     def claimChildren(self):
         return []
 
     def getIcon(self):
-        return SEAM_TOOL_ICON
+        return DART_TOOL_ICON
 
 
-class CompositeSeamCommand(BaseCommand):
+class CompositeDartCommand(BaseCommand):
 
-    icon = SEAM_TOOL_ICON
-    menu_text = "Seam"
-    tool_tip = """Generate seam edge.
+    icon = DART_TOOL_ICON
+    menu_text = "Dart"
+    tool_tip = """Generate Dart edge.
         Select one or more edges of a shape.
         WORK-IN-PROGRESS"""
     sel_args = [
@@ -74,9 +64,9 @@ class CompositeSeamCommand(BaseCommand):
         },
     ]
     type_id = "Part::FeaturePython"
-    instance_name = "Seam"
-    cls_fp = SeamFP
-    cls_vp = ViewProviderSeam
+    instance_name = "Dart"
+    cls_fp = DartFP
+    cls_vp = ViewProviderDart
 
 
-FreeCADGui.addCommand("Composites_Seam", CompositeSeamCommand())
+FreeCADGui.addCommand("Composites_Dart", CompositeDartCommand())

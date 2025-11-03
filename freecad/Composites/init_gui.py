@@ -21,6 +21,7 @@ class CompositesWorkbench(Gui.Workbench):
         from .features import CompositeShell  # noqa
         from .features import TexturePlan  # noqa
         from .features import ToolbarGroup  # noqa
+        from .features import Dart  # noqa
 
         cmds_section = [
             "Composites_LaminaTools",
@@ -33,6 +34,7 @@ class CompositesWorkbench(Gui.Workbench):
         ]
         cmds_manufacturing = [
             "Composites_TexturePlan",
+            "Composites_Dart",
             "Composites_MouldTools",
         ]
         self.list = (

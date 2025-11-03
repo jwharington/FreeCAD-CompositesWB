@@ -34,13 +34,10 @@ def wire_last_point(wire: Part.Wire):
 
 def get_axes(
     origin_wire: Part.Wire,
-    direction: Vector,
 ):
     e0 = origin_wire.Edges[0]
     o = wire_first_point(origin_wire)
     x = e0.tangentAt(e0.FirstParameter)
-    # y = x.cross(direction).normalize()
-    # z = direction
     z = e0.normalAt(e0.FirstParameter)
     y = x.cross(z).normalize()
     return x, y, z, o
@@ -53,7 +50,6 @@ def get_spoint(
 ):
     _, y, z, o = get_axes(
         origin_wire=origin_wire,
-        direction=direction,
     )
     return Vector(coord.x * y + coord.y * z + o)
 
@@ -75,7 +71,6 @@ def generate_surface_edge(
 ):
     _, y, _, _ = get_axes(
         origin_wire=origin_wire,
-        direction=direction,
     )
     wire = origin_wire.copy()
     wire.Placement.move(y * offset)
@@ -100,7 +95,6 @@ def generate_surface_tool(
 ):
     _, y, _, _ = get_axes(
         origin_wire=origin_wire,
-        direction=direction,
     )
     # scan points for lines on surface
     p_edges = find_surface_edges(xsect, invert=False)
