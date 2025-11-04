@@ -23,23 +23,17 @@ def is_point_on_end(point, edge):
     )
 
 
-def split_mesh_at_edge(mesh, edges):
+DartPoly = namedtuple("DartPoly", ["poly_idx", "key_edges", "dart_points"])
 
-    # find points in mesh on dart
 
-    def is_point_on_edges(point, edges):
-        for e in edges:
-            if is_point_on_edge(point, e):
-                return True
-        return False
+def is_point_on_edges(point, edges):
+    for e in edges:
+        if is_point_on_edge(point, e):
+            return True
+    return False
 
-    dart_point_indices = frozenset(
-        [i for i, p in enumerate(mesh.Points) if is_point_on_edges(p, edges)]
-    )
 
-    # find facets in mesh on dart
-    DartPoly = namedtuple("DartPoly", ["poly_idx", "key_edges", "dart_points"])
-
+def get_dart_polys(mesh, dart_point_indices):
     def points_on_dart(poly):
         return frozenset(set(poly) & dart_point_indices)
 
@@ -66,10 +60,10 @@ def split_mesh_at_edge(mesh, edges):
             return set(key_edges)
 
         edge_polys.append(DartPoly(poly_idx, get_key_edges(), dart_points))
+    return edge_polys
 
-    # sort and cluster
-    end_polys = edge_polys.copy()
 
+def get_dart_clusters(edge_polys):
     chain = []
 
     def new_cluster():
@@ -124,7 +118,10 @@ def split_mesh_at_edge(mesh, edges):
             # it must need a new cluster
             cluster = new_cluster()
 
-    # split clusters
+    return chain
+
+
+def get_split_clusters(end_polys, dart_point_indices, chain):
 
     def border_edge(poly: DartPoly, idx):
         # detect wheter a poly is a border edge at idx
@@ -178,15 +175,23 @@ def split_mesh_at_edge(mesh, edges):
             for idx in ref.dart_points:
                 check_point(idx)
 
-    # - make lookup from poly index to which group it belongs to
-    #  (this should be unique)
+    return analysis_points
+
+
+def get_poly_cluster(chain):
     poly_cluster = {}
-    delta = {}
-    n_delta = {}
     for cluster_idx, cluster in enumerate(chain):
         for ref in cluster:
             poly_cluster[ref.poly_idx] = cluster_idx
+    return poly_cluster
 
+
+def get_delta(mesh, chain):
+    delta = {}
+    n_delta = {}
+
+    for cluster_idx, cluster in enumerate(chain):
+        for ref in cluster:
             for p in ref.dart_points:
                 k = (p, cluster_idx)
                 delta[k] = Vector()
@@ -199,40 +204,50 @@ def split_mesh_at_edge(mesh, edges):
                 p = mesh.Points[i]
                 return Vector(p.x, p.y, p.z)
 
-            if len(ref.dart_points) != 2:
-                continue
-
             pl = list(mesh.Topology[1][ref.poly_idx])
-            n = len(pl)
-            if n != 3:
-                continue
 
-            for i in range(n):
-                p = [pl[(i + j) % n] for j in range(n)]
+            barycenter = Vector()
+            for i in pl:
+                barycenter += point_index_to_vector(i) / len(pl)
 
-                if frozenset([p[0], p[1]]) != ref.dart_points:
-                    continue
-
-                X = point_index_to_vector(p[1]) - point_index_to_vector(p[0])
-                Y = point_index_to_vector(p[2]) - point_index_to_vector(p[0])
-                Z = X.cross(Y).normalize()
-
-                def inc(j):
-                    k = (p[j], cluster_idx)
-                    delta[k] += Z
-                    n_delta[k] += 1
-
-                inc(0)
-                inc(1)
+            for p in ref.dart_points:
+                v = point_index_to_vector(p) - barycenter
+                k = (p, cluster_idx)
+                delta[k] += v
+                n_delta[k] += 1
 
     for cluster_idx, cluster in enumerate(chain):
         for ref in cluster:
-            poly_cluster[ref.poly_idx] = cluster_idx
-
             for p in ref.dart_points:
                 k = (p, cluster_idx)
                 if n_delta[k]:
                     delta[k] /= n_delta[k]
+    return delta
+
+
+def split_mesh_at_edge(mesh, edges):
+
+    # find points in mesh on dart
+
+    dart_point_indices = frozenset(
+        [i for i, p in enumerate(mesh.Points) if is_point_on_edges(p, edges)]
+    )
+
+    # find facets in mesh on dart
+    edge_polys = get_dart_polys(mesh, dart_point_indices)
+    # make copy before modifying
+    end_polys = edge_polys.copy()
+
+    # sort and cluster
+    chain = get_dart_clusters(edge_polys)
+
+    # split clusters
+    analysis_points = get_split_clusters(end_polys, dart_point_indices, chain)
+
+    # - make lookup from poly index to which group it belongs to
+    #  (this should be unique)
+    poly_cluster = get_poly_cluster(chain)
+    delta = get_delta(mesh, chain)
 
     return analysis_points, poly_cluster, delta
 
