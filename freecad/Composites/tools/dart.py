@@ -223,7 +223,7 @@ def get_delta(
                 barycenter += point_index_to_vector(i) / len(pl)
 
             for p in ref.dart_points:
-                v = point_index_to_vector(p) - barycenter
+                v = (point_index_to_vector(p) - barycenter).normalize()
                 k = (p, cluster_idx)
                 delta[k] += v
                 n_delta[k] += 1
