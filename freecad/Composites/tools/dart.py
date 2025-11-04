@@ -260,7 +260,7 @@ def make_dart(shape, edges, max_length=4.0, gap_length=0.1):
     analysis_points, poly_cluster, delta = split_mesh_at_edge(mesh, edges)
 
     # - generate new mesh
-    mesh2 = Mesh.Mesh()
+    mesh_dart = Mesh.Mesh()
     for poly_idx, poly in enumerate(mesh.Topology[1]):
 
         if poly_idx not in poly_cluster:
@@ -280,6 +280,6 @@ def make_dart(shape, edges, max_length=4.0, gap_length=0.1):
             return v
 
         vecs = [point_index_to_vector(i) for i in list(poly)]
-        mesh2.addFacet(*vecs)
+        mesh_dart.addFacet(*vecs)
 
-    return mesh2
+    return mesh_dart
