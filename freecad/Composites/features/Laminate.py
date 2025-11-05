@@ -39,7 +39,6 @@ def get_model_layers(obj):
 
 
 def is_laminate(obj):
-    print(obj)
     return is_comp_type(
         obj,
         "App::FeaturePython",

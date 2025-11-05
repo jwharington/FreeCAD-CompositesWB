@@ -8,6 +8,8 @@ import TechDraw
 from . import splitAPI
 from CAM import Path
 
+debug = False
+
 
 def removeDuplicateEdges(edges):
 
@@ -142,7 +144,8 @@ def make_part_plane3(shape):
     for face in fused.Faces:
         p = face.ParameterRange
         norm = face.normalAt(sum(p[0:2]) / 2, sum(p[2:4]) / 2)
-        print(f"norm.z {norm.z}")
+        if debug:
+            print(f"norm.z {norm.z}")
         if norm.z >= 0:
             faces_up.append(face)
     return Part.makeCompound(faces_up)  # fused

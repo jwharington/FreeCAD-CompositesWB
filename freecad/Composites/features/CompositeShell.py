@@ -13,6 +13,7 @@ from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
+import MeshEnums
 
 
 def is_composite_shell(obj):
@@ -73,7 +74,6 @@ class CompositeShellFP(CompositeBaseFP):
             "Mesh::Feature",
             "DrapeMesh",
         )
-
         obj.setPropertyStatus("Mesh", "LockDynamic")
         obj.setPropertyStatus("Mesh", "ReadOnly")
 
@@ -98,8 +98,25 @@ class CompositeShellFP(CompositeBaseFP):
         mesh = self.update_mesh(fp)
         self.draper = Draper(mesh, get_lcs(), fp.Shape)
         fp.Mesh.Mesh = mesh
+
         if fp.ViewObject:
+            self.update_mesh_material(fp.Mesh)
             fp.ViewObject.update()
+
+    def update_mesh_material(self, mesh):
+        # use draper to determine distortion for coloring
+
+        n = mesh.Mesh.CountFacets
+        if "Material" not in mesh.PropertiesList:
+            mesh.addProperty("Mesh::PropertyMaterial", "Material")
+        material = {
+            "binding": MeshEnums.Binding.PER_FACE,
+            "transparency": [0.0] * n,
+            "ambientColor": [(1, 0, 0)] * n,
+            "shininess": [0.0] * n,
+        }
+        mesh.Material = material
+        mesh.ViewObject.Coloring = True
 
     def onChanged(self, fp, prop):
         match prop:

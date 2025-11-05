@@ -12,6 +12,8 @@ from ..mechanics.material_properties import (
 )
 from typing import List
 
+debug = False
+
 
 def get_layers_ccx(
     laminate: Laminate,
@@ -118,7 +120,8 @@ def test_ccx(
         prefix=prefix,
         layers=layers,
     )
-    print(res)
+    if debug:
+        print(res)
 
 
 # composite only used if more than one
