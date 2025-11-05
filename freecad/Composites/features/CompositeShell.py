@@ -12,6 +12,7 @@ from .. import (
 from ..tools.draper import Draper
 from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
+from .Container import getCompositesContainer
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
 import MeshEnums
@@ -242,6 +243,9 @@ class ViewProviderCompositeShell:
                 "diffuseColor": [(0.5, 0.5, 0.5)] * n,
                 "shininess": [0.0] * n,
             }
+            cont = getCompositesContainer()
+            limit_pos = cont.MaxStrainTension
+            limit_neg = cont.MaxStrainCompression
             match vobj.DisplayMode:
                 case "Strain XX":
                     index = 0
@@ -249,14 +253,23 @@ class ViewProviderCompositeShell:
                     index = 1
                 case "Strain XY":
                     index = 2
+                    limit_pos = cont.MaxStrainShear
+                    limit_neg = cont.MaxStrainShear
                 case _:
                     index = -1
             if index >= 0:
                 s = strains[:, index]
-                s_max = np.max(s) * 3
-                s = (1 + s / s_max) / 2
 
-                material["diffuseColor"] = [roma_map(x)[0:3] for x in s]
+                def map_val(x):
+                    if x > 0:
+                        s = min(1.0, (1.0 + (x / limit_pos) / 2))
+                    elif x < 0:
+                        s = max(0.0, (1.0 + (x / limit_neg) / 2))
+                    else:
+                        s = 0.5
+                    return roma_map(s)[0:3]
+
+                material["diffuseColor"] = [map_val(x) for x in s]
             mesh.Material = material
             mesh.ViewObject.Coloring = True
         self.update_visibility(vobj)

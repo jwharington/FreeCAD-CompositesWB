@@ -61,8 +61,6 @@ materials.SetString("ModuleDir", MATPATH)
 # FreeCAD.addImportType("My own format (*.own)", "importOwn")
 # FreeCAD.addExportType("My own format (*.own)", "exportOwn")
 
-container_name = "CompositesContainer"
-
 
 def is_comp_type(obj, type_id, proxy_type):
     if obj.TypeId != type_id:
@@ -76,32 +74,6 @@ def is_comp_type(obj, type_id, proxy_type):
     if obj.Proxy.Type != proxy_type:
         return False
     return True
-
-
-class _ViewProviderCompositesContainer:
-
-    def __init__(self, vobj):
-        vobj.Proxy = self
-
-    def getIcon(self):
-        return WB_ICON
-
-
-def getCompositesContainer() -> FreeCAD.Document:
-    for obj in FreeCAD.ActiveDocument.Objects:
-        if obj.Name == container_name:
-            return obj
-
-    obj = FreeCAD.ActiveDocument.addObject(
-        "App::DocumentObjectGroupPython",
-        container_name,
-    )
-    if not obj:
-        return None
-    obj.Label = "Composites"
-    if FreeCAD.GuiUp:
-        _ViewProviderCompositesContainer(obj.ViewObject)
-    return obj
 
 
 # def getDocumentCompositeLaminates():
