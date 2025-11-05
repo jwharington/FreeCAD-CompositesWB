@@ -5,6 +5,7 @@ import os
 import FreeCAD
 from os import path
 from .version import __version__  # noqa
+from .resources.colormaps.roma import roma_map
 
 debug = False
 

@@ -7,6 +7,7 @@ import MeshPart
 from .. import (
     COMPOSITE_SHELL_TOOL_ICON,
     is_comp_type,
+    roma_map,
 )
 from ..tools.draper import Draper
 from ..shaders.MeshGridShader import MeshGridShader
@@ -252,13 +253,10 @@ class ViewProviderCompositeShell:
                     index = -1
             if index >= 0:
                 s = strains[:, index]
-                s_max = np.max(s)
-                s = np.abs(s) / s_max
+                s_max = np.max(s) * 3
+                s = (1 + s / s_max) / 2
 
-                def coltable(x):
-                    return (x / 2 + 0.5, x / 2 + 0.5, 0.5)
-
-                material["diffuseColor"] = [coltable(x) for x in s]
+                material["diffuseColor"] = [roma_map(x)[0:3] for x in s]
             mesh.Material = material
             mesh.ViewObject.Coloring = True
         self.update_visibility(vobj)
