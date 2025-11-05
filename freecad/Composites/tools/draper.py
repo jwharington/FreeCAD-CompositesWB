@@ -59,10 +59,7 @@ class Draper:
 
         self.T_fo = calc_flat_placement()
         self.fabric_points = [self.T_fo * p for p in self.fabric_points]
-
-        # for i, tri in enumerate(mesh.Topology[1]):
-        #     self.calc_strain(i)
-        # print(self.calc_strain(502))
+        self.strains = np.vstack([self.calc_strain(i) for i in range(mesh.CountFacets)])
 
     def isValid(self):
         return self.flattener

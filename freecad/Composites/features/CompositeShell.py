@@ -14,6 +14,7 @@ from .Command import BaseCommand
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
 import MeshEnums
+import numpy as np
 
 
 def is_composite_shell(obj):
@@ -100,23 +101,7 @@ class CompositeShellFP(CompositeBaseFP):
         fp.Mesh.Mesh = mesh
 
         if fp.ViewObject:
-            self.update_mesh_material(fp.Mesh)
             fp.ViewObject.update()
-
-    def update_mesh_material(self, mesh):
-        # use draper to determine distortion for coloring
-
-        n = mesh.Mesh.CountFacets
-        if "Material" not in mesh.PropertiesList:
-            mesh.addProperty("Mesh::PropertyMaterial", "Material")
-        material = {
-            "binding": MeshEnums.Binding.PER_FACE,
-            "transparency": [0.0] * n,
-            "ambientColor": [(1, 0, 0)] * n,
-            "shininess": [0.0] * n,
-        }
-        mesh.Material = material
-        mesh.ViewObject.Coloring = True
 
     def onChanged(self, fp, prop):
         match prop:
@@ -151,6 +136,11 @@ class CompositeShellFP(CompositeBaseFP):
             )
         return None
 
+    def get_strains(self):
+        if self.draper.isValid():
+            return self.draper.strains
+        return None
+
     def update_mesh(self, fp):
         if not fp.Shape.BoundBox.isValid():
             return Mesh.Mesh()
@@ -183,8 +173,11 @@ class ViewProviderCompositeShell:
         obj.DisplayLayer = "0"
         obj.Proxy = self
 
+    def setDisplayMode(self, mode):
+        return mode
+
     def getDisplayModes(self, obj):
-        return ["Grid"]
+        return ["Grid", "Strain XX", "Strain YY", "Strain XY"]
 
     def getDefaultDisplayMode(self):
         return "Shaded"
@@ -206,6 +199,7 @@ class ViewProviderCompositeShell:
 
         if not hasattr(self, "grid_shader"):
             self.grid_shader = MeshGridShader()
+
         obj.addDisplayMode(self.grid_shader.grp, "Grid")
         # self.load_shader()
 
@@ -225,11 +219,49 @@ class ViewProviderCompositeShell:
 
     def update_visibility(self, vobj):
         visible = vobj.Visibility
-        if vobj.DisplayMode != "Grid":
+        if vobj.DisplayMode not in self.getDisplayModes(vobj):
             visible = False
         self.Object.Mesh.Visibility = visible
         if self.Object.LocalCoordinateSystem:
             self.Object.LocalCoordinateSystem.Visibility = visible
+
+    def update_mesh_material(self, vobj):
+        # use draper to determine distortion for coloring
+        mesh = vobj.Object.Mesh
+        n = mesh.Mesh.CountFacets
+        if "Material" not in mesh.PropertiesList:
+            mesh.addProperty("Mesh::PropertyMaterial", "Material")
+        strains = vobj.Object.Proxy.get_strains()
+        if strains is not None:
+
+            material = {
+                "binding": MeshEnums.Binding.PER_FACE,
+                "transparency": [0.0] * n,
+                "ambientColor": [(0.5, 0.5, 0.5)] * n,
+                "diffuseColor": [(0.5, 0.5, 0.5)] * n,
+                "shininess": [0.0] * n,
+            }
+            match vobj.DisplayMode:
+                case "Strain XX":
+                    index = 0
+                case "Strain YY":
+                    index = 1
+                case "Strain XY":
+                    index = 2
+                case _:
+                    index = -1
+            if index >= 0:
+                s = strains[:, index]
+                s_max = np.max(s)
+                s = np.abs(s) / s_max
+
+                def coltable(x):
+                    return (x / 2 + 0.5, x / 2 + 0.5, 0.5)
+
+                material["diffuseColor"] = [coltable(x) for x in s]
+            mesh.Material = material
+            mesh.ViewObject.Coloring = True
+        self.update_visibility(vobj)
 
     def updateData(self, fp, prop):
         match prop:
@@ -244,8 +276,10 @@ class ViewProviderCompositeShell:
 
     def onChanged(self, vobj, prop):
         match prop:
-            case "Visibility" | "DisplayMode":
+            case "Visibility":
                 self.update_visibility(vobj)
+            case "DisplayMode":
+                self.update_mesh_material(vobj)
             case "Darken":
                 if self.grid_shader:
                     self.grid_shader.Darken = vobj.Darken
