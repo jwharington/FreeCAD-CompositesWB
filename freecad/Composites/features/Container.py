@@ -66,3 +66,14 @@ def getCompositesContainer() -> FreeCAD.Document:
     if FreeCAD.GuiUp:
         ViewProviderCompositesContainer(obj.ViewObject)
     return obj
+
+
+# def getDocumentCompositeLaminates():
+#     for obj in FreeCAD.ActiveDocument.Objects:
+#         if obj.Name == container_name:
+#             res = []
+#             for o in obj.Group:
+#                 if o.isDerivedFrom("App::FeaturePython"):
+#                     res.append(o)
+#             return res
+#     return []

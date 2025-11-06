@@ -76,14 +76,4 @@ def is_comp_type(obj, type_id, proxy_type):
     return True
 
 
-# def getDocumentCompositeLaminates():
-#     for obj in FreeCAD.ActiveDocument.Objects:
-#         if obj.Name == container_name:
-#             res = []
-#             for o in obj.Group:
-#                 if o.isDerivedFrom("App::FeaturePython"):
-#                     res.append(o)
-#             return res
-#     return []
-
 FreeCAD.__unit_test__ += ["TestCompositesApp"]
