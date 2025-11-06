@@ -4,6 +4,9 @@ Lots of code needs unit testing and handling input errors.
 This requires a modified version of FreeCAD, mainly to support FEM analysis.
   https://github.com/jwharington/FreeCAD/tree/fem-orthotropic
 
+
+![Alt text](./freecad/Composites/resources/icons/CompositeShell.svg)<img src="./freecad/Composites/resources/icons/CompositeShell.svg">
+
 Current capabilities:
 - Local coordinate system with orthotropic materials in FEM solver
 - LCS varies across the laminate shell by draping material
