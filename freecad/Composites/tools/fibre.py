@@ -20,6 +20,9 @@ class FibreHistogram:
         self.samples.append(length)
         self.acc += qty
 
+    def normalise(self):
+        pass
+
 
 def get_surface(boundaries):
     wires = []
