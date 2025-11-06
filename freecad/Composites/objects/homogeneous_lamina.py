@@ -27,3 +27,6 @@ class HomogeneousLamina(Ply):
 
     def get_product(self):
         return [(f"{self.description} {self.thickness}", 0)]
+
+    def get_fibres(self):
+        return None

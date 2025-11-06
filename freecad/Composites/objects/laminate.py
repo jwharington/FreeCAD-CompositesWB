@@ -38,3 +38,11 @@ class Laminate(Lamina):
             if product := lay.get_product():
                 res.extend(product)
         return res
+
+    def get_fibres(self):
+        res = []
+        expanded_layers = expand_symmetry(self.layers, self.symmetry)
+        for lay in expanded_layers:
+            if product := lay.get_fibres():
+                res.extend(product)
+        return res

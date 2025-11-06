@@ -60,3 +60,13 @@ class FibreCompositeLamina(CompositeLamina):
             )
 
         return [[props(lay) for lay in self.fibre.get_plies()]]
+
+    def get_fibres(self):
+        def props(la: Fabric):
+            return {
+                "material": la.material_fibre["Name"],
+                "orientation": la.orientation,
+                "thickness": la.thickness,
+            }
+
+        return [[props(lay) for lay in self.fibre.get_plies()]]

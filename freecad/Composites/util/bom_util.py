@@ -16,3 +16,10 @@ def get_layers_bom(laminate: Laminate):
 
     layers = laminate.get_product()
     return {name(k, lay): orientation(lay) for k, lay in enumerate(layers)}
+
+
+def get_layers_fibre(laminate: Laminate):
+    if not laminate:
+        return []
+
+    return laminate.get_fibres()
