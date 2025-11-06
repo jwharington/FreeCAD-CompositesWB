@@ -10,7 +10,10 @@ from .. import (
     roma_map,
 )
 from ..tools.draper import Draper
-from ..tools.fibre import make_fibre_analysis
+from ..tools.fibre import (
+    make_fibre_length_analysis,
+    make_fibre_orientation_analysis,
+)
 from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Container import getCompositesContainer
@@ -108,9 +111,14 @@ class CompositeShellFP(CompositeBaseFP):
             fp.ViewObject.update()
 
     def fibre_analysis(self, fp):
-        histograms_length = make_fibre_analysis(fp)
+        histograms_length = make_fibre_length_analysis(fp)
+        print("Material fibre length analysis:")
         for material, histogram in histograms_length.items():
-            print(f"{material} {histogram.average_length}")
+            print(f"  {material}: {histogram.average_length}")
+        orientation_fraction = make_fibre_orientation_analysis(fp)
+        print("Orientation fraction analysis:")
+        for orientation, fraction in orientation_fraction.items():
+            print(f"  {orientation}: {fraction:.2f}")
 
     def onChanged(self, fp, prop):
         match prop:

@@ -57,14 +57,15 @@ def make_strips(surface, n_strips: int):
     return surface.cut(tools)
 
 
-def make_fibre_analysis(composite_shell, n_strips: int = 20):
-
+def get_composite_shell_plies(composite_shell):
     # TODO: make not depend on fp
-    # TODO: add analysis of percent fibre/strength in each major direction
-
     laminate_obj = composite_shell.Laminate
     laminate = laminate_obj.Proxy.get_model(laminate_obj)
-    plies = get_layers_fibre(laminate)
+    return get_layers_fibre(laminate)
+
+
+def make_fibre_length_analysis(composite_shell, n_strips: int = 20):
+    plies = get_composite_shell_plies(composite_shell=composite_shell)
 
     # scan orientations since only need to slice once
     orientations = {}
@@ -79,9 +80,9 @@ def make_fibre_analysis(composite_shell, n_strips: int = 20):
 
         # chop into pieces
         shape = make_strips(surface, n_strips)
-        for strip in shape.Faces:
-            width = strip.BoundBox.YLength
-            length = strip.Area / width
+        for fragment in shape.Faces:
+            width = fragment.BoundBox.YLength
+            length = fragment.Area / width
             info.append(StripInfo(length, width))
 
     histograms_length = {}
@@ -95,3 +96,22 @@ def make_fibre_analysis(composite_shell, n_strips: int = 20):
         histogram.normalise()
         histograms_length[material] = histogram
     return histograms_length
+
+
+def make_fibre_orientation_analysis(composite_shell):
+    # TODO: add analysis of percent fibre/strength in each major direction
+    plies = get_composite_shell_plies(composite_shell=composite_shell)
+
+    # scan orientations since only need to slice once
+    orientation_thickness = {}
+    total_thickness = 0
+    for material, material_info in plies.items():
+        for orientation, thickness in material_info.items():
+            if orientation not in orientation_thickness:
+                orientation_thickness[orientation] = 0
+            orientation_thickness[orientation] += thickness
+            total_thickness += thickness
+
+    for orientation in orientation_thickness.keys():
+        orientation_thickness[orientation] /= total_thickness
+    return orientation_thickness
