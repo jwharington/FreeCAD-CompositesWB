@@ -22,4 +22,13 @@ def get_layers_fibre(laminate: Laminate):
     if not laminate:
         return []
 
-    return laminate.get_fibres()
+    plies = laminate.get_fibres()
+    layers = {}
+    for ply in plies:
+        if not ply["material"] in layers:
+            layers[ply["material"]] = {}
+        lm = layers[ply["material"]]
+        if not ply["orientation"] in lm:
+            lm[ply["orientation"]] = 0
+        lm[ply["orientation"]] += ply["thickness"]
+    return layers

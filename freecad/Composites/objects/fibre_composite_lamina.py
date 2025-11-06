@@ -69,4 +69,4 @@ class FibreCompositeLamina(CompositeLamina):
                 "thickness": la.thickness,
             }
 
-        return [[props(lay) for lay in self.fibre.get_plies()]]
+        return [props(lay) for lay in self.fibre.get_plies()]

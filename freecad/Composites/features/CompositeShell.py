@@ -10,13 +10,13 @@ from .. import (
     roma_map,
 )
 from ..tools.draper import Draper
+from ..tools.fibre import make_fibre_analysis
 from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
 import MeshEnums
-import numpy as np
 
 
 def is_composite_shell(obj):
@@ -102,8 +102,15 @@ class CompositeShellFP(CompositeBaseFP):
         self.draper = Draper(mesh, get_lcs(), fp.Shape)
         fp.Mesh.Mesh = mesh
 
+        self.fibre_analysis(fp)
+
         if fp.ViewObject:
             fp.ViewObject.update()
+
+    def fibre_analysis(self, fp):
+        histograms_length = make_fibre_analysis(fp)
+        for material, histogram in histograms_length.items():
+            print(f"{material} {histogram.average_length}")
 
     def onChanged(self, fp, prop):
         match prop:
