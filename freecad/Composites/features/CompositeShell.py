@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+from FreeCAD import Console
 import FreeCADGui
-import Mesh
-import MeshPart
 from .. import (
     COMPOSITE_SHELL_TOOL_ICON,
     is_comp_type,
@@ -19,6 +18,7 @@ from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
+from ..util.mesh_util import shape2Mesh
 import MeshEnums
 
 
@@ -101,24 +101,27 @@ class CompositeShellFP(CompositeBaseFP):
                 return fp.LocalCoordinateSystem
             return fp.Support
 
-        mesh = self.update_mesh(fp)
-        self.draper = Draper(mesh, get_lcs(), fp.Shape)
-        fp.Mesh.Mesh = mesh
-
-        self.fibre_analysis(fp)
+        try:
+            mesh = shape2Mesh(fp.Shape, fp.MaxLength)
+            self.draper = Draper(mesh, get_lcs(), fp.Shape)
+            if self.has_valid_draper():
+                fp.Mesh.Mesh = mesh
+                self.fibre_analysis(fp)
+        except Exception:
+            self.draper = None
 
         if fp.ViewObject:
             fp.ViewObject.update()
 
     def fibre_analysis(self, fp):
         histograms_length = make_fibre_length_analysis(fp)
-        print("Material fibre length analysis:")
+        Console.PrintMessage("Material fibre length analysis:")
         for material, histogram in histograms_length.items():
-            print(f"  {material}: {histogram.average_length}")
+            Console.PrintMessage(f"  {material}: {histogram.average_length}")
         orientation_fraction = make_fibre_orientation_analysis(fp)
-        print("Orientation fraction analysis:")
+        Console.PrintMessage("Orientation fraction analysis:")
         for orientation, fraction in orientation_fraction.items():
-            print(f"  {orientation}: {fraction:.2f}")
+            Console.PrintMessage(f"  {orientation}: {fraction:.2f}")
 
     def onChanged(self, fp, prop):
         match prop:
@@ -129,42 +132,37 @@ class CompositeShellFP(CompositeBaseFP):
             case "MaxLength" | "Support":
                 fp.recompute()
 
+    def has_valid_draper(self):
+        return hasattr(self, "draper") and self.draper and self.draper.isValid()
+
     def get_tex_coords(self, offset_angle_deg):
-        if self.draper.isValid():
+        if self.has_valid_draper():
             return self.draper.get_tex_coords(
                 offset_angle_deg=offset_angle_deg,
             )
         return None
 
     def get_draper(self):
-        if self.draper.isValid():
+        if self.has_valid_draper():
             return self.draper
         raise ValueError("Draper invalid")
 
     def get_drape_lcs(self, tris):
-        if self.draper.isValid():
+        if self.has_valid_draper():
             return self.draper.get_lcs(tris)
         return None
 
     def get_boundaries(self, offset_angle_deg):
-        if self.draper.isValid():
+        if self.has_valid_draper():
             return self.draper.get_boundaries(
                 offset_angle_deg=offset_angle_deg,
             )
         return None
 
     def get_strains(self):
-        if self.draper.isValid():
+        if self.has_valid_draper():
             return self.draper.strains
         return None
-
-    def update_mesh(self, fp):
-        if not fp.Shape.BoundBox.isValid():
-            return Mesh.Mesh()
-        ml = fp.MaxLength
-        shape = fp.Shape
-        maxl = max(ml, shape.BoundBox.DiagonalLength / 50.0)
-        return MeshPart.meshFromShape(Shape=shape, MaxLength=maxl)
 
 
 class ViewProviderCompositeShell:

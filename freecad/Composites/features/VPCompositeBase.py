@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-import FreeCAD
+from FreeCAD import Console
 import FreeCADGui
 from pivy import coin
 from typing import List
@@ -67,7 +67,7 @@ class VPCompositeBase:
                 "Please close this one before opening a new one!"
             )
             QMessageBox.critical(None, "Error in tree view", message)
-            FreeCAD.Console.PrintError(message + "\n")
+            Console.PrintError(message + "\n")
         return True
 
     def getDisplayModes(self, obj) -> List[str]:

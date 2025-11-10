@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-import FreeCAD
+from FreeCAD import Console
 import FreeCADGui
 from typing import ClassVar
 from .Container import getCompositesContainer
@@ -88,7 +88,7 @@ class BaseCommand:
         sel = FreeCADGui.Selection.getSelectionEx()
         if debug or self.debug:
             sel_objs = [s.Object for s in sel]
-            print(f"selected {sel_objs}")
+            Console.PrintLog(f"selected {sel_objs}")
 
         present = []
         missing = []
@@ -100,12 +100,12 @@ class BaseCommand:
             missing.append(item)
             if "optional" not in item:
                 if report and (debug or self.debug):
-                    print(f"missing non-optional {item['key']}")
+                    Console.PrintLog(f"missing non-optional {item['key']}")
                 ok = False
 
         res = {p["key"]: p["value"] for p in present}
         if report and (debug or self.debug):
-            print(f"{self.__class__} res: {res}")
+            Console.PrintLog(f"{self.__class__} res: {res}")
         if ok:
             return res
         return None

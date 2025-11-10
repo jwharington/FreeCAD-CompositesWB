@@ -1,18 +1,24 @@
-from Part import Vertex
-from FreeCAD import Vector
-import Mesh
-import MeshPart
 from collections import namedtuple
+
+from FreeCAD import Vector
+
+import Mesh
+
+from Part import Vertex
+
+from ..util.mesh_util import shape2Mesh
 
 
 DartPoly = namedtuple("DartPoly", ["poly_idx", "key_edges", "dart_points"])
+default_tolerance = 1.0e-3
 
 
 def is_point_on_edges(
     point,
     edges,
+    tol=default_tolerance,
 ):
-    def mesh_point_is_close(shape, tol=1.0e-3):
+    def mesh_point_is_close(shape):
         return Vertex(point.x, point.y, point.z).distToShape(shape)[0] < tol
 
     for e in edges:
@@ -240,12 +246,21 @@ def get_delta(
 def split_mesh_at_edge(
     mesh,
     edges,
+    tol=default_tolerance,
 ):
 
     # find points in mesh on dart
 
     dart_point_indices = frozenset(
-        [i for i, p in enumerate(mesh.Points) if is_point_on_edges(p, edges)]
+        [
+            i
+            for i, p in enumerate(mesh.Points)
+            if is_point_on_edges(
+                p,
+                edges,
+                tol=tol,
+            )
+        ]
     )
 
     # find facets in mesh on dart
@@ -299,12 +314,24 @@ def generate_dart_mesh(
     return mesh_dart
 
 
-def make_dart(shape, edges, max_length=4.0, gap_length=0.1):
+def make_dart(
+    shape,
+    edges,
+    max_length=4.0,
+    gap_length=0.1,
+    tol=default_tolerance,
+):
     # - convert shape to mesh
-    mesh = MeshPart.meshFromShape(Shape=shape, MaxLength=max_length)
+    mesh = shape2Mesh(shape, max_length)
+    if not mesh:
+        raise ValueError("can't make mesh")
 
     # - analyse mesh
-    analysis_points, poly_cluster, delta = split_mesh_at_edge(mesh, edges)
+    analysis_points, poly_cluster, delta = split_mesh_at_edge(
+        mesh,
+        edges,
+        tol=tol,
+    )
 
     # - generate new mesh
     return generate_dart_mesh(

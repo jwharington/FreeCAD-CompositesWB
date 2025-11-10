@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
+from FreeCAD import Console
 import Part
 from . import splitAPI
 
@@ -47,7 +48,7 @@ def make_join_seam(
     edges = get_partner_edges(face1, face2)
 
     if not edges:
-        print("TODO: handle non-common edge")
+        Console.PrintWarning("TODO: handle non-common edge")
         # fallback to calculating via intersection
         # TODO: modify face2 to split
         edges = face1.section(face2).Edges

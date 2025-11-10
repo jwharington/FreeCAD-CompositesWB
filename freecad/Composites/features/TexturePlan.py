@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-import FreeCAD
+from FreeCAD import Console
 import FreeCADGui
 import Part
 from .. import (
@@ -33,11 +33,13 @@ class TexturePlanFP(CompositePartFP):
         shapes = []
         for obj in fp.CompositeShell:
             if "Composite::Shell" != obj.Proxy.Type:
-                FreeCAD.Console.PrintError(f"Incorrect type {obj.Name}\n")
+                Console.PrintError(f"Incorrect type {obj.Name}\n")
                 continue
             # TODO: lay out separate shapes for each layer in the composites
             for key, orientation in obj.Laminate.StackAssembly.items():
-                print(f"name {obj.Name} key {key} orientation {orientation}")
+                Console.PrintMessage(
+                    f"name {obj.Name} key {key} orientation {orientation}"
+                )
                 boundaries = obj.Proxy.get_boundaries(
                     offset_angle_deg=int(orientation),
                 )

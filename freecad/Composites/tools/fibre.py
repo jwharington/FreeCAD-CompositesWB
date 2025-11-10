@@ -1,9 +1,12 @@
-from FreeCAD import Vector
-import Part
 from collections import namedtuple
 from dataclasses import dataclass, field
-from ..util.bom_util import get_layers_fibre
 import numpy as np
+
+from FreeCAD import Vector
+
+import Part
+
+from ..util.bom_util import get_layers_fibre
 
 
 @dataclass
@@ -76,6 +79,8 @@ def make_fibre_length_analysis(composite_shell, n_strips: int = 20):
     StripInfo = namedtuple("StripInfo", ["length", "width"])
     for orientation, info in orientations.items():
         boundaries = composite_shell.Proxy.get_boundaries(orientation)
+        if not boundaries:
+            continue
         surface = get_surface(boundaries)
 
         # chop into pieces

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+from FreeCAD import Console
 import FreeCADGui
 import Part
 from .. import (
@@ -42,7 +43,7 @@ class AlignFibreLCSFP(TransferLCSFP):
             case _:
                 raise ValueError("Unhandled Support")
         if res:
-            print(f"TODO rotate LCS by {res}")
+            Console.PrintWarning(f"TODO rotate LCS by {res}")
             # lcs = fp.LocalCoordinateSystem
             # lcs.Placement.Base = position
             # lcs.Placement.Rotation = rotation.inverted()

@@ -111,4 +111,5 @@ Terminology:
 - butt joint
 - joint
 
+ https://compositematerialshub.com/bonded-joints/
  

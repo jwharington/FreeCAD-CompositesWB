@@ -2,14 +2,22 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from FreeCAD import (
-    Vector,
-    Rotation,
     Base,
+    Rotation,
+    Vector,
 )
-import numpy as np
-import flatmesh
+
 import Part
-from ..util.mesh_util import calc_lambda_vec, axes_mapped, eval_lam
+
+import flatmesh
+
+import numpy as np
+
+from ..util.mesh_util import (
+    axes_mapped,
+    calc_lambda_vec,
+    eval_lam,
+)
 
 
 def z_rotation(offset_angle_deg):
@@ -39,7 +47,7 @@ class Draper:
         self.shape = shape
         self.flattener: flatmesh.FaceUnwrapper = get_flattener()
         if not self.flattener:
-            return
+            raise ValueError("Can't flatten shape")
 
         self.fabric_points = [Vector(*n) for n in self.flattener.ze_nodes]
 

@@ -1,6 +1,6 @@
 from typing import Optional
 import Part
-import FreeCAD
+from FreeCAD import Console
 import FreeCADGui as Gui
 
 # from https://github.com/gbroques/ose-workbench-core
@@ -60,4 +60,4 @@ def _print_warning_message(num_matches, subject, object_type):
     message_template = '{} {} matching type "{}" found in selection.'
     message_template += " Returning first match."
     message = message_template.format(num_matches, subject, object_type)
-    FreeCAD.Console.PrintWarning(message)
+    Console.PrintWarning(message)

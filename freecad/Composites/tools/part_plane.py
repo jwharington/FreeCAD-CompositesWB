@@ -2,7 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import Part
-from FreeCAD import Vector
+from FreeCAD import Vector, Console
 import numpy as np
 import TechDraw
 from . import splitAPI
@@ -145,7 +145,7 @@ def make_part_plane3(shape):
         p = face.ParameterRange
         norm = face.normalAt(sum(p[0:2]) / 2, sum(p[2:4]) / 2)
         if debug:
-            print(f"norm.z {norm.z}")
+            Console.PrintLog(f"norm.z {norm.z}")
         if norm.z >= 0:
             faces_up.append(face)
     return Part.makeCompound(faces_up)  # fused

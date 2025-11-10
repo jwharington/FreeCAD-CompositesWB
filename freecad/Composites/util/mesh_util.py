@@ -2,7 +2,8 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import numpy as np
-from FreeCAD import Vector
+from FreeCAD import Vector, Console
+import Mesh
 
 
 def proj(v, vn):
@@ -66,4 +67,15 @@ def calc_lambda_vec(
     pbc = sarea(po, b, c)
     pca = sarea(po, c, a)
     pab = sarea(po, a, b)
-    return np.array([pbc, pca, pab]) / abc
+    if abc != 0:
+        return np.array([pbc, pca, pab]) / abc
+    else:
+        raise ValueError("zero area triangle")
+
+
+def shape2Mesh(shape, max_length):
+    if not shape.BoundBox.isValid():
+        return Mesh.Mesh()
+    maxl = max(max_length, shape.BoundBox.DiagonalLength / 32.0)
+    Console.PrintLog(f"max length {maxl}")
+    return Mesh.Mesh(shape.cleaned().tessellate(10.0))
