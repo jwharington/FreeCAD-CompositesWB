@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from FreeCAD import Console
+import FreeCAD
 import FreeCADGui
 from typing import ClassVar
 from .Container import getCompositesContainer

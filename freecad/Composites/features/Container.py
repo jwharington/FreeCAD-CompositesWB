@@ -84,10 +84,10 @@ def getCompositesContainer() -> FreeCAD.Document:
 # from PySide import QtCore, QtGui
 
 # mw = FreeCADGui.getMainWindow()
+# m_tab = mw.findChild(QtGui.QTabBar)
 
 # c_tab = mw.findChild(QtGui.QTabWidget, "combiTab")
 # p_tab = c_tab.findChild(QtGui.QTabWidget, "propertyTab")
-# m_tab = mw.findChild(QtGui.QTabBar, "mdiAreaTabBar")
 
 # print(c_tab)
 # print(p_tab)

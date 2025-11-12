@@ -4,6 +4,7 @@
 import numpy as np
 from FreeCAD import Vector, Console
 import Mesh
+import MeshPart
 
 
 def proj(v, vn):
@@ -78,4 +79,13 @@ def shape2Mesh(shape, max_length):
         return Mesh.Mesh()
     maxl = max(max_length, shape.BoundBox.DiagonalLength / 32.0)
     Console.PrintLog(f"max length {maxl}")
-    return Mesh.Mesh(shape.cleaned().tessellate(10.0))
+    # return Mesh.Mesh(shape.cleaned().tessellate(10.0))
+    return MeshPart.meshFromShape(
+        shape,
+        GrowthRate=0,
+        SegPerEdge=0,
+        SegPerRadius=0,
+        SecondOrder=0,
+        Optimize=1,
+        AllowQuad=0,
+    )
