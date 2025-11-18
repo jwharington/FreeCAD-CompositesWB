@@ -308,11 +308,10 @@ def make_stiffener(
     support: Part.Shape,
     plan,
     profile,
-    direction: Vector = Vector(0, 0, 1),
+    alignment: StiffenerAlignment = StiffenerAlignment(),
 ):
     edges = get_edges(plan)
     xsect = get_xsect(profile)
-    alignment = StiffenerAlignment(direction)
 
     def process_edge(e):
         origin_wire = generate_origin_wire(

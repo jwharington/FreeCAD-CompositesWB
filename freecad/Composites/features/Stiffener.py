@@ -8,6 +8,7 @@ from .. import (
 )
 from ..tools.stiffener import (
     make_stiffener,
+    StiffenerAlignment,
 )
 from .VPCompositePart import (
     VPCompositePart,
@@ -43,6 +44,20 @@ class StiffenerFP(CompositePartFP):
         ).Direction = Vector(0, 0, 1)
 
         obj.addProperty(
+            "App::PropertyBool",
+            "MirrorX",
+            "Layout",
+            "Mirror profile in X direction",
+        ).MirrorX = False
+
+        obj.addProperty(
+            "App::PropertyBool",
+            "MirrorY",
+            "Layout",
+            "Mirror profile in Y direction",
+        ).MirrorY = False
+
+        obj.addProperty(
             "App::PropertyLink",
             "Profile",
             "Dimensions",
@@ -52,11 +67,18 @@ class StiffenerFP(CompositePartFP):
         super().__init__(obj)
 
     def execute(self, fp):
+
+        alignment = StiffenerAlignment(
+            direction=fp.Direction,
+            flip_x=fp.MirrorX,
+            flip_y=fp.MirrorY,
+        )
+
         shape, tools = make_stiffener(
             support=fp.Support.Shape,
             plan=fp.Plan,
             profile=fp.Profile,
-            direction=fp.Direction,
+            alignment=alignment,
         )
         fp.Shape = shape
         self.tools = tools
