@@ -164,6 +164,10 @@ class CompositeShellFP(CompositeBaseFP):
             return self.draper.strains
         return None
 
+    def get_stack_assembly(self, fp):
+        lam_obj = fp.Laminate
+        return lam_obj.Proxy.get_stack_assembly(lam_obj)
+
 
 class ViewProviderCompositeShell:
 

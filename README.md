@@ -1,5 +1,8 @@
 # <img src="./freecad/Composites/resources/icons/CompositesWB.svg"> FreeCAD Composite Workbench
 
+This is a workbench for FreeCAD to support design and structural analysis of thin composite
+laminate structures.
+
 This is very much a work in progress.  A lot is subject to change or refactoring.
 Lots of code needs unit testing and handling input errors.
 
@@ -113,3 +116,4 @@ Terminology:
 
  https://compositematerialshub.com/bonded-joints/
  
+ use CreateLabels.py from FEM for displaying layers?

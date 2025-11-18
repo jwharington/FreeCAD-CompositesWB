@@ -32,10 +32,10 @@
       <item>
        <layout class="QGridLayout" name="gridLayout_3">
         <item row="0" column="0">
-         <widget class="MatGui::MaterialTreeWidget" name="wgt_resin_material_tree" native="true"/>
+         <widget class="MatGui::MaterialTreeWidget" name="wgt_fibre_material_tree" native="true"/>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="lbl_resin_material_descr">
+         <widget class="QLabel" name="lbl_fibre_material_descr">
           <property name="text">
            <string/>
           </property>
@@ -64,10 +64,10 @@
       <item>
        <layout class="QGridLayout" name="gridLayout_3">
         <item row="0" column="0">
-         <widget class="MatGui::MaterialTreeWidget" name="wgt_fibre_material_tree" native="true"/>
+         <widget class="MatGui::MaterialTreeWidget" name="wgt_resin_material_tree" native="true"/>
         </item>
         <item row="1" column="0">
-         <widget class="QLabel" name="lbl_fibre_material_descr">
+         <widget class="QLabel" name="lbl_resin_material_descr">
           <property name="text">
            <string/>
           </property>

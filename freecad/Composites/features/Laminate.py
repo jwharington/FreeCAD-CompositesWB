@@ -86,14 +86,6 @@ class LaminateFP(CompositeBaseFP):
         ).StackOrientation = {}
 
         obj.addProperty(
-            "App::PropertyMap",
-            "StackAssembly",
-            "Composition",
-            "Assembly BOM stack",
-            hidden=True,
-        ).StackAssembly = {}
-
-        obj.addProperty(
             "App::PropertyLength",
             "Thickness",
             "Dimensions",
@@ -126,11 +118,14 @@ class LaminateFP(CompositeBaseFP):
             o.material["Name"]: f"{int(o.orientation_display):+03d}"
             for o in self.FEMLayers
         }
-        obj.StackAssembly = get_layers_bom(laminate=laminate)
         if laminate:
             obj.Thickness = FreeCAD.Units.Quantity(laminate.thickness)
         else:
             obj.Thickness = FreeCAD.Units.Quantity(0.0)
+
+    def get_stack_assembly(self, obj):
+        laminate = self.get_model(obj)
+        return get_layers_bom(laminate=laminate)
 
     def onChanged(self, fp, prop):
         match prop:

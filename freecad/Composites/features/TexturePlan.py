@@ -35,8 +35,9 @@ class TexturePlanFP(CompositePartFP):
             if "Composite::Shell" != obj.Proxy.Type:
                 Console.PrintError(f"Incorrect type {obj.Name}\n")
                 continue
-            # TODO: lay out separate shapes for each layer in the composites
-            for key, orientation in obj.Laminate.StackAssembly.items():
+            # TODO: lay out separate named shapes for each layer in the shell
+            stack_assembly = obj.Proxy.get_stack_assembly(obj)
+            for key, orientation in stack_assembly.items():
                 Console.PrintMessage(
                     f"name {obj.Name} key {key} orientation {orientation}"
                 )
