@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
+
 from .. import (
     HOMOGENEOUS_LAMINA_TOOL_ICON,
 )
@@ -10,12 +11,11 @@ from ..objects import (
     Lamina,
 )
 from ..taskpanels import task_homogeneous_lamina
-from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 from .Command import BaseCommand
+from .Lamina import BaseLaminaFP, BaseViewProviderLamina
 
 
 class HomogeneousLaminaFP(BaseLaminaFP):
-
     Type = "Fem::MaterialMechanicalLamina"
 
     def __init__(self, obj):
@@ -46,7 +46,6 @@ class HomogeneousLaminaFP(BaseLaminaFP):
 
 
 class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
-
     _taskPanel = task_homogeneous_lamina._TaskPanel
 
     def getIcon(self):
@@ -54,7 +53,6 @@ class ViewProviderHomogeneousLamina(BaseViewProviderLamina):
 
 
 class HomogeneousLaminaCommand(BaseCommand):
-
     icon = HOMOGENEOUS_LAMINA_TOOL_ICON
     menu_text = "Homogeneous lamina"
     tool_tip = "Create homogeneous lamina."

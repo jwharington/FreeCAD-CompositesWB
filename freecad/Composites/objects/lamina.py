@@ -3,6 +3,7 @@
 
 
 from dataclasses import dataclass
+
 from ..mechanics.stack_model_type import StackModelType
 
 

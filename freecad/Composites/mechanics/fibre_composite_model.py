@@ -3,9 +3,9 @@
 
 
 from .material_properties import (
-    ortho_material2dict,
     iso_material2dict,
     material_from_dict,
+    ortho_material2dict,
 )
 
 
@@ -15,7 +15,6 @@ def calc_fibre_composite_model(
     volume_fraction_fibre: float,
     thermal: bool = False,
 ) -> dict:
-
     assert material_fibre, "no fibre material"
     assert material_matrix, "no matrix material"
 
@@ -44,8 +43,7 @@ def calc_fibre_composite_model(
         volume_fraction_fibre < valid_range[0]
     ):
         raise ValueError(
-            f"Volume fraction fibre {volume_fraction_fibre}"
-            f" out of bounds {valid_range}"
+            f"Volume fraction fibre {volume_fraction_fibre} out of bounds {valid_range}"
         )
 
     t = fibre["YoungsModulusX"] / matrix["YoungsModulus"]

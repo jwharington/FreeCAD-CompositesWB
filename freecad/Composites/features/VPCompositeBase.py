@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Console
-import FreeCADGui
-from pivy import coin
 from typing import List
+
+import FreeCADGui
+from FreeCAD import Console
+from pivy import coin
 
 
 class CompositeBaseFP:

@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from typing import List
+
 from ..objects.lamina import Lamina
 
 # https://nilspv.folk.ntnu.no/TMM4175/plot-gallery.html

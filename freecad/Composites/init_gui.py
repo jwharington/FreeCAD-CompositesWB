@@ -3,11 +3,11 @@
 
 import FreeCAD
 import FreeCADGui as Gui
+
 from . import WB_ICON
 
 
 class CompositesWorkbench(Gui.Workbench):
-
     MenuText = "Composites"
     ToolTip = "Tools for composite structures"
     Icon = WB_ICON

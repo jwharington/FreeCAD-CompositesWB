@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from PySide import QtCore
-
 import Materials
 import MatGui
+from PySide import QtCore
+
 from .base_taskpanel import _BaseTaskPanel
 
 
 class _MaterialTaskPanel(_BaseTaskPanel):
-
     def __init__(self, obj):
         super().__init__(obj)
         self.attach_material_ui(obj, self.parameter_widget)

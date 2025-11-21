@@ -2,9 +2,10 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCAD
-from FreeCAD import Console
 import FreeCADGui
 import Part
+from FreeCAD import Console
+
 from .. import (
     ALIGN_FIBRE_LCS_TOOL_ICON,
 )
@@ -12,12 +13,11 @@ from ..tools.lcs import (
     align_fibre_lcs,
     transfer_lcs_to_point,
 )
-
 from .CompositeShell import is_composite_shell
 from .TransferLCS import (
+    TransferLCSCommand,
     TransferLCSFP,
     ViewProviderTransferLCS,
-    TransferLCSCommand,
 )
 
 
@@ -39,7 +39,6 @@ def _get_shell_lcs_base(shell):
 
 
 class AlignFibreLCSFP(TransferLCSFP):
-
     Type = "Composite::AlignFibreLCS"
 
     def execute(self, fp):
@@ -79,13 +78,11 @@ class AlignFibreLCSFP(TransferLCSFP):
 
 
 class ViewProviderAlignFibreLCS(ViewProviderTransferLCS):
-
     def getIcon(self):
         return ALIGN_FIBRE_LCS_TOOL_ICON
 
 
 class AlignFibreLCSCommand(TransferLCSCommand):
-
     icon = ALIGN_FIBRE_LCS_TOOL_ICON
     menu_text = "Align fibre LCS"
     tool_tip = """Align fibre LCS along composite shell.

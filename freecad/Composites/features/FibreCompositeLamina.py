@@ -3,23 +3,23 @@
 
 import FreeCAD
 import FreeCADGui
+
 from .. import (
     FIBRE_COMPOSITE_LAMINA_TOOL_ICON,
 )
 from ..objects import (
     FibreCompositeLamina,
-    SimpleFabric,
     Lamina,
+    SimpleFabric,
     WeaveType,
 )
 from ..taskpanels import task_fibre_composite_lamina
+from .Command import BaseCommand
 from .Composite import add_composite_props
 from .Lamina import BaseLaminaFP, BaseViewProviderLamina
-from .Command import BaseCommand
 
 
 class FibreCompositeLaminaFP(BaseLaminaFP):
-
     Type = "Fem::MaterialMechanicalLamina"
 
     def __init__(self, obj):
@@ -109,7 +109,6 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
 
 
 class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
-
     _taskPanel = task_fibre_composite_lamina._TaskPanel
 
     def getIcon(self):
@@ -117,7 +116,6 @@ class ViewProviderFibreCompositeLamina(BaseViewProviderLamina):
 
 
 class FibreCompositeLaminaCommand(BaseCommand):
-
     icon = FIBRE_COMPOSITE_LAMINA_TOOL_ICON
     menu_text = "Fibre composite lamina"
     tool_tip = "Create fibre composite lamina."

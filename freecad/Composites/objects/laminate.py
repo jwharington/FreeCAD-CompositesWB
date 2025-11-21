@@ -3,11 +3,12 @@
 
 from dataclasses import dataclass, field
 from typing import List
-from .symmetry_type import SymmetryType
-from .lamina import Lamina
-from ..mechanics.stack_model_type import StackModelType
+
 from ..mechanics.stack_expansion import calc_stack_model
+from ..mechanics.stack_model_type import StackModelType
 from ..util.geometry_util import expand_symmetry
+from .lamina import Lamina
+from .symmetry_type import SymmetryType
 
 
 @dataclass

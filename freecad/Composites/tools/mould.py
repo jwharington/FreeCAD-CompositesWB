@@ -3,13 +3,13 @@
 
 import Part
 from FreeCAD import Vector
+
 from .part_plane import part_plane
 
 default_mould_buffer = [30, 5, 30]
 
 
 def make_moulds(shape, buffer=default_mould_buffer):
-
     ll = Vector(
         shape.BoundBox.XMin - buffer[0],
         shape.BoundBox.YMin - buffer[1],

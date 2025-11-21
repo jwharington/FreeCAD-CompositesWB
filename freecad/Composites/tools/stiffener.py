@@ -2,15 +2,16 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
-from FreeCAD import Vector
-import Part
+from copy import deepcopy
 from dataclasses import (
     dataclass,
     field,
 )
-from . import splitAPI
-from copy import deepcopy
 
+import Part
+from FreeCAD import Vector
+
+from . import splitAPI
 
 #
 #
@@ -152,7 +153,6 @@ def generate_surface_tool(
 
     tools = []
     for p_edge in p_edges:
-
         # get moved line
         # stitch into closed shape
         # project to support

@@ -1,13 +1,10 @@
 from collections import namedtuple
 
-from FreeCAD import Vector
-
 import Mesh
-
+from FreeCAD import Vector
 from Part import Vertex
 
 from ..util.mesh_util import shape2Mesh
-
 
 DartPoly = namedtuple("DartPoly", ["poly_idx", "key_edges", "dart_points"])
 default_tolerance = 1.0e-3
@@ -102,7 +99,6 @@ def get_dart_clusters(
 
         def scan_link():
             for i, ref in enumerate(edge_polys):
-
                 if edge_present_in_group(ref):
                     return False
 
@@ -125,7 +121,6 @@ def get_split_clusters(
     dart_point_indices,
     chain,
 ):
-
     def border_edge(poly: DartPoly, idx):
         # detect wheter a poly is a border edge at idx
         free_edges = poly.key_edges
@@ -141,10 +136,8 @@ def get_split_clusters(
     analysis_points = {k: [] for k in dart_point_indices}
 
     for cluster_idx, cluster in enumerate(chain):
-
         # multilinks always cut  ab,bc -> a-(b)-c
         def mark_intermediate_dart():
-
             def get_last_2poly_on_dart():
                 ref_last = None
                 # find last 2-poly on dart
@@ -170,7 +163,6 @@ def get_split_clusters(
 
         # address remaining end points in this cluster
         def mark_dart_ends():
-
             def check_point(idx):
                 if cluster_idx in analysis_points[idx]:
                     return
@@ -248,7 +240,6 @@ def split_mesh_at_edge(
     edges,
     tol=default_tolerance,
 ):
-
     # find points in mesh on dart
 
     dart_point_indices = frozenset(
@@ -291,7 +282,6 @@ def generate_dart_mesh(
 ):
     mesh_dart = Mesh.Mesh()
     for poly_idx, poly in enumerate(mesh.Topology[1]):
-
         if poly_idx not in poly_cluster:
             cluster_idx = -1
         else:

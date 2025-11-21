@@ -6,7 +6,6 @@ from .base_material import _MaterialTaskPanel
 
 
 class _TaskPanel(_MaterialTaskPanel):
-
     UI_FILENAME = "HomogeneousLamina.ui"
 
     def get_materials(self, obj, parameter_widget):

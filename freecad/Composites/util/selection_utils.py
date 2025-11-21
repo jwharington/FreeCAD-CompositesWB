@@ -1,7 +1,8 @@
 from typing import Optional
+
+import FreeCADGui as Gui
 import Part
 from FreeCAD import Console
-import FreeCADGui as Gui
 
 # from https://github.com/gbroques/ose-workbench-core
 

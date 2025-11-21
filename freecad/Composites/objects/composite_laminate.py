@@ -3,11 +3,12 @@
 
 from dataclasses import dataclass, field
 from typing import List
-from .ply import Ply
-from .laminate import Laminate
-from .lamina import Lamina
-from .composite_lamina import CompositeLamina
+
 from ..mechanics.stack_model_type import StackModelType
+from .composite_lamina import CompositeLamina
+from .lamina import Lamina
+from .laminate import Laminate
+from .ply import Ply
 
 
 @dataclass

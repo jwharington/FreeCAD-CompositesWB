@@ -9,7 +9,6 @@ class CompositePartFP(CompositeBaseFP):
 
 
 class VPCompositePart(VPCompositeBase):
-
     def attach(self, vobj):
         self.Object = vobj.Object
         self.ViewObject = vobj

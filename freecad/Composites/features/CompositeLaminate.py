@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
+
 from .. import (
     COMPOSITE_LAMINATE_TOOL_ICON,
 )
@@ -12,14 +13,13 @@ from ..objects import (
 from ..taskpanels import task_composite_laminate
 from .Composite import add_composite_props
 from .Laminate import (
+    LaminateCommand,
     LaminateFP,
     ViewProviderLaminate,
 )
-from .Laminate import LaminateCommand
 
 
 class CompositeLaminateFP(LaminateFP):
-
     def __init__(self, obj, laminae=[]):
         super().__init__(obj, laminae=laminae)
 
@@ -45,7 +45,6 @@ class CompositeLaminateFP(LaminateFP):
 
 
 class ViewProviderCompositeLaminate(ViewProviderLaminate):
-
     _taskPanel = task_composite_laminate._TaskPanel
 
     def getIcon(self):
@@ -53,7 +52,6 @@ class ViewProviderCompositeLaminate(ViewProviderLaminate):
 
 
 class CompositeLaminateCommand(LaminateCommand):
-
     icon = COMPOSITE_LAMINATE_TOOL_ICON
     menu_text = "Composite laminate"
     tool_tip = """Create composite laminate.

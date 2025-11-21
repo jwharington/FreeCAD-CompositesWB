@@ -1,22 +1,22 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Console
 import FreeCADGui
 import Part
+from FreeCAD import Console
+
 from .. import (
     TEXTURE_PLAN_TOOL_ICON,
 )
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
 from .VPCompositePart import (
-    VPCompositePart,
     CompositePartFP,
+    VPCompositePart,
 )
 
 
 class TexturePlanFP(CompositePartFP):
-
     Type = "Composite::TexturePlan"
 
     def __init__(self, obj, shells=[]):
@@ -59,7 +59,6 @@ class TexturePlanFP(CompositePartFP):
 
 
 class ViewProviderTexturePlan(VPCompositePart):
-
     def getDefaultDisplayMode(self):
         return "Wireframe"
 
@@ -68,7 +67,6 @@ class ViewProviderTexturePlan(VPCompositePart):
 
 
 class TexturePlanCommand(BaseCommand):
-
     icon = TEXTURE_PLAN_TOOL_ICON
     menu_text = "Texture plan"
     tool_tip = """Create texture plan.

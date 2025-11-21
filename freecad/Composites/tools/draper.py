@@ -1,17 +1,14 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import flatmesh
+import numpy as np
+import Part
 from FreeCAD import (
     Base,
     Rotation,
     Vector,
 )
-
-import Part
-
-import flatmesh
-
-import numpy as np
 
 from ..util.mesh_util import (
     axes_mapped,
@@ -25,12 +22,10 @@ def z_rotation(offset_angle_deg):
 
 
 class Draper:
-
     unwrap_steps = 5
     unwrap_relax_weight = 0.95
 
     def __init__(self, mesh, lcs, shape):
-
         def get_flattener() -> flatmesh.FaceUnwrapper:
             if not mesh.Points:
                 return None
@@ -117,7 +112,6 @@ class Draper:
         self,
         center: Vector,
     ):
-
         def get_uv(p: Vector):
             dmin = None
             pint = None

@@ -1,18 +1,17 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from .symmetry_type import SymmetryType
-from .weave_type import WeaveType
-from .fabric import Fabric
 from ..util.geometry_util import (
-    format_orientation,
     expand_symmetry,
+    format_orientation,
     normalise_orientation,
 )
+from .fabric import Fabric
+from .symmetry_type import SymmetryType
+from .weave_type import WeaveType
 
 
 class SimpleFabric(Fabric):
-
     @property
     def description(self) -> str:
         return f"{self.weave.name}{format_orientation(self.orientation)}"

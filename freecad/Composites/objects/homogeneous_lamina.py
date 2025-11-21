@@ -2,13 +2,14 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from dataclasses import dataclass, field
-from .ply import Ply
+
 from ..mechanics.material_properties import (
     is_orthotropic,
 )
 from ..util.geometry_util import (
     format_orientation,
 )
+from .ply import Ply
 
 
 @dataclass

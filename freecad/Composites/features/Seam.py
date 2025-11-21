@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
+
 from .. import (
     SEAM_TOOL_ICON,
 )
@@ -9,13 +10,12 @@ from ..tools.seam import (
     # make_join_seam,
     make_edge_seam,
 )
-from .VPCompositePart import VPCompositePart, CompositePartFP
 from .Command import BaseCommand
+from .VPCompositePart import CompositePartFP, VPCompositePart
 
 
 class SeamFP(CompositePartFP):
     def __init__(self, obj, edges=[]):
-
         obj.addProperty(
             "App::PropertyLinkSubList",
             "Edges",
@@ -51,7 +51,6 @@ class SeamFP(CompositePartFP):
 
 
 class ViewProviderSeam(VPCompositePart):
-
     def claimChildren(self):
         return []
 
@@ -60,7 +59,6 @@ class ViewProviderSeam(VPCompositePart):
 
 
 class CompositeSeamCommand(BaseCommand):
-
     icon = SEAM_TOOL_ICON
     menu_text = "Seam"
     tool_tip = """Generate seam edge.

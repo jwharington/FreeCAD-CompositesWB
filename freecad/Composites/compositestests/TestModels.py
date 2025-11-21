@@ -2,8 +2,9 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from unittest import TestCase
-import FreeCAD
+
 import CompositesWB
+import FreeCAD
 
 
 class ModelTestCases(TestCase):

@@ -3,27 +3,26 @@
 
 import FreeCADGui
 import Part
+
 from .. import (
     TRANSFER_LCS_TOOL_ICON,
 )
 from ..tools.lcs import (
-    transfer_lcs_to_point,
     transfer_lcs_to_edge,
-)
-from .VPCompositeBase import (
-    VPCompositeBase,
-    CompositeBaseFP,
+    transfer_lcs_to_point,
 )
 from .Command import BaseCommand
 from .CompositeShell import is_composite_shell
+from .VPCompositeBase import (
+    CompositeBaseFP,
+    VPCompositeBase,
+)
 
 
 class TransferLCSFP(CompositeBaseFP):
-
     Type = "Composite::TransferLCS"
 
     def __init__(self, obj, shell=None, support=None):
-
         obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="CompositeShell",
@@ -107,7 +106,6 @@ class TransferLCSFP(CompositeBaseFP):
 
 
 class ViewProviderTransferLCS(VPCompositeBase):
-
     def getIcon(self):
         return TRANSFER_LCS_TOOL_ICON
 
@@ -118,7 +116,6 @@ class ViewProviderTransferLCS(VPCompositeBase):
 
 
 class TransferLCSCommand(BaseCommand):
-
     icon = TRANSFER_LCS_TOOL_ICON
     menu_text = "Transfer LCS"
     tool_tip = """Transfer LCS along composite shell.

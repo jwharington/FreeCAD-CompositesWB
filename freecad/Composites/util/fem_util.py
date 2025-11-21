@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+from typing import List
+
+from ..mechanics.material_properties import (
+    is_orthotropic,
+    iso_material2dict,
+    ortho_material2dict,
+)
+from ..mechanics.stack_model import merge_single
 from ..mechanics.stack_model_type import StackModelType
 from ..objects.homogeneous_lamina import HomogeneousLamina
 from ..objects.laminate import Laminate
-from ..mechanics.stack_model import merge_single
-from ..mechanics.material_properties import (
-    is_orthotropic,
-    ortho_material2dict,
-    iso_material2dict,
-)
-from typing import List
 
 debug = False
 
@@ -38,7 +39,7 @@ def get_layers_ccx(
 def format_material_name(name: str, prefix: str = ""):
     if len(name) >= 80:
         raise ValueError(
-            f"Name '{name}' invalid, exceeds maximum " "length 80 chars",
+            f"Name '{name}' invalid, exceeds maximum length 80 chars",
         )
     if "." in name:
         raise ValueError(

@@ -2,8 +2,10 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 # based on base_femtaskpanel.py
-import FreeCADGui
 from os import path
+
+import FreeCADGui
+
 from .. import UIPATH
 
 

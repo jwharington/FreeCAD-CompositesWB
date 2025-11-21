@@ -3,7 +3,6 @@
 
 
 def add_composite_props(obj):
-
     obj.addProperty(
         "App::PropertyMap",
         "ResinMaterial",

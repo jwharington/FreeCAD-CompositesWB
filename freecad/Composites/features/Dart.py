@@ -2,19 +2,19 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
+
 from .. import (
     DART_TOOL_ICON,
 )
 from ..tools.dart import (
     make_dart,
 )
-from .VPCompositePart import VPCompositePart, CompositePartFP
 from .Command import BaseCommand
+from .VPCompositePart import CompositePartFP, VPCompositePart
 
 
 class DartFP(CompositePartFP):
     def __init__(self, obj, edges=[]):
-
         obj.addProperty(
             "App::PropertyLinkSubList",
             "Edges",
@@ -62,7 +62,6 @@ class DartFP(CompositePartFP):
 
 
 class ViewProviderDart(VPCompositePart):
-
     def claimChildren(self):
         return [
             self.Object.Mesh,
@@ -73,7 +72,6 @@ class ViewProviderDart(VPCompositePart):
 
 
 class CompositeDartCommand(BaseCommand):
-
     icon = DART_TOOL_ICON
     menu_text = "Dart"
     tool_tip = """Generate Dart edge.

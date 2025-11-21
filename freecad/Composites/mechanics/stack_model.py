@@ -3,20 +3,20 @@
 
 
 from typing import List
-import numpy as np
-from ..objects.lamina import Lamina
-from ..objects.homogeneous_lamina import HomogeneousLamina
 
+import numpy as np
+
+from ..objects.homogeneous_lamina import HomogeneousLamina
+from ..objects.lamina import Lamina
 from .material_properties import (
     common_material2dict,
     material_from_dict,
 )
 from .shell_model import (
+    material_rotate,
     material_shell_properties,
     stiffness_matrix_to_engineering_properties,
-    material_rotate,
 )
-
 
 # Refer:
 # - https://nilspv.folk.ntnu.no/TMM4175/computational-procedures.html
@@ -49,7 +49,6 @@ def merge_clt(
     layers: List[Lamina],
     sandwich: bool = False,
 ) -> HomogeneousLamina:
-
     zbar, total_thickness = calc_z(layers)
 
     # initialise accumulators
@@ -72,7 +71,6 @@ def merge_clt(
         coords = [0, 1, 2]
         for i in coords:
             for j in coords:
-
                 Qbar_t = Qbar_k[ind(i), ind(j)] * t_k
 
                 A[i, j] += Qbar_t
@@ -95,13 +93,11 @@ def merge_clt(
         coords = [3, 4]
         for i in coords:
             for j in coords:
-
                 # TODO: Qbarstar
                 H[ind(i), ind(j)] += Qbar_k[i, j] * h
 
     # iterate through layers
     for k, (zbar_k, lay) in enumerate(zip(zbar, layers)):
-
         t_k = lay.thickness
         p_k = t_k / total_thickness
 
@@ -168,7 +164,6 @@ def merge_single(
     prefix: str,
     layer: Lamina,
 ) -> HomogeneousLamina:
-
     # if not hasattr(layer, "orientation") or (layer.orientation == 0):
     #     return layer
 

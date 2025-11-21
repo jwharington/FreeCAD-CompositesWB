@@ -2,14 +2,15 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
+
 from .. import (
     MOULD_TOOL_ICON,
 )
 from ..tools.mould import make_moulds
 from .Command import BaseCommand
 from .VPCompositePart import (
-    VPCompositePart,
     CompositePartFP,
+    VPCompositePart,
 )
 
 
@@ -55,13 +56,11 @@ class MouldFP(CompositePartFP):
 
 
 class ViewProviderMould(VPCompositePart):
-
     def getIcon(self):
         return MOULD_TOOL_ICON
 
 
 class CompositeMouldCommand(BaseCommand):
-
     icon = MOULD_TOOL_ICON
     menu_text = "Mould"
     tool_tip = """Generate two part mould.

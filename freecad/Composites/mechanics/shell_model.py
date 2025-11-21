@@ -2,13 +2,14 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
+import numpy as np
+
 from .material_properties import (
-    ortho_material2dict,
+    is_orthotropic,
     iso_material2dict,
     material_from_dict,
-    is_orthotropic,
+    ortho_material2dict,
 )
-import numpy as np
 
 
 def rotation_matrix_zaxis(angle_rad: float):

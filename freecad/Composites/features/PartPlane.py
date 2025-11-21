@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Vector
 import FreeCADGui
+from FreeCAD import Vector
+
 from .. import (
     PART_PLANE_TOOL_ICON,
 )
@@ -13,8 +14,8 @@ from ..tools.part_plane import (
 )
 from .Command import BaseCommand
 from .VPCompositePart import (
-    VPCompositePart,
     CompositePartFP,
+    VPCompositePart,
 )
 
 
@@ -61,13 +62,11 @@ class PartPlaneFP(CompositePartFP):
 
 
 class ViewProviderPartPlane(VPCompositePart):
-
     def getIcon(self):
         return PART_PLANE_TOOL_ICON
 
 
 class CompositePartPlaneCommand(BaseCommand):
-
     icon = PART_PLANE_TOOL_ICON
     menu_text = "Part plane"
     tool_tip = """Generate two part mould plane.

@@ -2,9 +2,10 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
-from pivy import coin
 from os import path
+
 import FreeCADGui
+from pivy import coin
 
 
 def find_child(node, type_name):

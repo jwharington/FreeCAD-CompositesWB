@@ -3,14 +3,15 @@
 
 
 from dataclasses import dataclass, field
-from .ply import Ply
-from .composite_lamina import CompositeLamina
-from .homogeneous_lamina import HomogeneousLamina
-from .simple_fabric import SimpleFabric
-from ..mechanics.stack_model_type import StackModelType
+
 from ..mechanics.fibre_composite_model import calc_fibre_composite_model
+from ..mechanics.stack_model_type import StackModelType
 from ..util.geometry_util import format_orientation
+from .composite_lamina import CompositeLamina
 from .fabric import Fabric
+from .homogeneous_lamina import HomogeneousLamina
+from .ply import Ply
+from .simple_fabric import SimpleFabric
 
 
 @dataclass

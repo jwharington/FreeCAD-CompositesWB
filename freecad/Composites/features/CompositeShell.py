@@ -1,28 +1,29 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Console
 import FreeCADGui
+import MeshEnums
+from FreeCAD import Console
 from pivy import coin
+
 from .. import (
     COMPOSITE_SHELL_TOOL_ICON,
     is_comp_type,
     roma_map,
 )
+from ..shaders.MeshGridShader import MeshGridShader
 from ..tools.draper import Draper
 from ..tools.fibre import (
     make_fibre_length_analysis,
     make_fibre_orientation_analysis,
 )
-from ..shaders.MeshGridShader import MeshGridShader
+from ..util.mesh_util import shape2Mesh
 from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
 from .Rosette import is_rosette
-from .VPCompositeBase import CompositeBaseFP
 from .RosetteSymbol import RosetteSymbol
-from ..util.mesh_util import shape2Mesh
-import MeshEnums
+from .VPCompositeBase import CompositeBaseFP
 
 
 def is_composite_shell(obj):
@@ -34,11 +35,11 @@ def is_composite_shell(obj):
 
 
 class CompositeShellFP(CompositeBaseFP):
-
     Type = "Composite::Shell"
 
-    def __init__(self, obj, support=None, laminate=None, lcs=None, rosette=None):
-
+    def __init__(
+        self, obj, support=None, laminate=None, lcs=None, rosette=None
+    ):
         obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Support",
@@ -155,7 +156,8 @@ class CompositeShellFP(CompositeBaseFP):
     def get_tex_coords(self, offset_angle_deg):
         if self.has_valid_draper():
             return self.draper.get_tex_coords(
-                offset_angle_deg=offset_angle_deg + getattr(self, "_rosette_angle", 0.0),
+                offset_angle_deg=offset_angle_deg
+                + getattr(self, "_rosette_angle", 0.0),
             )
         return None
 
@@ -172,7 +174,8 @@ class CompositeShellFP(CompositeBaseFP):
     def get_boundaries(self, offset_angle_deg):
         if self.has_valid_draper():
             return self.draper.get_boundaries(
-                offset_angle_deg=offset_angle_deg + getattr(self, "_rosette_angle", 0.0),
+                offset_angle_deg=offset_angle_deg
+                + getattr(self, "_rosette_angle", 0.0),
             )
         return None
 
@@ -187,7 +190,6 @@ class CompositeShellFP(CompositeBaseFP):
 
 
 class ViewProviderCompositeShell:
-
     def __init__(self, obj):
         self.grid_shader = MeshGridShader()
 
@@ -296,7 +298,6 @@ class ViewProviderCompositeShell:
             mesh.addProperty("Mesh::PropertyMaterial", "Material")
         strains = vobj.Object.Proxy.get_strains()
         if strains is not None:
-
             material = {
                 "binding": MeshEnums.Binding.PER_FACE,
                 "transparency": [0.0] * n,
@@ -453,7 +454,6 @@ class ViewProviderCompositeShell:
 
 
 class CompositeShellCommand(BaseCommand):
-
     icon = COMPOSITE_SHELL_TOOL_ICON
     menu_text = "Composite shell"
     tool_tip = """Create composite shell.

@@ -1,24 +1,24 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import numpy as np
 from FreeCAD import (
-    Vector,
     Rotation,
+    Vector,
 )
 from Part import (
     Edge,
     Face,
 )
-from .draper import Draper
-import numpy as np
+
 from ..util.geometry_util import normalise_orientation
+from .draper import Draper
 
 
 def transfer_lcs_to_point(
     draper: Draper,
     position: Vector,
 ) -> tuple[Vector, Rotation]:
-
     # TODO check point is within bounds of draper
     # look up lcs rotation at specified point
     return position, draper.get_lcs_at_point(position)
@@ -29,7 +29,6 @@ def transfer_lcs_to_edge(
     edge: Edge,
     fraction: float = 0.5,
 ) -> tuple[Vector, Rotation]:
-
     t = edge.getParameterByLength(fraction * edge.Length)
     position = edge.valueAt(t)
     return transfer_lcs_to_point(draper, position)
@@ -41,7 +40,6 @@ def transfer_lcs_to_face(
     edge: Edge,
     fraction: float = 0.5,
 ) -> tuple[Vector, Rotation]:
-
     # checks
     # if not face.isPartner()
 
@@ -73,7 +71,6 @@ def align_fibre_lcs(
     position: Vector,
     base_position: Vector,
 ) -> float:
-
     coords = draper.get_tex_coord_at_point(
         position,
         offset_angle_deg=0,

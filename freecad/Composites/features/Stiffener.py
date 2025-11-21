@@ -1,25 +1,25 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Vector
 import FreeCADGui
+from FreeCAD import Vector
+
 from .. import (
     STIFFENER_TOOL_ICON,
 )
 from ..tools.stiffener import (
-    make_stiffener,
     StiffenerAlignment,
-)
-from .VPCompositePart import (
-    VPCompositePart,
-    CompositePartFP,
+    make_stiffener,
 )
 from .Command import BaseCommand
+from .VPCompositePart import (
+    CompositePartFP,
+    VPCompositePart,
+)
 
 
 class StiffenerFP(CompositePartFP):
     def __init__(self, obj, support=None, plan=None, profile=None):
-
         obj.addProperty(
             "App::PropertyLink",
             "Support",
@@ -67,7 +67,6 @@ class StiffenerFP(CompositePartFP):
         super().__init__(obj)
 
     def execute(self, fp):
-
         alignment = StiffenerAlignment(
             direction=fp.Direction,
             flip_x=fp.MirrorX,
@@ -89,7 +88,6 @@ class StiffenerFP(CompositePartFP):
 
 
 class ViewProviderStiffener(VPCompositePart):
-
     def claimChildren(self):
         return [self.Object.Support, self.Object.Plan, self.Object.Profile]
 
@@ -98,7 +96,6 @@ class ViewProviderStiffener(VPCompositePart):
 
 
 class CompositeStiffenerCommand(BaseCommand):
-
     icon = STIFFENER_TOOL_ICON
     menu_text = "Stiffener"
     tool_tip = """Generate stiffener.

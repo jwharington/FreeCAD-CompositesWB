@@ -2,8 +2,9 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
-from FreeCAD import Console
 import Part
+from FreeCAD import Console
+
 from . import splitAPI
 
 

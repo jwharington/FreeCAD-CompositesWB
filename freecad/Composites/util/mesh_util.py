@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-import numpy as np
-from FreeCAD import Vector, Console
 import Mesh
 import MeshPart
+import numpy as np
+from FreeCAD import Console, Vector
 
 
 def proj(v, vn):
@@ -53,7 +53,6 @@ def calc_lambda_vec(
     p: Vector,
     tri: list[Vector],
 ):
-
     vn = ((tri[1] - tri[0]).cross(tri[2] - tri[0])).normalize()
 
     a = perp(tri[0], vn)

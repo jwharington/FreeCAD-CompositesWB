@@ -3,29 +3,30 @@
 
 import FreeCAD
 import FreeCADGui
+
 from .. import (
     LAMINATE_TOOL_ICON,
     is_comp_type,
 )
 from ..mechanics import StackModelType
+from ..objects import (
+    Laminate,
+    SymmetryType,
+)
+from ..util.bom_util import (
+    get_layers_bom,
+)
 from ..util.fem_util import (
     get_layers_ccx,
     write_lamina_materials_ccx,
     write_shell_section_ccx,
 )
-from ..util.bom_util import (
-    get_layers_bom,
-)
-from ..objects import (
-    Laminate,
-    SymmetryType,
-)
-from .VPCompositeBase import (
-    VPCompositeBase,
-    CompositeBaseFP,
-)
 from .Command import BaseCommand
 from .Lamina import is_lamina
+from .VPCompositeBase import (
+    CompositeBaseFP,
+    VPCompositeBase,
+)
 
 # import Plot
 # Fem::MaterialMechanicalNonlinear
@@ -47,11 +48,9 @@ def is_laminate(obj):
 
 
 class LaminateFP(CompositeBaseFP):
-
     Type = "Fem::MaterialMechanicalLaminate"
 
     def __init__(self, obj, laminae=[]):
-
         obj.addProperty(
             "App::PropertyLinkListGlobal",
             "Layers",
@@ -157,7 +156,6 @@ class LaminateFP(CompositeBaseFP):
 
 
 class ViewProviderLaminate(VPCompositeBase):
-
     def getIcon(self):
         return LAMINATE_TOOL_ICON
 
@@ -169,7 +167,6 @@ class ViewProviderLaminate(VPCompositeBase):
 
 
 class LaminateCommand(BaseCommand):
-
     icon = LAMINATE_TOOL_ICON
     menu_text = "Laminate"
     tool_tip = """Create laminate.

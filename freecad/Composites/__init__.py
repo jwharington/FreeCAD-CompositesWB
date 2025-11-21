@@ -2,10 +2,12 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import os
-import FreeCAD
 from os import path
-from .version import __version__  # noqa
+
+import FreeCAD
+
 from .resources.colormaps.roma import roma_map
+from .version import __version__  # noqa
 
 debug = False
 

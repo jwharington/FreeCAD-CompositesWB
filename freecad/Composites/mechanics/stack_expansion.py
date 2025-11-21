@@ -2,10 +2,11 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from typing import List
-from .stack_model_type import StackModelType
-from .stack_model import merge_clt
+
 from ..objects.lamina import Lamina
 from ..util.geometry_util import format_layer
+from .stack_model import merge_clt
+from .stack_model_type import StackModelType
 
 
 def merge_layers(

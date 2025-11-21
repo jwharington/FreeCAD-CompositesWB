@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-import Part
-from FreeCAD import Vector, Console
 import numpy as np
+import Part
 import TechDraw
-from . import splitAPI
 from CAM import Path
+from FreeCAD import Console, Vector
+
+from . import splitAPI
 
 debug = False
 
 
 def removeDuplicateEdges(edges):
-
     unique = []
     for e in edges:
         if not any(Path.Geom.edgesMatch(e, u) for u in unique):
@@ -70,7 +70,6 @@ def part_plane(shape, zs=None, inset=0.01):
     points = [[], []]
 
     for z in zs:
-
         bb = [
             Part.LineSegment(
                 Vector(shape.BoundBox.XMin, shape.BoundBox.YMin, z),
@@ -115,7 +114,6 @@ def make_part_plane2(shape, inset=0.01):
 
 
 def make_part_plane3(shape):
-
     direction = Vector(0, 0, 1)
     rl = shape.reflectLines(
         ViewDir=direction,

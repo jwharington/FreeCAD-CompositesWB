@@ -1,18 +1,19 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from FreeCAD import Console
+from typing import ClassVar
+
 import FreeCAD
 import FreeCADGui
-from typing import ClassVar
-from .Container import getCompositesContainer
+from FreeCAD import Console
+
 from .. import debug
+from .Container import getCompositesContainer
 
 # from .util.selection_utils import find_face_in_selection_object
 
 
 class BaseCommand:
-
     icon: ClassVar[str]
     menu_text: ClassVar[str]
     tool_tip: ClassVar[str]
@@ -32,7 +33,6 @@ class BaseCommand:
         }
 
     def check_sel(self, report: bool = False):
-
         def add_scalar(s, item, present):
             it = item | {"value": s}
             present.append(it)

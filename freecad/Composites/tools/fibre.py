@@ -1,10 +1,9 @@
 from collections import namedtuple
 from dataclasses import dataclass, field
+
 import numpy as np
-
-from FreeCAD import Vector
-
 import Part
+from FreeCAD import Vector
 
 from ..util.bom_util import get_layers_fibre
 
@@ -54,7 +53,6 @@ def make_strips(surface, n_strips: int):
     bb = surface.BoundBox
     tools = []
     for i in range(1, n_strips - 1):
-
         y = i * (bb.YMax - bb.YMin) / n_strips + bb.YMin
         tools.append(Part.Plane(Vector(0, y, 0), Vector(0, 1, 0)))
     return surface.cut(tools)

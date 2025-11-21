@@ -3,17 +3,17 @@
 
 
 from ..objects import (
-    SymmetryType,
     CompositeLaminate,
-    HomogeneousLamina,
     FibreCompositeLamina,
+    HomogeneousLamina,
     SimpleFabric,
+    SymmetryType,
     WeaveType,
 )
 from .example_materials import (
-    resin,
-    glass,
     foam,
+    glass,
+    resin,
 )
 
 

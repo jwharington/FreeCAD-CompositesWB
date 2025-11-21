@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from dataclasses import dataclass
+
 from .lamina import Lamina
 
 

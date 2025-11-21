@@ -2,21 +2,22 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 
-from ..util.plot_util import illustrateLayup
+from pprint import pprint
+
+import numpy as np
+
 from ..mechanics import StackModelType
 from ..mechanics.fibre_composite_model import calc_fibre_composite_model
-import numpy as np
-from pprint import pprint
-from .examples import make_laminate
-from .example_materials import (
-    resin,
-    glass,
-)
-
 from ..mechanics.shell_model import (
     material_shell_properties,
     stiffness_matrix_to_engineering_properties,
 )
+from ..util.plot_util import illustrateLayup
+from .example_materials import (
+    glass,
+    resin,
+)
+from .examples import make_laminate
 
 
 def test_A():

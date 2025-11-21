@@ -2,11 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import FreeCADGui
-from .TransferLCS import (
-    TransferLCSFP,
-    ViewProviderTransferLCS,
-    TransferLCSCommand,
-)
+
 from .. import (
     WRAP_LCS_TOOL_ICON,
 )
@@ -14,10 +10,14 @@ from ..tools.lcs import (
     transfer_lcs_to_face,
 )
 from .CompositeShell import is_composite_shell
+from .TransferLCS import (
+    TransferLCSCommand,
+    TransferLCSFP,
+    ViewProviderTransferLCS,
+)
 
 
 class WrapLCSFP(TransferLCSFP):
-
     def __init__(self, obj, shell=None, support=None, follower_shell=None):
         super().__init__(obj, shell=shell, support=support)
 
@@ -43,13 +43,11 @@ class WrapLCSFP(TransferLCSFP):
 
 
 class ViewProviderWrapLCS(ViewProviderTransferLCS):
-
     def getIcon(self):
         return WRAP_LCS_TOOL_ICON
 
 
 class WrapLCSCommand(TransferLCSCommand):
-
     icon = WRAP_LCS_TOOL_ICON
     menu_text = "Wrap LCS"
     tool_tip = """Wrap LCS onto adjacent shell.

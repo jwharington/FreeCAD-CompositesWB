@@ -1,21 +1,19 @@
 import FreeCADGui
 
-from . import FibreCompositeLamina  # noqa
-from . import HomogeneousLamina  # noqa
-
-from . import Laminate  # noqa
-from . import CompositeLaminate  # noqa
-
-from . import TransferLCS  # noqa
-from . import WrapLCS  # noqa
-from . import AlignFibreLCS  # noqa
-from . import Rosette  # noqa
-
-from . import Seam  # noqa
-from . import Stiffener  # noqa
-
-from . import PartPlane  # noqa
-from . import Mould  # noqa
+from . import (
+    AlignFibreLCS,  # noqa
+    CompositeLaminate,  # noqa
+    FibreCompositeLamina,  # noqa
+    HomogeneousLamina,  # noqa
+    Laminate,  # noqa
+    Mould,  # noqa
+    PartPlane,  # noqa
+    Rosette,  # noqa
+    Seam,  # noqa
+    Stiffener,  # noqa
+    TransferLCS,  # noqa
+    WrapLCS,  # noqa
+)
 
 
 class CommandGroup:

@@ -1,17 +1,16 @@
 import FreeCAD
-from .VPCompositeBase import (
-    VPCompositeBase,
-    CompositeBaseFP,
-)
+
 from .. import WB_ICON
+from .VPCompositeBase import (
+    CompositeBaseFP,
+    VPCompositeBase,
+)
 
 container_name = "CompositesContainer"
 
 
 class CompositesContainerFP(CompositeBaseFP):
-
     def __init__(self, obj):
-
         obj.addProperty(
             "App::PropertyFloatConstraint",
             "MaxStrainTension",
@@ -40,7 +39,6 @@ class CompositesContainerFP(CompositeBaseFP):
 
 
 class ViewProviderCompositesContainer(VPCompositeBase):
-
     _taskPanel = None
 
     def getIcon(self):
