@@ -323,9 +323,9 @@ class ViewProviderCompositeShell:
 
                 def map_val(x):
                     if x > 0:
-                        s = min(1.0, (1.0 + (x / limit_pos) / 2))
+                        s = min(1.0, (1.0 + (x / limit_pos)) / 2)
                     elif x < 0:
-                        s = max(0.0, (1.0 + (x / limit_neg) / 2))
+                        s = max(0.0, (1.0 + (x / limit_neg)) / 2)
                     else:
                         s = 0.5
                     return roma_map(s)[0:3]
