@@ -103,6 +103,16 @@ _part_mod.Edge = _FakeEdge
 _part_mod.Face = _FakeFaceShape
 sys.modules["Part"] = _part_mod
 
+# MeshEnums mock (required by CompositeShell.py)
+sys.modules["MeshEnums"] = MagicMock()
+
+# flatmesh mock (required by tools/draper.py which CompositeShell.py imports)
+sys.modules["flatmesh"] = MagicMock()
+
+# Mesh / MeshPart mocks (required by util/mesh_util.py via draper.py)
+sys.modules["Mesh"] = MagicMock()
+sys.modules["MeshPart"] = MagicMock()
+
 # ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path so package imports work
 # ---------------------------------------------------------------------------
@@ -324,12 +334,70 @@ _rosette_feature_mod = _load_module(
     "freecad/Composites/features/Rosette.py",
 )
 
+# Load tools and shaders stubs needed by CompositeShell.py
+_tools_dir = os.path.join(_REPO_ROOT, "freecad", "Composites", "tools")
+_shaders_dir = os.path.join(_REPO_ROOT, "freecad", "Composites", "shaders")
+
+_fake_tools_pkg = _make_package_stub("freecad.Composites.tools", _tools_dir)
+_fake_shaders_pkg = _make_package_stub("freecad.Composites.shaders", _shaders_dir)
+
+_geom_util_mod = _load_module(
+    "freecad.Composites.util.geometry_util",
+    "freecad/Composites/util/geometry_util.py",
+)
+
+_mesh_util_mod = _load_module(
+    "freecad.Composites.util.mesh_util",
+    "freecad/Composites/util/mesh_util.py",
+)
+
+_draper_mod = _load_module(
+    "freecad.Composites.tools.draper",
+    "freecad/Composites/tools/draper.py",
+)
+_fake_tools_pkg.draper = _draper_mod
+
+_lcs_mod = _load_module(
+    "freecad.Composites.tools.lcs",
+    "freecad/Composites/tools/lcs.py",
+)
+_fake_tools_pkg.lcs = _lcs_mod
+
+_fibre_mod = _load_module(
+    "freecad.Composites.tools.fibre",
+    "freecad/Composites/tools/fibre.py",
+)
+_fake_tools_pkg.fibre = _fibre_mod
+
+_mesh_grid_shader_mod = _load_module(
+    "freecad.Composites.shaders.MeshGridShader",
+    "freecad/Composites/shaders/MeshGridShader.py",
+)
+_fake_shaders_pkg.MeshGridShader = _mesh_grid_shader_mod
+
+_composite_shell_feature_mod = _load_module(
+    "freecad.Composites.features.CompositeShell",
+    "freecad/Composites/features/CompositeShell.py",
+)
+_transfer_lcs_feature_mod = _load_module(
+    "freecad.Composites.features.TransferLCS",
+    "freecad/Composites/features/TransferLCS.py",
+)
+_align_fibre_lcs_feature_mod = _load_module(
+    "freecad.Composites.features.AlignFibreLCS",
+    "freecad/Composites/features/AlignFibreLCS.py",
+)
+
 # Short aliases for use in tests
 HomogeneousLaminaFP = _homo_feature_mod.HomogeneousLaminaFP
 FibreCompositeLaminaFP = _fcl_feature_mod.FibreCompositeLaminaFP
 LaminateFP = _laminate_feature_mod.LaminateFP
 CompositeLaminateFP = _comp_lam_feature_mod.CompositeLaminateFP
 RosetteFP = _rosette_feature_mod.RosetteFP
+is_rosette = _rosette_feature_mod.is_rosette
+CompositeShellFP = _composite_shell_feature_mod.CompositeShellFP
+AlignFibreLCSFP = _align_fibre_lcs_feature_mod.AlignFibreLCSFP
+_get_shell_lcs_base = _align_fibre_lcs_feature_mod._get_shell_lcs_base
 
 HomogeneousLamina = _homo_mod.HomogeneousLamina
 FibreCompositeLamina = _fcl_obj_mod.FibreCompositeLamina
@@ -376,7 +444,14 @@ class _FakeFCObj:
 
     # -- FreeCAD object API --------------------------------------------------
 
-    def addProperty(self, prop_type, name, group="", tooltip="", hidden=False):
+    def addProperty(self, prop_type=None, name=None, group="", tooltip="", hidden=False, **kwargs):
+        # Accept both positional-style ("App::PropertyFoo", "Name", ...)
+        # and keyword-style (type="App::PropertyFoo", name="Name", doc=...) calls
+        # that FreeCAD's API supports.
+        if prop_type is None:
+            prop_type = kwargs.get("type", "")
+        if name is None:
+            name = kwargs.get("name", "")
         props = object.__getattribute__(self, "_props")
         prop_types = object.__getattribute__(self, "_prop_types")
         factory = _PROP_DEFAULTS.get(prop_type, lambda: None)
@@ -1016,6 +1091,191 @@ class TestRosetteFP(unittest.TestCase):
 
     def test_on_changed_unrelated_prop_is_noop(self):
         self.fp.onChanged(self.obj, "Name")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Tests: is_rosette helper
+# ---------------------------------------------------------------------------
+
+
+class TestIsRosette(unittest.TestCase):
+    """Tests for features/Rosette.py :: is_rosette()."""
+
+    def _make_rosette_mock(self):
+        obj = MagicMock()
+        obj.TypeId = "App::FeaturePython"
+        obj.Proxy = MagicMock()
+        obj.Proxy.Type = "Composite::Rosette"
+        return obj
+
+    def test_returns_true_for_rosette(self):
+        obj = self._make_rosette_mock()
+        self.assertTrue(is_rosette(obj))
+
+    def test_returns_false_for_wrong_type_id(self):
+        obj = self._make_rosette_mock()
+        obj.TypeId = "Part::FeaturePython"
+        self.assertFalse(is_rosette(obj))
+
+    def test_returns_false_for_wrong_proxy_type(self):
+        obj = self._make_rosette_mock()
+        obj.Proxy.Type = "Composite::Shell"
+        self.assertFalse(is_rosette(obj))
+
+    def test_returns_false_when_no_proxy(self):
+        obj = MagicMock()
+        obj.TypeId = "App::FeaturePython"
+        del obj.Proxy
+        self.assertFalse(is_rosette(obj))
+
+
+# ---------------------------------------------------------------------------
+# Tests: CompositeShellFP Rosette integration
+# ---------------------------------------------------------------------------
+
+
+class TestCompositeShellFPRosetteProperty(unittest.TestCase):
+    """Tests for the Rosette property added to CompositeShellFP."""
+
+    def setUp(self):
+        self.obj = _FakeFCObj("CompositeShell")
+        self.obj.Document = MagicMock()
+        self.fp = CompositeShellFP(self.obj)
+
+    def test_init_adds_rosette_property(self):
+        self.assertIn("Rosette", object.__getattribute__(self.obj, "_props"))
+
+    def test_init_default_rosette_is_none(self):
+        self.assertIsNone(self.obj.Rosette)
+
+    def test_init_rosette_angle_initialized_to_zero(self):
+        self.assertAlmostEqual(self.fp._rosette_angle, 0.0)
+
+    def test_init_with_rosette_kwarg(self):
+        rosette_mock = MagicMock()
+        obj2 = _FakeFCObj("CompositeShell2")
+        obj2.Document = MagicMock()
+        fp2 = CompositeShellFP(obj2, rosette=rosette_mock)
+        self.assertIs(obj2.Rosette, rosette_mock)
+
+    def test_get_tex_coords_no_draper_returns_none(self):
+        # Without draper, get_tex_coords returns None regardless of angle
+        result = self.fp.get_tex_coords(30.0)
+        self.assertIsNone(result)
+
+    def test_get_boundaries_no_draper_returns_none(self):
+        result = self.fp.get_boundaries(45.0)
+        self.assertIsNone(result)
+
+    def test_get_tex_coords_adds_rosette_angle(self):
+        # Simulate a valid draper that records the offset_angle_deg passed in
+        mock_draper = MagicMock()
+        mock_draper.isValid.return_value = True
+        mock_draper.get_tex_coords.return_value = []
+        self.fp.draper = mock_draper
+        self.fp._rosette_angle = 15.0
+        self.fp.get_tex_coords(30.0)
+        mock_draper.get_tex_coords.assert_called_once_with(offset_angle_deg=45.0)
+
+    def test_get_boundaries_adds_rosette_angle(self):
+        mock_draper = MagicMock()
+        mock_draper.isValid.return_value = True
+        mock_draper.get_boundaries.return_value = []
+        self.fp.draper = mock_draper
+        self.fp._rosette_angle = 10.0
+        self.fp.get_boundaries(20.0)
+        mock_draper.get_boundaries.assert_called_once_with(offset_angle_deg=30.0)
+
+    def test_get_tex_coords_zero_rosette_angle(self):
+        mock_draper = MagicMock()
+        mock_draper.isValid.return_value = True
+        mock_draper.get_tex_coords.return_value = []
+        self.fp.draper = mock_draper
+        self.fp._rosette_angle = 0.0
+        self.fp.get_tex_coords(45.0)
+        mock_draper.get_tex_coords.assert_called_once_with(offset_angle_deg=45.0)
+
+    def test_on_changed_rosette_triggers_recompute(self):
+        # onChanged("Rosette") should trigger fp.recompute() which calls execute()
+        # With no support/laminate, execute() returns early without error.
+        self.fp.onChanged(self.obj, "Rosette")  # should not raise
+
+    def test_type_attribute(self):
+        self.assertEqual(CompositeShellFP.Type, "Composite::Shell")
+
+
+# ---------------------------------------------------------------------------
+# Tests: _get_shell_lcs_base helper
+# ---------------------------------------------------------------------------
+
+
+class TestGetShellLcsBase(unittest.TestCase):
+    """Tests for features/AlignFibreLCS.py :: _get_shell_lcs_base()."""
+
+    def _make_lcs_mock(self, x=1.0, y=2.0, z=3.0):
+        lcs = MagicMock()
+        lcs.Placement.Base = MagicMock()
+        lcs.Placement.Base.x = x
+        lcs.Placement.Base.y = y
+        lcs.Placement.Base.z = z
+        return lcs
+
+    def _make_shell_with_rosette(self, lcs):
+        rosette = MagicMock()
+        rosette.LocalCoordinateSystem = lcs
+        shell = MagicMock(spec=["Rosette", "LocalCoordinateSystem"])
+        shell.Rosette = rosette
+        shell.LocalCoordinateSystem = None
+        return shell
+
+    def _make_shell_with_lcs(self, lcs):
+        shell = MagicMock(spec=["Rosette", "LocalCoordinateSystem"])
+        shell.Rosette = None
+        shell.LocalCoordinateSystem = lcs
+        return shell
+
+    def _make_shell_no_lcs(self):
+        shell = MagicMock(spec=["Rosette", "LocalCoordinateSystem"])
+        shell.Rosette = None
+        shell.LocalCoordinateSystem = None
+        return shell
+
+    def test_returns_rosette_lcs_base_when_rosette_set(self):
+        lcs = self._make_lcs_mock(x=5.0, y=6.0, z=7.0)
+        shell = self._make_shell_with_rosette(lcs)
+        result = _get_shell_lcs_base(shell)
+        self.assertIs(result, lcs.Placement.Base)
+
+    def test_returns_plain_lcs_base_when_no_rosette(self):
+        lcs = self._make_lcs_mock(x=1.0, y=2.0, z=3.0)
+        shell = self._make_shell_with_lcs(lcs)
+        result = _get_shell_lcs_base(shell)
+        self.assertIs(result, lcs.Placement.Base)
+
+    def test_returns_zero_vector_when_no_lcs(self):
+        shell = self._make_shell_no_lcs()
+        result = _get_shell_lcs_base(shell)
+        # FreeCAD.Vector is mocked; result should be a FreeCAD.Vector call result
+        self.assertIsNotNone(result)
+
+    def test_rosette_lcs_takes_precedence_over_plain_lcs(self):
+        rosette_lcs = self._make_lcs_mock(x=10.0, y=20.0, z=30.0)
+        plain_lcs = self._make_lcs_mock(x=1.0, y=2.0, z=3.0)
+        rosette = MagicMock()
+        rosette.LocalCoordinateSystem = rosette_lcs
+        shell = MagicMock(spec=["Rosette", "LocalCoordinateSystem"])
+        shell.Rosette = rosette
+        shell.LocalCoordinateSystem = plain_lcs
+        result = _get_shell_lcs_base(shell)
+        self.assertIs(result, rosette_lcs.Placement.Base)
+
+    def test_no_rosette_attribute_falls_back_to_lcs(self):
+        # Shell without a Rosette attribute (older FP without Rosette property)
+        lcs = self._make_lcs_mock(x=7.0, y=8.0, z=9.0)
+        shell = MagicMock(spec=["LocalCoordinateSystem"])
+        shell.LocalCoordinateSystem = lcs
+        result = _get_shell_lcs_base(shell)
+        self.assertIs(result, lcs.Placement.Base)
 
 
 if __name__ == "__main__":

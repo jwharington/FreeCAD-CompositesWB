@@ -18,6 +18,7 @@ from ..shaders.MeshGridShader import MeshGridShader
 from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
+from .Rosette import is_rosette
 from .VPCompositeBase import CompositeBaseFP
 from .RosetteSymbol import RosetteSymbol
 from ..util.mesh_util import shape2Mesh
@@ -36,7 +37,7 @@ class CompositeShellFP(CompositeBaseFP):
 
     Type = "Composite::Shell"
 
-    def __init__(self, obj, support=None, laminate=None, lcs=None):
+    def __init__(self, obj, support=None, laminate=None, lcs=None, rosette=None):
 
         obj.addProperty(
             type="App::PropertyLinkGlobal",
@@ -53,6 +54,13 @@ class CompositeShellFP(CompositeBaseFP):
             name="LocalCoordinateSystem",
             group="Materials",
             doc="Local coordinate system used for orthotropic materials",
+        )
+
+        obj.addProperty(
+            type="App::PropertyLinkGlobal",
+            name="Rosette",
+            group="Materials",
+            doc="Rosette defining the fibre orientation origin and angle",
         )
 
         obj.addProperty(
@@ -87,8 +95,11 @@ class CompositeShellFP(CompositeBaseFP):
 
         obj.MaxLength = 5.0
         obj.LocalCoordinateSystem = lcs
+        obj.Rosette = rosette
         obj.Laminate = laminate
         obj.Support = support
+
+        self._rosette_angle = 0.0
 
         super().__init__(obj)
 
@@ -99,9 +110,13 @@ class CompositeShellFP(CompositeBaseFP):
         fp.Shape = fp.Support.Shape
 
         def get_lcs():
+            if fp.Rosette:
+                return fp.Rosette.LocalCoordinateSystem
             if fp.LocalCoordinateSystem:
                 return fp.LocalCoordinateSystem
             return fp.Support
+
+        self._rosette_angle = float(fp.Rosette.Angle) if fp.Rosette else 0.0
 
         try:
             mesh = shape2Mesh(fp.Shape, fp.MaxLength)
@@ -129,7 +144,7 @@ class CompositeShellFP(CompositeBaseFP):
         match prop:
             case "Laminate":
                 fp.recompute()
-            case "LocalCoordinateSystem":
+            case "LocalCoordinateSystem" | "Rosette":
                 fp.recompute()
             case "MaxLength" | "Support":
                 fp.recompute()
@@ -140,7 +155,7 @@ class CompositeShellFP(CompositeBaseFP):
     def get_tex_coords(self, offset_angle_deg):
         if self.has_valid_draper():
             return self.draper.get_tex_coords(
-                offset_angle_deg=offset_angle_deg,
+                offset_angle_deg=offset_angle_deg + getattr(self, "_rosette_angle", 0.0),
             )
         return None
 
@@ -157,7 +172,7 @@ class CompositeShellFP(CompositeBaseFP):
     def get_boundaries(self, offset_angle_deg):
         if self.has_valid_draper():
             return self.draper.get_boundaries(
-                offset_angle_deg=offset_angle_deg,
+                offset_angle_deg=offset_angle_deg + getattr(self, "_rosette_angle", 0.0),
             )
         return None
 
@@ -322,7 +337,7 @@ class ViewProviderCompositeShell:
 
     def updateData(self, fp, prop):
         match prop:
-            case "LocalCoordinateSystem" | "Support":
+            case "LocalCoordinateSystem" | "Support" | "Rosette":
                 self.update_rosette(self.ViewObject)
             case "Laminate":
                 if fp.Laminate:
@@ -347,7 +362,12 @@ class ViewProviderCompositeShell:
         if not orientations:
             return
 
-        lcs = obj.LocalCoordinateSystem
+        lcs = None
+        if obj.Rosette:
+            lcs = obj.Rosette.LocalCoordinateSystem
+        elif obj.LocalCoordinateSystem:
+            lcs = obj.LocalCoordinateSystem
+
         if lcs:
             base = lcs.Placement.Base
             position = (base.x, base.y, base.z)
@@ -437,7 +457,7 @@ class CompositeShellCommand(BaseCommand):
     icon = COMPOSITE_SHELL_TOOL_ICON
     menu_text = "Composite shell"
     tool_tip = """Create composite shell.
-        Select support feature, laminate and local coordinate system."""
+        Select support feature, laminate and local coordinate system or rosette."""
     sel_args = [
         {
             "key": "support",
@@ -446,6 +466,11 @@ class CompositeShellCommand(BaseCommand):
         {
             "key": "laminate",
             "test": is_laminate,
+        },
+        {
+            "key": "rosette",
+            "test": is_rosette,
+            "optional": True,
         },
         {
             "key": "lcs",

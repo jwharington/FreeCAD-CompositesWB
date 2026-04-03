@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import FreeCAD
 from FreeCAD import Console
 import FreeCADGui
 import Part
@@ -9,6 +10,7 @@ from .. import (
 )
 from ..tools.lcs import (
     align_fibre_lcs,
+    transfer_lcs_to_point,
 )
 
 from .CompositeShell import is_composite_shell
@@ -17,6 +19,23 @@ from .TransferLCS import (
     ViewProviderTransferLCS,
     TransferLCSCommand,
 )
+
+
+def _get_shell_lcs_base(shell):
+    """Return the base position of the composite shell's LCS.
+
+    Prefers the Rosette's LCS when a Rosette is set on the shell, falls back
+    to the shell's plain LocalCoordinateSystem, and returns the zero vector
+    when neither is available.
+    """
+    lcs = None
+    if hasattr(shell, "Rosette") and shell.Rosette:
+        lcs = shell.Rosette.LocalCoordinateSystem
+    elif shell.LocalCoordinateSystem:
+        lcs = shell.LocalCoordinateSystem
+    if lcs:
+        return lcs.Placement.Base
+    return FreeCAD.Vector(0.0, 0.0, 0.0)
 
 
 class AlignFibreLCSFP(TransferLCSFP):
@@ -32,21 +51,24 @@ class AlignFibreLCSFP(TransferLCSFP):
         support = sup.getSubObject(sub)
         if len(support) != 1:
             raise ValueError("Unhandled Support")
-        res = None
         match type(support[0]):
             case Part.Vertex:
-                res = align_fibre_lcs(
+                position, rotation = transfer_lcs_to_point(
                     draper=draper,
                     position=support[0].Point,
-                    base_position=fp.LocalCoordinateSystem.Placement.Base,
                 )
+                base_position = _get_shell_lcs_base(fp.CompositeShell)
+                angle = align_fibre_lcs(
+                    draper=draper,
+                    position=support[0].Point,
+                    base_position=base_position,
+                )
+                R_align = FreeCAD.Rotation(FreeCAD.Vector(0, 0, 1), angle)
+                lcs = fp.LocalCoordinateSystem
+                lcs.Placement.Base = position
+                lcs.Placement.Rotation = (rotation * R_align).inverted()
             case _:
                 raise ValueError("Unhandled Support")
-        if res:
-            Console.PrintWarning(f"TODO rotate LCS by {res}")
-            # lcs = fp.LocalCoordinateSystem
-            # lcs.Placement.Base = position
-            # lcs.Placement.Rotation = rotation.inverted()
 
     def onChanged(self, fp, prop):
         match prop:
