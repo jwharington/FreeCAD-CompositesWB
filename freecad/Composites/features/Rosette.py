@@ -25,7 +25,7 @@ def _origin_from_support(fp):
 
     (sup, sub) = fp.Support
     geom_list = sup.getSubObject(sub)
-    if not geom_list:
+    if geom_list is None or len(geom_list) == 0:
         raise ValueError("Support sub-object could not be resolved")
     geom = geom_list[0]
 
