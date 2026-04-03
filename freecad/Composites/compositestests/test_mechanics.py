@@ -109,6 +109,15 @@ _smt_mod = _load_module(
 # Now load the full package (will run __init__.py — FreeCAD is mocked)
 import freecad.Composites  # noqa: E402
 
+# Explicitly reload geometry_util so that its SymmetryType reference is
+# bound to the stub package created above.  When multiple test files are
+# collected by pytest in the same process, a previously cached version of
+# this module may hold a stale SymmetryType reference.
+_load_module(
+    "freecad.Composites.util.geometry_util",
+    "freecad/Composites/util/geometry_util.py",
+)
+
 # Load geometry_util (requires fake objects package stub above)
 from freecad.Composites.util.geometry_util import (  # noqa: E402
     expand_symmetry,
