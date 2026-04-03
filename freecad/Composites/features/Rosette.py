@@ -6,12 +6,18 @@ import FreeCADGui
 import Part
 from .. import (
     ROSETTE_TOOL_ICON,
+    is_comp_type,
 )
 from .VPCompositeBase import (
     VPCompositeBase,
     CompositeBaseFP,
 )
 from .Command import BaseCommand
+
+
+def is_rosette(obj):
+    """Return True if *obj* is a Rosette feature."""
+    return is_comp_type(obj, "App::FeaturePython", "Composite::Rosette")
 
 
 def _origin_from_support(fp):
