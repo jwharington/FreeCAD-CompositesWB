@@ -52,12 +52,13 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         obj.WeaveType = WeaveType.UD.name
 
         obj.addProperty(
-            "App::PropertyArealMass",
+            "App::PropertyQuantity",
             "ArealWeight",
             "Composition",
             "Areal weight of fibres",
         )
         obj.setPropertyStatus("ArealWeight", "ReadOnly")
+        obj.ArealWeight = FreeCAD.Units.Unit("g/m^2")
 
     def get_density(self, obj):
         if not hasattr(obj, "FibreMaterial"):
