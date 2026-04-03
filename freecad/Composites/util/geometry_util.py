@@ -1,14 +1,20 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
-from typing import List
-from ..objects import SymmetryType
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from ..objects.symmetry_type import SymmetryType
 
 
 def expand_symmetry(
     li: List,
-    sym: SymmetryType = SymmetryType.Assymmetric,
+    sym: Optional["SymmetryType"] = None,
 ):
+    from ..objects.symmetry_type import SymmetryType
+
+    if sym is None:
+        sym = SymmetryType.Assymmetric
     if SymmetryType.Assymmetric == sym:
         return li
     elif SymmetryType.Odd == sym:
