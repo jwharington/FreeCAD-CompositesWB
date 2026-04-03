@@ -82,6 +82,27 @@ sys.modules["pivy.coin"] = _coin_mock
 sys.modules["PySide"] = MagicMock()
 sys.modules["PySide.QtGui"] = MagicMock()
 
+# Part mock (required by Rosette.py and other features that import Part)
+_part_mod = types.ModuleType("Part")
+
+
+class _FakeVertex:
+    pass
+
+
+class _FakeEdge:
+    pass
+
+
+class _FakeFaceShape:
+    pass
+
+
+_part_mod.Vertex = _FakeVertex
+_part_mod.Edge = _FakeEdge
+_part_mod.Face = _FakeFaceShape
+sys.modules["Part"] = _part_mod
+
 # ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path so package imports work
 # ---------------------------------------------------------------------------
@@ -298,12 +319,17 @@ _comp_lam_feature_mod = _load_module(
     "freecad.Composites.features.CompositeLaminate",
     "freecad/Composites/features/CompositeLaminate.py",
 )
+_rosette_feature_mod = _load_module(
+    "freecad.Composites.features.Rosette",
+    "freecad/Composites/features/Rosette.py",
+)
 
 # Short aliases for use in tests
 HomogeneousLaminaFP = _homo_feature_mod.HomogeneousLaminaFP
 FibreCompositeLaminaFP = _fcl_feature_mod.FibreCompositeLaminaFP
 LaminateFP = _laminate_feature_mod.LaminateFP
 CompositeLaminateFP = _comp_lam_feature_mod.CompositeLaminateFP
+RosetteFP = _rosette_feature_mod.RosetteFP
 
 HomogeneousLamina = _homo_mod.HomogeneousLamina
 FibreCompositeLamina = _fcl_obj_mod.FibreCompositeLamina
@@ -832,6 +858,164 @@ class TestCompositeLaminateFP(unittest.TestCase):
         self.obj.Symmetry = SymmetryType.Assymmetric.name
         model = self.fp.make_model(self.obj, [layer.Proxy.get_model(layer)])
         self.assertEqual(model.volume_fraction_fibre, 0)
+
+
+# ---------------------------------------------------------------------------
+# Tests: RosetteFP
+# ---------------------------------------------------------------------------
+
+
+class TestRosetteFP(unittest.TestCase):
+    """Tests for features/Rosette.py :: RosetteFP."""
+
+    def _make_fake_support(self, geom):
+        """Return a (sup_mock, sub_name) pair whose getSubObject returns [geom]."""
+        sup = MagicMock()
+        sup.getSubObject.return_value = [geom]
+        return (sup, "Sub1")
+
+    def setUp(self):
+        self.obj = _FakeFCObj("Rosette")
+        self.obj.Document = MagicMock()
+        self.fp = RosetteFP(self.obj)
+
+    # -- Initialisation ------------------------------------------------------
+
+    def test_init_sets_proxy(self):
+        self.assertIs(self.obj.Proxy, self.fp)
+
+    def test_init_adds_support(self):
+        self.assertIn("Support", object.__getattribute__(self.obj, "_props"))
+
+    def test_init_default_support_is_none(self):
+        self.assertIsNone(self.obj.Support)
+
+    def test_init_adds_angle(self):
+        self.assertIn("Angle", object.__getattribute__(self.obj, "_props"))
+
+    def test_init_default_angle_zero(self):
+        self.assertAlmostEqual(float(self.obj.Angle), 0.0)
+
+    def test_init_adds_lcs(self):
+        self.assertIn("LocalCoordinateSystem", object.__getattribute__(self.obj, "_props"))
+
+    def test_init_lcs_created_via_document(self):
+        self.obj.Document.addObject.assert_called_once_with(
+            "Part::LocalCoordinateSystem", "LCS"
+        )
+
+    def test_adds_suppressive_extension(self):
+        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+
+    def test_type_attribute(self):
+        self.assertEqual(RosetteFP.Type, "Composite::Rosette")
+
+    # -- execute() with no support (model origin) ----------------------------
+
+    def test_execute_no_support_does_not_raise(self):
+        self.obj.Support = None
+        self.fp.execute(self.obj)  # should not raise
+
+    def test_execute_no_support_sets_lcs_placement(self):
+        self.obj.Support = None
+        self.fp.execute(self.obj)
+        lcs = self.obj.LocalCoordinateSystem
+        # Placement.Base should have been assigned a FreeCAD.Vector
+        lcs.Placement.Base  # should be accessible without error
+
+    # -- execute() with vertex support ---------------------------------------
+
+    def test_execute_vertex_uses_vertex_point(self):
+        vertex = _FakeVertex()
+        vertex.Point = MagicMock(name="vertex_point")
+        support = self._make_fake_support(vertex)
+        self.obj.Support = support
+        self.fp.execute(self.obj)
+        lcs = self.obj.LocalCoordinateSystem
+        self.assertEqual(lcs.Placement.Base, vertex.Point)
+
+    def test_execute_vertex_does_not_raise(self):
+        vertex = _FakeVertex()
+        vertex.Point = MagicMock(name="vertex_point")
+        self.obj.Support = self._make_fake_support(vertex)
+        self.fp.execute(self.obj)
+
+    # -- execute() with edge support -----------------------------------------
+
+    def test_execute_edge_uses_midpoint(self):
+        expected_midpoint = MagicMock(name="edge_midpoint")
+        edge = _FakeEdge()
+        edge.Length = 100.0
+        edge.getParameterByLength = MagicMock(return_value=0.5)
+        edge.valueAt = MagicMock(return_value=expected_midpoint)
+        self.obj.Support = self._make_fake_support(edge)
+        self.fp.execute(self.obj)
+        # getParameterByLength called with half the edge length
+        edge.getParameterByLength.assert_called_once_with(50.0)
+        lcs = self.obj.LocalCoordinateSystem
+        self.assertEqual(lcs.Placement.Base, expected_midpoint)
+
+    def test_execute_edge_does_not_raise(self):
+        edge = _FakeEdge()
+        edge.Length = 50.0
+        edge.getParameterByLength = MagicMock(return_value=0.25)
+        edge.valueAt = MagicMock(return_value=MagicMock())
+        self.obj.Support = self._make_fake_support(edge)
+        self.fp.execute(self.obj)
+
+    # -- execute() with face support -----------------------------------------
+
+    def test_execute_face_uses_parametric_centre(self):
+        expected_centre = MagicMock(name="face_centre")
+        face = _FakeFaceShape()
+        face.ParameterRange = (0.0, 2.0, 0.0, 4.0)
+        face.valueAt = MagicMock(return_value=expected_centre)
+        face.normalAt = MagicMock(return_value=MagicMock(name="normal"))
+        self.obj.Support = self._make_fake_support(face)
+        self.fp.execute(self.obj)
+        # valueAt should be called at the parametric centre (u=1.0, v=2.0)
+        face.valueAt.assert_called_once_with(1.0, 2.0)
+        lcs = self.obj.LocalCoordinateSystem
+        self.assertEqual(lcs.Placement.Base, expected_centre)
+
+    def test_execute_face_does_not_raise(self):
+        face = _FakeFaceShape()
+        face.ParameterRange = (0.0, 1.0, 0.0, 1.0)
+        face.valueAt = MagicMock(return_value=MagicMock())
+        face.normalAt = MagicMock(return_value=MagicMock())
+        self.obj.Support = self._make_fake_support(face)
+        self.fp.execute(self.obj)
+
+    # -- execute() with unknown support type ---------------------------------
+
+    def test_execute_unknown_support_type_raises(self):
+        class _UnknownShape:
+            pass
+
+        unknown = _UnknownShape()
+        self.obj.Support = self._make_fake_support(unknown)
+        with self.assertRaises(ValueError):
+            self.fp.execute(self.obj)
+
+    # -- execute() with empty getSubObject result ----------------------------
+
+    def test_execute_empty_geom_list_raises(self):
+        sup = MagicMock()
+        sup.getSubObject.return_value = []
+        self.obj.Support = (sup, "Sub1")
+        with self.assertRaises(ValueError):
+            self.fp.execute(self.obj)
+
+    # -- onChanged() ---------------------------------------------------------
+
+    def test_on_changed_support_triggers_recompute(self):
+        # onChanged("Support") should call fp.recompute() → execute(fp)
+        # With no support, execute() sets placement without error.
+        self.obj.Support = None
+        self.fp.onChanged(self.obj, "Support")  # should not raise
+
+    def test_on_changed_unrelated_prop_is_noop(self):
+        self.fp.onChanged(self.obj, "Name")  # should not raise
 
 
 if __name__ == "__main__":

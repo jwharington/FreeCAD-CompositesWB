@@ -9,6 +9,7 @@ from . import CompositeLaminate  # noqa
 from . import TransferLCS  # noqa
 from . import WrapLCS  # noqa
 from . import AlignFibreLCS  # noqa
+from . import Rosette  # noqa
 
 from . import Seam  # noqa
 from . import Stiffener  # noqa
@@ -91,6 +92,7 @@ FreeCADGui.addCommand(
             "Composites_TransferLCS",
             "Composites_WrapLCS",
             "Composites_AlignFibreLCS",
+            "Composites_Rosette",
         ],
         menu="Material LCS",
         tooltip="Material local coordinate system tools",

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="64px"
+   height="64px"
+   viewBox="0 0 64 64"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg">
+  <!-- Reference circle -->
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#8c8c8c" stroke-width="2"/>
+  <!-- Centre dot -->
+  <circle cx="32" cy="32" r="3" fill="white"/>
+  <!-- Primary fibre orientation line (0 deg, red) with arrow heads -->
+  <line x1="6" y1="32" x2="58" y2="32" stroke="#e62626" stroke-width="2.5"/>
+  <polygon points="58,32 51,28 51,36" fill="#e62626"/>
+  <polygon points="6,32 13,28 13,36" fill="#e62626"/>
+  <!-- Secondary fibre orientation line (45 deg, blue) -->
+  <line x1="13.6" y1="50.4" x2="50.4" y2="13.6" stroke="#2673e6" stroke-width="2.5"/>
+  <polygon points="50.4,13.6 43.6,15.8 46.2,22.4" fill="#2673e6"/>
+  <polygon points="13.6,50.4 20.4,48.2 17.8,41.6" fill="#2673e6"/>
+</svg>
