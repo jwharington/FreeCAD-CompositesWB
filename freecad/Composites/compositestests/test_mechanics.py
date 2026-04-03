@@ -8,11 +8,9 @@ FreeCAD is not required to run these tests – a minimal mock is
 installed in sys.modules before any project code is imported.
 """
 
-import importlib.util
 import math
 import os
 import sys
-import types
 import unittest
 from unittest.mock import MagicMock
 
@@ -61,82 +59,18 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 # ---------------------------------------------------------------------------
-# Manually pre-load the leaf modules that have no FreeCAD dependencies,
-# and register a stub `freecad.Composites.objects` package so that
-# geometry_util's `from ..objects import SymmetryType` resolves without
-# triggering the circular import that exists in objects/__init__.py.
+# ---------------------------------------------------------------------------
+# Import project modules — circular imports are fixed, so normal imports work.
 # ---------------------------------------------------------------------------
 
-
-def _load_module(dotted_name: str, rel_path: str):
-    """Load a .py file and register it in sys.modules under *dotted_name*."""
-    abs_path = os.path.join(_REPO_ROOT, rel_path.replace("/", os.sep))
-    spec = importlib.util.spec_from_file_location(dotted_name, abs_path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[dotted_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-# Leaf enums (no deps)
-_sym_mod = _load_module(
-    "freecad.Composites.objects.symmetry_type",
-    "freecad/Composites/objects/symmetry_type.py",
-)
-_weave_mod = _load_module(
-    "freecad.Composites.objects.weave_type",
-    "freecad/Composites/objects/weave_type.py",
-)
-
-# Stub objects package so geometry_util can import SymmetryType without
-# triggering the objects/__init__.py circular import chain.
-# Setting __path__ makes Python treat this as a package, allowing sub-modules
-# (e.g. freecad.Composites.objects.fabric) to be loaded later.
-_objects_dir = os.path.join(_REPO_ROOT, "freecad", "Composites", "objects")
-_fake_objects_pkg = types.ModuleType("freecad.Composites.objects")
-_fake_objects_pkg.__path__ = [_objects_dir]
-_fake_objects_pkg.__package__ = "freecad.Composites.objects"
-_fake_objects_pkg.SymmetryType = _sym_mod.SymmetryType
-_fake_objects_pkg.WeaveType = _weave_mod.WeaveType
-sys.modules["freecad.Composites.objects"] = _fake_objects_pkg
-
-# Load mechanics.stack_model_type (no deps)
-_smt_mod = _load_module(
-    "freecad.Composites.mechanics.stack_model_type",
-    "freecad/Composites/mechanics/stack_model_type.py",
-)
-
-# Now load the full package (will run __init__.py — FreeCAD is mocked)
 import freecad.Composites  # noqa: E402
 
-# Explicitly reload geometry_util so that its SymmetryType reference is
-# bound to the stub package created above.  When multiple test files are
-# collected by pytest in the same process, a previously cached version of
-# this module may hold a stale SymmetryType reference.
-_load_module(
-    "freecad.Composites.util.geometry_util",
-    "freecad/Composites/util/geometry_util.py",
-)
-
-# Load geometry_util (requires fake objects package stub above)
 from freecad.Composites.util.geometry_util import (  # noqa: E402
     expand_symmetry,
     format_layer,
     format_orientation,
     normalise_orientation,
 )
-
-# Load lamina / ply directly to avoid the circular import in objects/__init__.py
-_lamina_mod = _load_module(
-    "freecad.Composites.objects.lamina",
-    "freecad/Composites/objects/lamina.py",
-)
-_ply_mod = _load_module(
-    "freecad.Composites.objects.ply",
-    "freecad/Composites/objects/ply.py",
-)
-
-# Load mechanics modules (depend only on FreeCAD.Units, not on objects)
 from freecad.Composites.mechanics.material_properties import (  # noqa: E402
     common_material2dict,
     is_orthotropic,
@@ -155,90 +89,23 @@ from freecad.Composites.mechanics.shell_model import (  # noqa: E402
 from freecad.Composites.mechanics.fibre_composite_model import (  # noqa: E402
     calc_fibre_composite_model,
 )
-
-# Expose enums under short names for test use
-SymmetryType = _sym_mod.SymmetryType
-WeaveType = _weave_mod.WeaveType
-StackModelType = _smt_mod.StackModelType
-Lamina = _lamina_mod.Lamina
-Ply = _ply_mod.Ply
-
-# ---------------------------------------------------------------------------
-# Additional module loads for objects and mechanics not yet covered by tests.
-# Load order matters: each module must appear after its dependencies.
-# ---------------------------------------------------------------------------
-
-# objects/homogeneous_lamina.py (depends on: ply, material_properties, geometry_util)
-_homo_mod = _load_module(
-    "freecad.Composites.objects.homogeneous_lamina",
-    "freecad/Composites/objects/homogeneous_lamina.py",
+from freecad.Composites.objects.symmetry_type import SymmetryType  # noqa: E402
+from freecad.Composites.objects.weave_type import WeaveType  # noqa: E402
+from freecad.Composites.mechanics.stack_model_type import StackModelType  # noqa: E402
+from freecad.Composites.objects.lamina import Lamina  # noqa: E402
+from freecad.Composites.objects.ply import Ply  # noqa: E402
+from freecad.Composites.objects.homogeneous_lamina import HomogeneousLamina  # noqa: E402
+from freecad.Composites.objects.fabric import Fabric  # noqa: E402
+from freecad.Composites.objects.simple_fabric import SimpleFabric  # noqa: E402
+from freecad.Composites.mechanics.stack_model import (  # noqa: E402
+    calc_z,
+    merge_clt,
+    merge_single,
 )
-
-# objects/composite_lamina.py (depends on: ply)
-_comp_lamina_mod = _load_module(
-    "freecad.Composites.objects.composite_lamina",
-    "freecad/Composites/objects/composite_lamina.py",
-)
-
-# objects/fabric.py (depends on: ply, weave_type)
-_fabric_mod = _load_module(
-    "freecad.Composites.objects.fabric",
-    "freecad/Composites/objects/fabric.py",
-)
-
-# objects/simple_fabric.py (depends on: symmetry_type, weave_type, fabric, geometry_util)
-_sf_top_mod = _load_module(
-    "freecad.Composites.objects.simple_fabric",
-    "freecad/Composites/objects/simple_fabric.py",
-)
-
-# mechanics/stack_model.py (depends on: objects.lamina, objects.homogeneous_lamina,
-#                           mechanics.material_properties, mechanics.shell_model)
-_stack_model_mod = _load_module(
-    "freecad.Composites.mechanics.stack_model",
-    "freecad/Composites/mechanics/stack_model.py",
-)
-
-# mechanics/stack_expansion.py (depends on: stack_model_type, stack_model,
-#                                objects.lamina, util.geometry_util)
-_stack_exp_mod = _load_module(
-    "freecad.Composites.mechanics.stack_expansion",
-    "freecad/Composites/mechanics/stack_expansion.py",
-)
-
-# objects/fibre_composite_lamina.py (depends on: ply, composite_lamina,
-#   homogeneous_lamina, simple_fabric, stack_model_type, fibre_composite_model,
-#   geometry_util, fabric)
-_fcl_mod = _load_module(
-    "freecad.Composites.objects.fibre_composite_lamina",
-    "freecad/Composites/objects/fibre_composite_lamina.py",
-)
-
-# objects/laminate.py (depends on: symmetry_type, lamina, stack_model_type,
-#                       stack_expansion, geometry_util)
-_laminate_mod = _load_module(
-    "freecad.Composites.objects.laminate",
-    "freecad/Composites/objects/laminate.py",
-)
-
-# objects/composite_laminate.py (depends on: ply, laminate, lamina,
-#                                 composite_lamina, stack_model_type)
-_comp_lam_mod = _load_module(
-    "freecad.Composites.objects.composite_laminate",
-    "freecad/Composites/objects/composite_laminate.py",
-)
-
-# Expose additional symbols at module level for use in tests below
-HomogeneousLamina = _homo_mod.HomogeneousLamina
-Fabric = _fabric_mod.Fabric
-SimpleFabric = _sf_top_mod.SimpleFabric
-calc_z = _stack_model_mod.calc_z
-merge_clt = _stack_model_mod.merge_clt
-merge_single = _stack_model_mod.merge_single
-calc_stack_model = _stack_exp_mod.calc_stack_model
-FibreCompositeLamina = _fcl_mod.FibreCompositeLamina
-Laminate = _laminate_mod.Laminate
-CompositeLaminate = _comp_lam_mod.CompositeLaminate
+from freecad.Composites.mechanics.stack_expansion import calc_stack_model  # noqa: E402
+from freecad.Composites.objects.fibre_composite_lamina import FibreCompositeLamina  # noqa: E402
+from freecad.Composites.objects.laminate import Laminate  # noqa: E402
+from freecad.Composites.objects.composite_laminate import CompositeLaminate  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helper: build canonical material dicts the same way example_materials.py
@@ -921,18 +788,8 @@ class TestSimpleFabricPlyOrientations(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Load SimpleFabric by directly importing the file, now that
-        # geometry_util is fully initialised in sys.modules.
-        sf_mod = _load_module(
-            "freecad.Composites.objects.simple_fabric",
-            "freecad/Composites/objects/simple_fabric.py",
-        )
-        fab_mod = _load_module(
-            "freecad.Composites.objects.fabric",
-            "freecad/Composites/objects/fabric.py",
-        )
-        cls.SimpleFabric = sf_mod.SimpleFabric
-        cls.Fabric = fab_mod.Fabric
+        cls.SimpleFabric = SimpleFabric
+        cls.Fabric = Fabric
 
     def _make_fabric(self, weave):
         return self.SimpleFabric(

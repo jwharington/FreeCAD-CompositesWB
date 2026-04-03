@@ -2,13 +2,16 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 from typing import List
-from ..objects import SymmetryType
 
 
 def expand_symmetry(
     li: List,
-    sym: SymmetryType = SymmetryType.Assymmetric,
+    sym=None,
 ):
+    from ..objects.symmetry_type import SymmetryType
+
+    if sym is None:
+        sym = SymmetryType.Assymmetric
     if SymmetryType.Assymmetric == sym:
         return li
     elif SymmetryType.Odd == sym:
