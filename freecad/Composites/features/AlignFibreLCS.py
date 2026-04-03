@@ -45,6 +45,8 @@ class AlignFibreLCSFP(TransferLCSFP):
     def execute(self, fp):
         if not fp.Support:
             return
+        if not fp.CompositeShell:
+            return
         draper = fp.CompositeShell.Proxy.get_draper()
 
         (sup, sub) = fp.Support

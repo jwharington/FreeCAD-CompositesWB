@@ -444,7 +444,7 @@ class _FakeFCObj:
 
     # -- FreeCAD object API --------------------------------------------------
 
-    def addProperty(self, prop_type=None, name=None, group="", tooltip="", hidden=False, **kwargs):
+    def addProperty(self, prop_type=None, name=None, group="", doc="", hidden=False, **kwargs):
         # Accept both positional-style ("App::PropertyFoo", "Name", ...)
         # and keyword-style (type="App::PropertyFoo", name="Name", doc=...) calls
         # that FreeCAD's API supports.
