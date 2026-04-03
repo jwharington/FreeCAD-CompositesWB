@@ -3,6 +3,7 @@
 
 from FreeCAD import Console
 import FreeCADGui
+from pivy import coin
 from .. import (
     COMPOSITE_SHELL_TOOL_ICON,
     is_comp_type,
@@ -18,6 +19,7 @@ from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
 from .VPCompositeBase import CompositeBaseFP
+from .RosetteSymbol import RosetteSymbol
 from ..util.mesh_util import shape2Mesh
 import MeshEnums
 
@@ -190,6 +192,23 @@ class ViewProviderCompositeShell:
         )
         obj.DisplayLayer = ["0"]
         obj.DisplayLayer = "0"
+
+        obj.addProperty(
+            "App::PropertyBool",
+            "ShowRosette",
+            "Rosette",
+            "Show fibre orientation rosette symbol in 3D view",
+        )
+        obj.ShowRosette = True
+
+        obj.addProperty(
+            "App::PropertyFloat",
+            "RosetteScale",
+            "Rosette",
+            "Radius of fibre orientation rosette symbol (mm)",
+        )
+        obj.RosetteScale = 20.0
+
         obj.Proxy = self
 
     def setDisplayMode(self, mode):
@@ -221,6 +240,16 @@ class ViewProviderCompositeShell:
 
         obj.addDisplayMode(self.grid_shader.grp, "Grid")
         # self.load_shader()
+
+        # Fibre orientation rosette: always-visible overlay on the root node
+        self.rosette = RosetteSymbol()
+        self.rosette_switch = coin.SoSwitch()
+        self.rosette_switch.addChild(self.rosette.separator)
+        self.rosette_switch.whichChild = 0  # visible by default
+        try:
+            obj.RootNode.addChild(self.rosette_switch)
+        except AttributeError:
+            pass  # RootNode not available in non-GUI / test environments
 
         # needed to trigger color update
         self.onChanged(obj, "Color")
@@ -294,13 +323,42 @@ class ViewProviderCompositeShell:
     def updateData(self, fp, prop):
         match prop:
             case "LocalCoordinateSystem" | "Support":
-                pass
+                self.update_rosette(self.ViewObject)
             case "Laminate":
                 if fp.Laminate:
                     self.update_display_layer(fp)
+                self.update_rosette(self.ViewObject)
             case _:
                 return
         self.reload_shader()
+
+    def update_rosette(self, vobj):
+        """Rebuild the rosette symbol from the current laminate and LCS."""
+        if not hasattr(self, "rosette"):
+            return
+        obj = vobj.Object
+        laminate = obj.Laminate
+        if not laminate or not hasattr(laminate, "StackOrientation"):
+            return
+        stack_orientation = laminate.StackOrientation
+        if not hasattr(stack_orientation, "values"):
+            return
+        orientations = list(stack_orientation.values())
+        if not orientations:
+            return
+
+        lcs = obj.LocalCoordinateSystem
+        if lcs:
+            base = lcs.Placement.Base
+            position = (base.x, base.y, base.z)
+            q = lcs.Placement.Rotation.Q
+            rotation = (q[0], q[1], q[2], q[3])
+        else:
+            position = (0.0, 0.0, 0.0)
+            rotation = (0.0, 0.0, 0.0, 1.0)
+
+        scale = vobj.RosetteScale if hasattr(vobj, "RosetteScale") else 20.0
+        self.rosette.update(orientations, position, rotation, scale)
 
     def onChanged(self, vobj, prop):
         match prop:
@@ -315,6 +373,13 @@ class ViewProviderCompositeShell:
                 self.reload_shader()
             case "ShapeAppearance":
                 self.reload_shader()
+            case "ShowRosette":
+                if hasattr(self, "rosette_switch"):
+                    self.rosette_switch.whichChild = (
+                        0 if vobj.ShowRosette else coin.SO_SWITCH_NONE
+                    )
+            case "RosetteScale":
+                self.update_rosette(vobj)
             case _:
                 pass
 
