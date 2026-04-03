@@ -155,6 +155,83 @@ Lamina = _lamina_mod.Lamina
 Ply = _ply_mod.Ply
 
 # ---------------------------------------------------------------------------
+# Additional module loads for objects and mechanics not yet covered by tests.
+# Load order matters: each module must appear after its dependencies.
+# ---------------------------------------------------------------------------
+
+# objects/homogeneous_lamina.py (depends on: ply, material_properties, geometry_util)
+_homo_mod = _load_module(
+    "freecad.Composites.objects.homogeneous_lamina",
+    "freecad/Composites/objects/homogeneous_lamina.py",
+)
+
+# objects/composite_lamina.py (depends on: ply)
+_comp_lamina_mod = _load_module(
+    "freecad.Composites.objects.composite_lamina",
+    "freecad/Composites/objects/composite_lamina.py",
+)
+
+# objects/fabric.py (depends on: ply, weave_type)
+_fabric_mod = _load_module(
+    "freecad.Composites.objects.fabric",
+    "freecad/Composites/objects/fabric.py",
+)
+
+# objects/simple_fabric.py (depends on: symmetry_type, weave_type, fabric, geometry_util)
+_sf_top_mod = _load_module(
+    "freecad.Composites.objects.simple_fabric",
+    "freecad/Composites/objects/simple_fabric.py",
+)
+
+# mechanics/stack_model.py (depends on: objects.lamina, objects.homogeneous_lamina,
+#                           mechanics.material_properties, mechanics.shell_model)
+_stack_model_mod = _load_module(
+    "freecad.Composites.mechanics.stack_model",
+    "freecad/Composites/mechanics/stack_model.py",
+)
+
+# mechanics/stack_expansion.py (depends on: stack_model_type, stack_model,
+#                                objects.lamina, util.geometry_util)
+_stack_exp_mod = _load_module(
+    "freecad.Composites.mechanics.stack_expansion",
+    "freecad/Composites/mechanics/stack_expansion.py",
+)
+
+# objects/fibre_composite_lamina.py (depends on: ply, composite_lamina,
+#   homogeneous_lamina, simple_fabric, stack_model_type, fibre_composite_model,
+#   geometry_util, fabric)
+_fcl_mod = _load_module(
+    "freecad.Composites.objects.fibre_composite_lamina",
+    "freecad/Composites/objects/fibre_composite_lamina.py",
+)
+
+# objects/laminate.py (depends on: symmetry_type, lamina, stack_model_type,
+#                       stack_expansion, geometry_util)
+_laminate_mod = _load_module(
+    "freecad.Composites.objects.laminate",
+    "freecad/Composites/objects/laminate.py",
+)
+
+# objects/composite_laminate.py (depends on: ply, laminate, lamina,
+#                                 composite_lamina, stack_model_type)
+_comp_lam_mod = _load_module(
+    "freecad.Composites.objects.composite_laminate",
+    "freecad/Composites/objects/composite_laminate.py",
+)
+
+# Expose additional symbols at module level for use in tests below
+HomogeneousLamina = _homo_mod.HomogeneousLamina
+Fabric = _fabric_mod.Fabric
+SimpleFabric = _sf_top_mod.SimpleFabric
+calc_z = _stack_model_mod.calc_z
+merge_clt = _stack_model_mod.merge_clt
+merge_single = _stack_model_mod.merge_single
+calc_stack_model = _stack_exp_mod.calc_stack_model
+FibreCompositeLamina = _fcl_mod.FibreCompositeLamina
+Laminate = _laminate_mod.Laminate
+CompositeLaminate = _comp_lam_mod.CompositeLaminate
+
+# ---------------------------------------------------------------------------
 # Helper: build canonical material dicts the same way example_materials.py
 # does, so tests exercise the real unit-conversion path.
 # ---------------------------------------------------------------------------
@@ -920,6 +997,589 @@ class TestSimpleFabricPlyOrientations(unittest.TestCase):
         orientations = [p.orientation for p in plies]
         # 0+45=45, 90+45=135 normalised -> -45
         self.assertIn(45, orientations)
+
+
+# ---------------------------------------------------------------------------
+# Tests: objects/homogeneous_lamina.py
+# ---------------------------------------------------------------------------
+
+
+class TestHomogeneousLamina(unittest.TestCase):
+    """Tests for HomogeneousLamina: description, get_product, get_fibres."""
+
+    def _iso(self):
+        m = material_from_dict({}, orthotropic=False)
+        m["Name"] = "Epoxy"
+        m["YoungsModulus"] = "3.500 GPa"
+        m["PoissonRatio"] = "0.36"
+        m["Density"] = "1100.0 kg/m^3"
+        return m
+
+    def _ortho(self):
+        return _make_glass()
+
+    def _hl(self, material, thickness=0.5, orientation=0):
+        return HomogeneousLamina(
+            material=material,
+            thickness=thickness,
+            orientation=orientation,
+            orientation_display=orientation,
+        )
+
+    def test_description_isotropic_contains_name(self):
+        hl = self._hl(self._iso())
+        self.assertIn("Epoxy", hl.description)
+
+    def test_description_isotropic_no_bracket(self):
+        hl = self._hl(self._iso())
+        self.assertNotIn("[", hl.description)
+
+    def test_description_orthotropic_contains_name(self):
+        hl = self._hl(self._ortho())
+        self.assertIn("Glass", hl.description)
+
+    def test_description_orthotropic_has_orientation_bracket(self):
+        hl = self._hl(self._ortho(), orientation=45)
+        self.assertIn("[", hl.description)
+
+    def test_get_product_returns_list_of_one(self):
+        hl = self._hl(self._iso())
+        product = hl.get_product()
+        self.assertIsInstance(product, list)
+        self.assertEqual(len(product), 1)
+
+    def test_get_product_tuple_second_element_is_zero(self):
+        hl = self._hl(self._iso())
+        _, angle = hl.get_product()[0]
+        self.assertEqual(angle, 0)
+
+    def test_get_product_contains_material_name(self):
+        hl = self._hl(self._iso())
+        desc, _ = hl.get_product()[0]
+        self.assertIn("Epoxy", desc)
+
+    def test_get_fibres_returns_none(self):
+        hl = self._hl(self._iso())
+        self.assertIsNone(hl.get_fibres())
+
+    def test_default_core_is_false(self):
+        hl = self._hl(self._iso())
+        self.assertFalse(hl.core)
+
+    def test_thickness_is_preserved(self):
+        hl = self._hl(self._iso(), thickness=0.75)
+        self.assertAlmostEqual(hl.thickness, 0.75)
+
+    def test_get_layers_returns_self_in_list(self):
+        hl = self._hl(self._iso())
+        layers = hl.get_layers()
+        self.assertEqual(layers, [hl])
+
+
+# ---------------------------------------------------------------------------
+# Tests: mechanics/stack_model.py – calc_z
+# ---------------------------------------------------------------------------
+
+
+class TestCalcZ(unittest.TestCase):
+    """Tests for calc_z."""
+
+    def _hl(self, thickness):
+        m = material_from_dict({}, orthotropic=False)
+        m["Name"] = "Mat"
+        m["YoungsModulus"] = "1.0 GPa"
+        m["PoissonRatio"] = "0.3"
+        m["Density"] = "1000.0 kg/m^3"
+        return HomogeneousLamina(
+            material=m, thickness=thickness, orientation=0, orientation_display=0
+        )
+
+    def test_single_layer_zbar_at_zero(self):
+        zbar, total = calc_z([self._hl(2.0)])
+        self.assertEqual(len(zbar), 1)
+        self.assertAlmostEqual(zbar[0], 0.0)
+
+    def test_single_layer_total_thickness(self):
+        _, total = calc_z([self._hl(2.0)])
+        self.assertAlmostEqual(total, 2.0)
+
+    def test_two_equal_layers_zbar_positions(self):
+        zbar, _ = calc_z([self._hl(1.0), self._hl(1.0)])
+        self.assertAlmostEqual(zbar[0], -0.5)
+        self.assertAlmostEqual(zbar[1], 0.5)
+
+    def test_two_equal_layers_total_thickness(self):
+        _, total = calc_z([self._hl(1.0), self._hl(1.0)])
+        self.assertAlmostEqual(total, 2.0)
+
+    def test_three_layers_total_thickness(self):
+        _, total = calc_z([self._hl(0.5), self._hl(1.0), self._hl(0.5)])
+        self.assertAlmostEqual(total, 2.0)
+
+    def test_zbar_positions_are_ascending(self):
+        zbar, _ = calc_z([self._hl(0.5), self._hl(1.0), self._hl(0.5)])
+        self.assertLess(zbar[0], zbar[1])
+        self.assertLess(zbar[1], zbar[2])
+
+    def test_zbar_count_equals_layer_count(self):
+        layers = [self._hl(0.3), self._hl(0.5), self._hl(0.2)]
+        zbar, _ = calc_z(layers)
+        self.assertEqual(len(zbar), 3)
+
+
+# ---------------------------------------------------------------------------
+# Tests: mechanics/stack_model.py – merge_clt
+# ---------------------------------------------------------------------------
+
+
+class TestMergeClt(unittest.TestCase):
+    """Tests for merge_clt."""
+
+    def _ortho_hl(self, thickness, orientation=0):
+        return HomogeneousLamina(
+            material=_make_glass(),
+            thickness=thickness,
+            orientation=orientation,
+            orientation_display=orientation,
+        )
+
+    def _iso_hl(self, thickness):
+        m = material_from_dict({}, orthotropic=False)
+        m["Name"] = "Epoxy"
+        m["YoungsModulus"] = "3.500 GPa"
+        m["PoissonRatio"] = "0.36"
+        m["Density"] = "1100.0 kg/m^3"
+        return HomogeneousLamina(
+            material=m, thickness=thickness, orientation=0, orientation_display=0
+        )
+
+    def test_returns_homogeneous_lamina(self):
+        result = merge_clt("Test", [self._ortho_hl(0.5)])
+        self.assertIsInstance(result, HomogeneousLamina)
+
+    def test_single_layer_thickness_preserved(self):
+        result = merge_clt("Test", [self._ortho_hl(0.5)])
+        self.assertAlmostEqual(result.thickness, 0.5)
+
+    def test_two_layers_total_thickness(self):
+        result = merge_clt("Test", [self._ortho_hl(0.3), self._ortho_hl(0.7)])
+        self.assertAlmostEqual(result.thickness, 1.0)
+
+    def test_result_is_orthotropic(self):
+        result = merge_clt("Test", [self._ortho_hl(0.5)])
+        self.assertTrue(is_orthotropic(result.material))
+
+    def test_result_name_equals_prefix(self):
+        result = merge_clt("Fabric000", [self._ortho_hl(0.5)])
+        self.assertEqual(result.material["Name"], "Fabric000")
+
+    def test_result_orientation_is_zero(self):
+        result = merge_clt("Test", [self._ortho_hl(0.5, orientation=45)])
+        self.assertEqual(result.orientation, 0)
+
+    def test_single_ud_layer_e1_greater_than_e2(self):
+        result = merge_clt("Test", [self._ortho_hl(1.0, orientation=0)])
+        d = ortho_material2dict(result.material)
+        self.assertGreater(d["YoungsModulusX"], d["YoungsModulusY"])
+
+    def test_balanced_0_90_e1_between_e1_and_e2(self):
+        result = merge_clt(
+            "Test", [self._ortho_hl(0.5, orientation=0), self._ortho_hl(0.5, orientation=90)]
+        )
+        d = ortho_material2dict(result.material)
+        # Balanced [0/90] should give Ex between E2 and E1 of glass
+        self.assertGreater(d["YoungsModulusX"], 10000.0)  # > E2 (10 GPa)
+        self.assertLess(d["YoungsModulusX"], 130000.0)  # < E1 (130 GPa)
+
+    def test_material_has_all_ortho_keys(self):
+        result = merge_clt("Test", [self._ortho_hl(1.0)])
+        expected = {
+            "YoungsModulusX",
+            "YoungsModulusY",
+            "YoungsModulusZ",
+            "ShearModulusXY",
+            "ShearModulusXZ",
+            "ShearModulusYZ",
+            "PoissonRatioXY",
+            "PoissonRatioXZ",
+            "PoissonRatioYZ",
+        }
+        for key in expected:
+            self.assertIn(key, result.material)
+
+    def test_density_is_volume_average(self):
+        hl1 = self._ortho_hl(1.0)
+        hl2 = self._iso_hl(1.0)
+        result = merge_clt("Test", [hl1, hl2])
+        d_glass = ortho_material2dict(_make_glass())
+        d_resin = iso_material2dict(_make_resin())
+        expected_density = 0.5 * d_glass["Density"] + 0.5 * d_resin["Density"]
+        actual_density = common_material2dict(result.material)["Density"]
+        self.assertAlmostEqual(actual_density, expected_density, places=20)
+
+
+# ---------------------------------------------------------------------------
+# Tests: mechanics/stack_model.py – merge_single
+# ---------------------------------------------------------------------------
+
+
+class TestMergeSingle(unittest.TestCase):
+    """Tests for merge_single."""
+
+    def _ortho_hl(self, thickness, orientation):
+        return HomogeneousLamina(
+            material=_make_glass(),
+            thickness=thickness,
+            orientation=orientation,
+            orientation_display=orientation,
+        )
+
+    def test_returns_homogeneous_lamina(self):
+        result = merge_single("Test", self._ortho_hl(0.5, 0))
+        self.assertIsInstance(result, HomogeneousLamina)
+
+    def test_thickness_preserved(self):
+        result = merge_single("Test", self._ortho_hl(0.5, 0))
+        self.assertAlmostEqual(result.thickness, 0.5)
+
+    def test_orientation_becomes_zero(self):
+        result = merge_single("Test", self._ortho_hl(0.5, 45))
+        self.assertEqual(result.orientation, 0)
+
+    def test_result_is_orthotropic(self):
+        result = merge_single("Test", self._ortho_hl(0.5, 0))
+        self.assertTrue(is_orthotropic(result.material))
+
+    def test_zero_angle_preserves_e1(self):
+        hl = self._ortho_hl(0.5, 0)
+        result = merge_single("Test", hl)
+        d_orig = ortho_material2dict(hl.material)
+        d_res = ortho_material2dict(result.material)
+        self.assertAlmostEqual(d_res["YoungsModulusX"], d_orig["YoungsModulusX"], places=2)
+
+    def test_name_contains_prefix(self):
+        hl = self._ortho_hl(0.5, 0)
+        result = merge_single("MyPrefix", hl)
+        self.assertIn("MyPrefix", result.material["Name"])
+
+
+# ---------------------------------------------------------------------------
+# Tests: mechanics/stack_expansion.py – calc_stack_model
+# ---------------------------------------------------------------------------
+
+
+class TestCalcStackModel(unittest.TestCase):
+    """Tests for calc_stack_model with each StackModelType."""
+
+    def _iso_hl(self, thickness, orientation=0, core=False):
+        m = material_from_dict({}, orthotropic=False)
+        m["Name"] = "Mat"
+        m["YoungsModulus"] = "3.500 GPa"
+        m["PoissonRatio"] = "0.36"
+        m["Density"] = "1100.0 kg/m^3"
+        hl = HomogeneousLamina(
+            material=m, thickness=thickness, orientation=orientation, orientation_display=orientation
+        )
+        hl.core = core
+        return hl
+
+    def _flat_stack(self, n=2, thickness=0.5):
+        """Build [[HL], [HL], ...] as Laminate.get_layers would for n HomogeneousLamina layers."""
+        return [[self._iso_hl(thickness)] for _ in range(n)]
+
+    def test_discrete_returns_individual_layers(self):
+        layers = self._flat_stack(3)
+        result = calc_stack_model("", StackModelType.Discrete, layers)
+        self.assertEqual(len(result), 3)
+
+    def test_smeared_returns_single_layer(self):
+        layers = self._flat_stack(3)
+        result = calc_stack_model("", StackModelType.Smeared, layers)
+        self.assertEqual(len(result), 1)
+
+    def test_smeared_core_without_cores_returns_single_layer(self):
+        layers = self._flat_stack(3)
+        result = calc_stack_model("", StackModelType.SmearedCore, layers)
+        self.assertEqual(len(result), 1)
+
+    def test_smeared_core_with_core_separates_layers(self):
+        # [skin, core, skin] → SmearedCore keeps core separate
+        layers = [
+            [self._iso_hl(0.5)],
+            [self._iso_hl(1.0, core=True)],
+            [self._iso_hl(0.5)],
+        ]
+        result = calc_stack_model("", StackModelType.SmearedCore, layers)
+        # Expects: merged_skin_before, core, merged_skin_after = 3 items
+        self.assertEqual(len(result), 3)
+
+    def test_discrete_thickness_sum_preserved(self):
+        n, t = 3, 0.5
+        layers = self._flat_stack(n, t)
+        result = calc_stack_model("", StackModelType.Discrete, layers)
+        total = sum(la.thickness for la in result)
+        self.assertAlmostEqual(total, n * t, places=10)
+
+    def test_smeared_thickness_sum_preserved(self):
+        n, t = 3, 0.5
+        layers = self._flat_stack(n, t)
+        result = calc_stack_model("", StackModelType.Smeared, layers)
+        total = sum(la.thickness for la in result)
+        self.assertAlmostEqual(total, n * t, places=10)
+
+    def test_smeared_fabric_thickness_sum_preserved(self):
+        n, t = 4, 0.3
+        layers = self._flat_stack(n, t)
+        result = calc_stack_model("", StackModelType.SmearedFabric, layers)
+        total = sum(la.thickness for la in result)
+        self.assertAlmostEqual(total, n * t, places=10)
+
+    def test_invalid_model_type_raises_value_error(self):
+        layers = self._flat_stack(2)
+        with self.assertRaises(ValueError):
+            calc_stack_model("", "not_a_model_type", layers)
+
+    def test_all_discrete_results_are_lamina_instances(self):
+        layers = self._flat_stack(3)
+        result = calc_stack_model("", StackModelType.Discrete, layers)
+        for la in result:
+            self.assertIsInstance(la, Lamina)
+
+
+# ---------------------------------------------------------------------------
+# Tests: objects/fibre_composite_lamina.py
+# ---------------------------------------------------------------------------
+
+
+class TestFibreCompositeLaminaObject(unittest.TestCase):
+    """Tests for FibreCompositeLamina.get_layers, get_product, get_fibres."""
+
+    def _make_fc(self, weave=WeaveType.UD, orientation=0, thickness=0.5):
+        glass = _make_glass()
+        resin = _make_resin()
+        f = SimpleFabric(material_fibre=glass, orientation=orientation, weave=weave)
+        f.thickness = thickness
+        return FibreCompositeLamina(
+            fibre=f,
+            material_matrix=resin,
+            volume_fraction_fibre=0.5,
+        )
+
+    def test_get_layers_returns_list_of_one_list(self):
+        fc = self._make_fc()
+        result = fc.get_layers()
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], list)
+
+    def test_get_layers_inner_list_contains_homogeneous_laminas(self):
+        fc = self._make_fc()
+        for hl in fc.get_layers()[0]:
+            self.assertIsInstance(hl, HomogeneousLamina)
+
+    def test_get_layers_ud_even_gives_two_plies(self):
+        # UD weave → [0], Even → [0, 0] = 2 plies
+        fc = self._make_fc(WeaveType.UD)
+        self.assertEqual(len(fc.get_layers()[0]), 2)
+
+    def test_get_layers_biax090_even_gives_four_plies(self):
+        # BIAX090 → [0, 90], Even → [0, 90, 90, 0] = 4 plies
+        fc = self._make_fc(WeaveType.BIAX090)
+        self.assertEqual(len(fc.get_layers()[0]), 4)
+
+    def test_get_layers_thickness_sum_preserved(self):
+        fc = self._make_fc(WeaveType.UD, thickness=0.8)
+        plies = fc.get_layers()[0]
+        total = sum(hl.thickness for hl in plies)
+        self.assertAlmostEqual(total, 0.8, places=10)
+
+    def test_get_layers_updates_self_thickness(self):
+        fc = self._make_fc(WeaveType.UD, thickness=0.6)
+        fc.get_layers()
+        self.assertAlmostEqual(fc.thickness, 0.6, places=10)
+
+    def test_get_product_returns_list_of_one_tuple(self):
+        fc = self._make_fc()
+        product = fc.get_product()
+        self.assertIsInstance(product, list)
+        self.assertEqual(len(product), 1)
+
+    def test_get_product_tuple_contains_fibre_name(self):
+        fc = self._make_fc()
+        desc, _ = fc.get_product()[0]
+        self.assertIn("Glass", desc)
+
+    def test_get_fibres_returns_list(self):
+        fc = self._make_fc()
+        fibres = fc.get_fibres()
+        self.assertIsInstance(fibres, list)
+
+    def test_get_fibres_ud_contains_one_entry(self):
+        # UD with Even → [0, 0] → 2 entries, one per ply
+        fc = self._make_fc(WeaveType.UD)
+        fibres = fc.get_fibres()
+        self.assertEqual(len(fibres), 2)
+
+    def test_get_fibres_entry_has_required_keys(self):
+        fc = self._make_fc()
+        for entry in fc.get_fibres():
+            self.assertIn("material", entry)
+            self.assertIn("orientation", entry)
+            self.assertIn("thickness", entry)
+
+    def test_description_contains_orientation_bracket(self):
+        fc = self._make_fc()
+        self.assertIn("[", fc.description)
+
+
+# ---------------------------------------------------------------------------
+# Tests: objects/laminate.py and objects/composite_laminate.py
+# ---------------------------------------------------------------------------
+
+
+def _make_simple_laminate(symmetry=SymmetryType.Assymmetric, n_layers=2):
+    """Build a CompositeLaminate with n_layers UD glass/epoxy plies."""
+    glass = _make_glass()
+    resin = _make_resin()
+    layers = []
+    for _ in range(n_layers):
+        f = SimpleFabric(material_fibre=glass, orientation=0, weave=WeaveType.UD)
+        f.thickness = 0.5
+        layers.append(
+            FibreCompositeLamina(
+                fibre=f,
+                material_matrix=resin,
+                volume_fraction_fibre=0.5,
+            )
+        )
+    return CompositeLaminate(
+        symmetry=symmetry,
+        layers=layers,
+        volume_fraction_fibre=0.5,
+        material_matrix=resin,
+    )
+
+
+class TestLaminateObject(unittest.TestCase):
+    """Tests for Laminate and CompositeLaminate.get_layers, get_product, get_fibres."""
+
+    def test_discrete_returns_multiple_plies(self):
+        lam = _make_simple_laminate(n_layers=2)
+        result = lam.get_layers(StackModelType.Discrete)
+        # 2 FibreCompositeLaminas × 2 UD plies (Even) = 4 total
+        self.assertEqual(len(result), 4)
+
+    def test_smeared_returns_single_layer(self):
+        lam = _make_simple_laminate(n_layers=2)
+        result = lam.get_layers(StackModelType.Smeared)
+        self.assertEqual(len(result), 1)
+
+    def test_discrete_thickness_sum_correct(self):
+        lam = _make_simple_laminate(n_layers=2)
+        result = lam.get_layers(StackModelType.Discrete)
+        total = sum(la.thickness for la in result)
+        # 2 layers × 0.5 mm each = 1.0 mm
+        self.assertAlmostEqual(total, 1.0, places=6)
+
+    def test_smeared_thickness_preserved(self):
+        lam = _make_simple_laminate(n_layers=2)
+        result = lam.get_layers(StackModelType.Smeared)
+        self.assertAlmostEqual(result[0].thickness, 1.0, places=6)
+
+    def test_laminate_thickness_attribute_updated(self):
+        lam = _make_simple_laminate(n_layers=2)
+        lam.get_layers()
+        self.assertAlmostEqual(lam.thickness, 1.0, places=6)
+
+    def test_get_product_returns_non_empty_list(self):
+        lam = _make_simple_laminate(n_layers=2)
+        product = lam.get_product()
+        self.assertIsInstance(product, list)
+        self.assertGreater(len(product), 0)
+
+    def test_get_fibres_returns_non_empty_list(self):
+        lam = _make_simple_laminate(n_layers=2)
+        fibres = lam.get_fibres()
+        self.assertIsInstance(fibres, list)
+        self.assertGreater(len(fibres), 0)
+
+    def test_even_symmetry_doubles_plies_vs_asymmetric(self):
+        lam_asym = _make_simple_laminate(SymmetryType.Assymmetric, n_layers=1)
+        lam_even = _make_simple_laminate(SymmetryType.Even, n_layers=1)
+        r_asym = lam_asym.get_layers(StackModelType.Discrete)
+        r_even = lam_even.get_layers(StackModelType.Discrete)
+        self.assertEqual(len(r_even), 2 * len(r_asym))
+
+    def test_odd_symmetry_with_one_layer_unchanged(self):
+        # Odd: [fc] + [fc][::-1][1:] = [fc] + [] = [fc] → same as Asymmetric
+        lam_asym = _make_simple_laminate(SymmetryType.Assymmetric, n_layers=1)
+        lam_odd = _make_simple_laminate(SymmetryType.Odd, n_layers=1)
+        r_asym = lam_asym.get_layers(StackModelType.Discrete)
+        r_odd = lam_odd.get_layers(StackModelType.Discrete)
+        self.assertEqual(len(r_odd), len(r_asym))
+
+    def test_odd_symmetry_with_two_layers_gives_three_fabrics(self):
+        # Odd: [fc1, fc2] + [fc2, fc1][1:] = [fc1, fc2, fc1] → 3 fabrics × 2 UD plies = 6
+        lam = _make_simple_laminate(SymmetryType.Odd, n_layers=2)
+        result = lam.get_layers(StackModelType.Discrete)
+        self.assertEqual(len(result), 6)
+
+    def test_all_discrete_results_are_lamina_instances(self):
+        lam = _make_simple_laminate(n_layers=2)
+        for la in lam.get_layers(StackModelType.Discrete):
+            self.assertIsInstance(la, Lamina)
+
+
+class TestCompositeLaminatePropertyPropagation(unittest.TestCase):
+    """Tests for CompositeLaminate: property propagation to child layers."""
+
+    def test_volume_fraction_propagates_to_unset_children(self):
+        glass = _make_glass()
+        resin = _make_resin()
+        f = SimpleFabric(material_fibre=glass, orientation=0, weave=WeaveType.UD)
+        f.thickness = 0.5
+        # volume_fraction_fibre=0 is falsy → should be overwritten by parent
+        fc = FibreCompositeLamina(fibre=f, material_matrix=resin, volume_fraction_fibre=0)
+        lam = CompositeLaminate(
+            symmetry=SymmetryType.Assymmetric,
+            layers=[fc],
+            volume_fraction_fibre=0.45,
+            material_matrix=resin,
+        )
+        lam.get_layers()
+        self.assertAlmostEqual(fc.volume_fraction_fibre, 0.45)
+
+    def test_material_matrix_propagates_to_unset_children(self):
+        glass = _make_glass()
+        resin = _make_resin()
+        f = SimpleFabric(material_fibre=glass, orientation=0, weave=WeaveType.UD)
+        f.thickness = 0.5
+        # empty dict is falsy → should be overwritten by parent
+        fc = FibreCompositeLamina(fibre=f, material_matrix={}, volume_fraction_fibre=0.5)
+        lam = CompositeLaminate(
+            symmetry=SymmetryType.Assymmetric,
+            layers=[fc],
+            volume_fraction_fibre=0.5,
+            material_matrix=resin,
+        )
+        lam.get_layers()
+        self.assertEqual(fc.material_matrix, resin)
+
+    def test_existing_volume_fraction_is_not_overwritten(self):
+        glass = _make_glass()
+        resin = _make_resin()
+        f = SimpleFabric(material_fibre=glass, orientation=0, weave=WeaveType.UD)
+        f.thickness = 0.5
+        fc = FibreCompositeLamina(fibre=f, material_matrix=resin, volume_fraction_fibre=0.35)
+        lam = CompositeLaminate(
+            symmetry=SymmetryType.Assymmetric,
+            layers=[fc],
+            volume_fraction_fibre=0.50,
+            material_matrix=resin,
+        )
+        lam.get_layers()
+        # 0.35 is truthy → must NOT be replaced by 0.50
+        self.assertAlmostEqual(fc.volume_fraction_fibre, 0.35)
 
 
 if __name__ == "__main__":
