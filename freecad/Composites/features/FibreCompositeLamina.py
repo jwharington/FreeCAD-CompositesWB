@@ -58,7 +58,7 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
             "Areal weight of fibres",
         )
         obj.setPropertyStatus("ArealWeight", "ReadOnly")
-        obj.ArealWeight = FreeCAD.Units.Unit("g/m^2")
+        obj.ArealWeight = FreeCAD.Units.Quantity("0 g/m^2")
 
     def get_density(self, obj):
         if not hasattr(obj, "FibreMaterial"):
@@ -82,8 +82,10 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
         vf = self.get_volume_fraction(obj)
         if not vf:
             return
-        t = FreeCAD.Units.Quantity(obj.Thickness)
-        obj.ArealWeight = t * density * vf
+        thickness_mm = FreeCAD.Units.Quantity(obj.Thickness).Value
+        density_t_mm3 = density.getValueAs("t/mm^3")
+        areal_weight_g_m2 = thickness_mm * density_t_mm3 * vf * 1e12
+        obj.ArealWeight = FreeCAD.Units.Quantity(f"{areal_weight_g_m2} g/m^2")
 
     def onChanged(self, obj, prop):
         match prop:
