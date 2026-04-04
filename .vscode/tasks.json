@@ -1,0 +1,41 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Composites: Non-FreeCAD Unit Tests",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-lc",
+                "python3 -m unittest discover -s freecad/Composites/compositestests -p 'test_mechanics.py' && python3 -m unittest discover -s freecad/Composites/compositestests -p 'test_freecad_fp.py'"
+            ],
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Composites: Real FreeCAD Integration Tests",
+            "type": "shell",
+            "command": "~/opt/FreeCAD-build/bin/FreeCADCmd",
+            "args": [
+                "-P",
+                "${workspaceFolder}",
+                "${workspaceFolder}/freecad/Composites/compositestests/run_freecad_integration_tests.py"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ]
+}
