@@ -169,7 +169,9 @@ _weave_mod = _load_module(
 
 # Stub objects package (exposes only already-loaded symbols to avoid
 # the circular import in objects/__init__.py)
-_fake_objects_pkg = _make_package_stub("freecad.Composites.objects", _objects_dir)
+_fake_objects_pkg = _make_package_stub(
+    "freecad.Composites.objects", _objects_dir
+)
 _fake_objects_pkg.SymmetryType = _sym_mod.SymmetryType
 _fake_objects_pkg.WeaveType = _weave_mod.WeaveType
 
@@ -180,7 +182,9 @@ _smt_mod = _load_module(
 )
 
 # Stub mechanics package
-_fake_mech_pkg = _make_package_stub("freecad.Composites.mechanics", _mechanics_dir)
+_fake_mech_pkg = _make_package_stub(
+    "freecad.Composites.mechanics", _mechanics_dir
+)
 _fake_mech_pkg.StackModelType = _smt_mod.StackModelType
 
 # Load the Composites package (__init__.py — FreeCAD is mocked)
@@ -291,7 +295,9 @@ for _tp in (
 # Load feature modules in dependency order
 # ---------------------------------------------------------------------------
 
-_fake_features_pkg = _make_package_stub("freecad.Composites.features", _features_dir)
+_fake_features_pkg = _make_package_stub(
+    "freecad.Composites.features", _features_dir
+)
 
 _vpbase_mod = _load_module(
     "freecad.Composites.features.VPCompositeBase",
@@ -339,7 +345,9 @@ _tools_dir = os.path.join(_REPO_ROOT, "freecad", "Composites", "tools")
 _shaders_dir = os.path.join(_REPO_ROOT, "freecad", "Composites", "shaders")
 
 _fake_tools_pkg = _make_package_stub("freecad.Composites.tools", _tools_dir)
-_fake_shaders_pkg = _make_package_stub("freecad.Composites.shaders", _shaders_dir)
+_fake_shaders_pkg = _make_package_stub(
+    "freecad.Composites.shaders", _shaders_dir
+)
 
 _geom_util_mod = _load_module(
     "freecad.Composites.util.geometry_util",
@@ -444,7 +452,15 @@ class _FakeFCObj:
 
     # -- FreeCAD object API --------------------------------------------------
 
-    def addProperty(self, prop_type=None, name=None, group="", doc="", hidden=False, **kwargs):
+    def addProperty(
+        self,
+        prop_type=None,
+        name=None,
+        group="",
+        doc="",
+        hidden=False,
+        **kwargs,
+    ):
         # Accept both positional-style ("App::PropertyFoo", "Name", ...)
         # and keyword-style (type="App::PropertyFoo", name="Name", doc=...) calls
         # that FreeCAD's API supports.
@@ -589,7 +605,9 @@ class TestHomogeneousLaminaFP(unittest.TestCase):
         self.assertEqual(self.obj.Material, {})
 
     def test_adds_suppressive_extension(self):
-        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+        self.assertTrue(
+            self.obj.hasExtension("App::SuppressibleExtensionPython")
+        )
 
     # -- get_model() ---------------------------------------------------------
 
@@ -645,11 +663,15 @@ class TestFibreCompositeLaminaFP(unittest.TestCase):
         self.assertIs(self.obj.Proxy, self.fp)
 
     def test_init_adds_fibre_material(self):
-        self.assertIn("FibreMaterial", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "FibreMaterial", object.__getattribute__(self.obj, "_props")
+        )
         self.assertEqual(self.obj.FibreMaterial, {})
 
     def test_init_adds_resin_material(self):
-        self.assertIn("ResinMaterial", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "ResinMaterial", object.__getattribute__(self.obj, "_props")
+        )
         self.assertEqual(self.obj.ResinMaterial, {})
 
     def test_init_adds_weave_type(self):
@@ -659,13 +681,19 @@ class TestFibreCompositeLaminaFP(unittest.TestCase):
         self.assertEqual(self.obj.WeaveType, WeaveType.UD.name)
 
     def test_init_adds_areal_weight(self):
-        self.assertIn("ArealWeight", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "ArealWeight", object.__getattribute__(self.obj, "_props")
+        )
 
     def test_init_adds_fibre_volume_fraction(self):
-        self.assertIn("FibreVolumeFraction", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "FibreVolumeFraction", object.__getattribute__(self.obj, "_props")
+        )
 
     def test_adds_suppressive_extension(self):
-        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+        self.assertTrue(
+            self.obj.hasExtension("App::SuppressibleExtensionPython")
+        )
 
     # -- get_model() ---------------------------------------------------------
 
@@ -726,6 +754,16 @@ class TestFibreCompositeLaminaFP(unittest.TestCase):
         # Should not raise
         self.fp.update_areal_weight(self.obj)
 
+    def test_update_areal_weight_sets_gsm_value(self):
+        self.obj.FibreMaterial = _make_glass()
+        self.obj.FibreVolumeFraction = 50
+        self.obj.Thickness = _Quantity("0.5")
+
+        self.fp.update_areal_weight(self.obj)
+
+        self.assertAlmostEqual(self.obj.ArealWeight.Value, 645.0, places=8)
+        self.assertEqual(self.obj.ArealWeight._unit, "g/m^2")
+
     def test_on_changed_thickness_calls_update(self):
         self.obj.FibreMaterial = _make_glass()
         self.obj.FibreVolumeFraction = 50
@@ -771,7 +809,9 @@ class TestLaminateFP(unittest.TestCase):
         self.assertEqual(self.obj.Layers, [])
 
     def test_init_adds_stack_model_type(self):
-        self.assertIn("StackModelType", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "StackModelType", object.__getattribute__(self.obj, "_props")
+        )
         self.assertEqual(self.obj.StackModelType, StackModelType.Discrete.name)
 
     def test_init_adds_symmetry(self):
@@ -779,13 +819,17 @@ class TestLaminateFP(unittest.TestCase):
         self.assertEqual(self.obj.Symmetry, SymmetryType.Odd.name)
 
     def test_init_adds_stack_orientation(self):
-        self.assertIn("StackOrientation", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "StackOrientation", object.__getattribute__(self.obj, "_props")
+        )
 
     def test_init_adds_thickness(self):
         self.assertIn("Thickness", object.__getattribute__(self.obj, "_props"))
 
     def test_adds_suppressive_extension(self):
-        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+        self.assertTrue(
+            self.obj.hasExtension("App::SuppressibleExtensionPython")
+        )
 
     # -- get_model() ---------------------------------------------------------
 
@@ -872,11 +916,15 @@ class TestCompositeLaminateFP(unittest.TestCase):
         self.assertIs(self.obj.Proxy, self.fp)
 
     def test_init_adds_resin_material(self):
-        self.assertIn("ResinMaterial", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "ResinMaterial", object.__getattribute__(self.obj, "_props")
+        )
         self.assertEqual(self.obj.ResinMaterial, {})
 
     def test_init_adds_fibre_volume_fraction(self):
-        self.assertIn("FibreVolumeFraction", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "FibreVolumeFraction", object.__getattribute__(self.obj, "_props")
+        )
 
     def test_init_adds_layers(self):
         self.assertIn("Layers", object.__getattribute__(self.obj, "_props"))
@@ -885,7 +933,9 @@ class TestCompositeLaminateFP(unittest.TestCase):
         self.assertIn("Symmetry", object.__getattribute__(self.obj, "_props"))
 
     def test_adds_suppressive_extension(self):
-        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+        self.assertTrue(
+            self.obj.hasExtension("App::SuppressibleExtensionPython")
+        )
 
     # -- execute() guard -----------------------------------------------------
 
@@ -972,7 +1022,9 @@ class TestRosetteFP(unittest.TestCase):
         self.assertAlmostEqual(float(self.obj.Angle), 0.0)
 
     def test_init_adds_lcs(self):
-        self.assertIn("LocalCoordinateSystem", object.__getattribute__(self.obj, "_props"))
+        self.assertIn(
+            "LocalCoordinateSystem", object.__getattribute__(self.obj, "_props")
+        )
 
     def test_init_lcs_created_via_document(self):
         self.obj.Document.addObject.assert_called_once_with(
@@ -980,7 +1032,9 @@ class TestRosetteFP(unittest.TestCase):
         )
 
     def test_adds_suppressive_extension(self):
-        self.assertTrue(self.obj.hasExtension("App::SuppressibleExtensionPython"))
+        self.assertTrue(
+            self.obj.hasExtension("App::SuppressibleExtensionPython")
+        )
 
     def test_type_attribute(self):
         self.assertEqual(RosetteFP.Type, "Composite::Rosette")
@@ -1175,7 +1229,9 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.fp.draper = mock_draper
         self.fp._rosette_angle = 15.0
         self.fp.get_tex_coords(30.0)
-        mock_draper.get_tex_coords.assert_called_once_with(offset_angle_deg=45.0)
+        mock_draper.get_tex_coords.assert_called_once_with(
+            offset_angle_deg=45.0
+        )
 
     def test_get_boundaries_adds_rosette_angle(self):
         mock_draper = MagicMock()
@@ -1184,7 +1240,9 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.fp.draper = mock_draper
         self.fp._rosette_angle = 10.0
         self.fp.get_boundaries(20.0)
-        mock_draper.get_boundaries.assert_called_once_with(offset_angle_deg=30.0)
+        mock_draper.get_boundaries.assert_called_once_with(
+            offset_angle_deg=30.0
+        )
 
     def test_get_tex_coords_zero_rosette_angle(self):
         mock_draper = MagicMock()
@@ -1193,7 +1251,9 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.fp.draper = mock_draper
         self.fp._rosette_angle = 0.0
         self.fp.get_tex_coords(45.0)
-        mock_draper.get_tex_coords.assert_called_once_with(offset_angle_deg=45.0)
+        mock_draper.get_tex_coords.assert_called_once_with(
+            offset_angle_deg=45.0
+        )
 
     def test_on_changed_rosette_triggers_recompute(self):
         # onChanged("Rosette") should trigger fp.recompute() which calls execute()
