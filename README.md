@@ -117,3 +117,16 @@ Terminology:
  https://compositematerialshub.com/bonded-joints/
  
  use CreateLabels.py from FEM for displaying layers?
+
+## Testing with real FreeCAD
+
+Most tests under `freecad/Composites/compositestests` use mocks and can run
+without a FreeCAD runtime. For integration testing inside a real FreeCAD
+process, run:
+
+```bash
+~/opt/FreeCAD-build/bin/FreeCADCmd -P /home/jmw/opt/FreeCAD-CompositesWB \
+  freecad/Composites/compositestests/run_freecad_integration_tests.py
+```
+
+This runs `test_integration_freecad.py` and exits non-zero if a test fails.
