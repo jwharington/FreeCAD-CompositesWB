@@ -74,6 +74,35 @@ class TestFreeCADIntegration(unittest.TestCase):
             )
         )
 
+    def test_rosette_featurepython_creation(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.Rosette import (
+            RosetteFP,
+            is_rosette,
+        )
+
+        doc_name = "CompositesRosetteIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        obj = doc.addObject("App::FeaturePython", "Rosette")
+        RosetteFP(obj)
+        doc.recompute()
+
+        self.assertTrue(is_rosette(obj))
+        self.assertIsNotNone(obj.LocalCoordinateSystem)
+        self.assertEqual(
+            obj.LocalCoordinateSystem.TypeId, "Part::LocalCoordinateSystem"
+        )
+
+        FreeCAD.closeDocument(doc_name)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
