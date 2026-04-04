@@ -5,7 +5,8 @@
 
 These tests intentionally avoid any FreeCAD mocks. Run them with:
 
-    FreeCADCmd -P <repo-root> freecad/Composites/compositestests/run_freecad_integration_tests.py
+    FreeCADCmd -P <repo-root>
+        freecad/Composites/compositestests/run_freecad_integration_tests.py
 """
 
 import sys
@@ -21,6 +22,7 @@ if "CompositesWB" not in sys.modules:
     sys.modules["CompositesWB"] = _composites_wb
 
 import freecad.Composites as CompositesWB
+from freecad.Composites.compositestests.example_materials import make_glass
 
 
 class TestFreeCADIntegration(unittest.TestCase):
@@ -100,6 +102,40 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertEqual(
             obj.LocalCoordinateSystem.TypeId, "Part::LocalCoordinateSystem"
         )
+
+        FreeCAD.closeDocument(doc_name)
+
+    def test_fibre_composite_lamina_areal_weight_updates(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        taskpanel_mod = types.ModuleType(
+            "freecad.Composites.taskpanels.task_fibre_composite_lamina"
+        )
+        setattr(taskpanel_mod, "_TaskPanel", object)
+        sys.modules[taskpanel_mod.__name__] = taskpanel_mod
+
+        from freecad.Composites.features.FibreCompositeLamina import (
+            FibreCompositeLaminaFP,
+        )
+
+        doc_name = "CompositesFibreLaminaIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        obj = doc.addObject("App::FeaturePython", "FibreLamina")
+        FibreCompositeLaminaFP(obj)
+        obj.FibreMaterial = make_glass()
+        obj.FibreVolumeFraction = 50
+        obj.Thickness = FreeCAD.Units.Quantity("0.5 mm")
+        doc.recompute()
+
+        areal_weight = obj.ArealWeight.getValueAs("g/m^2")
+        self.assertAlmostEqual(areal_weight.Value, 645.0, places=8)
 
         FreeCAD.closeDocument(doc_name)
 

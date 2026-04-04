@@ -58,7 +58,7 @@ class FibreCompositeLaminaFP(BaseLaminaFP):
             "Areal weight of fibres",
         )
         obj.setPropertyStatus("ArealWeight", "ReadOnly")
-        obj.ArealWeight = FreeCAD.Units.Quantity("0 g/m^2")
+        obj.ArealWeight = FreeCAD.Units.Unit("g/m^2")
 
     def get_density(self, obj):
         if not hasattr(obj, "FibreMaterial"):
