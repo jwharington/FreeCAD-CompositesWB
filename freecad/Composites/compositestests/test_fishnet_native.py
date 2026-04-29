@@ -3,6 +3,7 @@
 
 import glob
 import importlib.util
+import math
 import os
 import unittest
 
@@ -32,6 +33,26 @@ def _load_fishnet_module():
 _fishnet = _load_fishnet_module()
 
 
+def _make_grid_mesh(xs, ys, z_func):
+    points = []
+    index = {}
+    for j, y in enumerate(ys):
+        for i, x in enumerate(xs):
+            index[(i, j)] = len(points)
+            points.append((float(x), float(y), float(z_func(x, y))))
+
+    faces = []
+    for j in range(len(ys) - 1):
+        for i in range(len(xs) - 1):
+            a = index[(i, j)]
+            b = index[(i + 1, j)]
+            c = index[(i + 1, j + 1)]
+            d = index[(i, j + 1)]
+            faces.append((a, b, c))
+            faces.append((a, c, d))
+    return points, faces
+
+
 class TestFishnetSolver(unittest.TestCase):
     def test_simple_square_mesh_solves(self):
         result = _fishnet.solve(
@@ -54,6 +75,85 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["boundary_loops"][0][0], result["boundary_loops"][0][-1])
         self.assertEqual(len(result["strains"]), 2)
         self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
+
+    def test_cylinder_patch_mesh_solves(self):
+        xs = [0.0, 0.25, 0.5, 0.75, 1.0]
+        ys = [0.0, 0.5, 1.0, 1.5]
+        points, faces = _make_grid_mesh(
+            xs,
+            ys,
+            lambda u, v: 0.0,
+        )
+        cylinder_points = []
+        for x, y, z in points:
+            theta = x * math.pi
+            radius = 10.0
+            height = 20.0
+            cylinder_points.append(
+                (
+                    radius * math.cos(theta),
+                    radius * math.sin(theta),
+                    z * height + y,
+                )
+            )
+
+        result = _fishnet.solve(
+            mesh_points=cylinder_points,
+            mesh_faces=faces,
+            parameters={"steps": 8, "fabric_spacing": 2.0},
+        )
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(len(result["fabric_points"]), len(cylinder_points))
+        self.assertGreaterEqual(len(result["boundary_loops"]), 1)
+        self.assertEqual(len(result["strains"]), len(faces))
+
+    def test_concave_l_shape_mesh_solves(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (1.0, 3.0, 0.0),
+            (0.0, 3.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+            (0, 3, 5),
+            (3, 4, 5),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"steps": 4},
+        )
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(len(result["boundary_loops"]), 1)
+        self.assertEqual(len(result["strains"]), len(faces))
+        self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
+
+    def test_step_mesh_solves(self):
+        xs = [0.0, 1.0, 2.0]
+        ys = [0.0, 1.0, 2.0]
+        points, faces = _make_grid_mesh(
+            xs,
+            ys,
+            lambda u, v: 0.0 if u < 1.0 else 0.6,
+        )
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"steps": 6},
+        )
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(len(result["boundary_loops"]), 1)
+        self.assertEqual(len(result["strains"]), len(faces))
+        self.assertGreater(max(abs(v) for row in result["strains"] for v in row), 0.0)
 
     def test_invalid_mesh_returns_error(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters=None)
