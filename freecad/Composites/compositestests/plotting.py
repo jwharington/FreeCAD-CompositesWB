@@ -49,10 +49,14 @@ def _plot_2d_mesh(
     linewidth=1.0,
     marker_size=10,
     alpha=1.0,
+    cells=None,
 ):
     pts = [_xyz(point) for point in points]
-    for face in faces:
-        idx = [int(i) for i in face[:3]]
+    loops = cells if cells else faces
+    for face in loops:
+        idx = [int(i) for i in face]
+        if len(idx) < 3:
+            continue
         loop = [pts[i] for i in idx] + [pts[idx[0]]]
         xs = [p[0] for p in loop]
         ys = [p[1] for p in loop]
@@ -79,6 +83,7 @@ def _plot_3d_mesh(
     linewidth=1.0,
     marker_size=10,
     alpha=1.0,
+    cells=None,
 ):
     pts = [_xyz(point) for point in points]
     if not pts:
@@ -86,8 +91,11 @@ def _plot_3d_mesh(
     xs_all = [p[0] for p in pts]
     ys_all = [p[1] for p in pts]
     zs_all = [p[2] for p in pts]
-    for face in faces:
-        idx = [int(i) for i in face[:3]]
+    loops = cells if cells else faces
+    for face in loops:
+        idx = [int(i) for i in face]
+        if len(idx) < 3:
+            continue
         loop = [pts[i] for i in idx] + [pts[idx[0]]]
         xs = [p[0] for p in loop]
         ys = [p[1] for p in loop]
@@ -154,6 +162,7 @@ def save_native_fishnet_plot(title, points, faces, result):
     ax2.set_title("Solved drape")
     fabric_points = result.get("fabric_points", [])
     fabric_faces = faces
+    fabric_quads = result.get("fabric_quads", [])
     _plot_2d_mesh(
         ax2,
         fabric_points,
@@ -161,6 +170,7 @@ def save_native_fishnet_plot(title, points, faces, result):
         edge_color="#1f77b4",
         point_color="#1f77b4",
         linewidth=1.2,
+        cells=fabric_quads,
     )
     _plot_boundaries(ax2, result.get("boundary_loops", []), color="#d62728")
 
@@ -189,7 +199,7 @@ def _plot_shape_3d(ax, shape, deflection=1.0):
     return pts, tris
 
 
-def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries):
+def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fabric_quads=None):
     if not plots_enabled():
         return None
 
@@ -221,6 +231,7 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries):
             edge_color="#1f77b4",
             point_color="#1f77b4",
             linewidth=1.15,
+            cells=fabric_quads,
         )
     _plot_boundaries(ax2, boundaries, color="#d62728")
 

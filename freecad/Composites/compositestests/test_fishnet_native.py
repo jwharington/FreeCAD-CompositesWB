@@ -95,6 +95,7 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(len(result["fabric_points"]), 4)
         self.assertEqual(len(result["boundary_loops"]), 1)
         self.assertEqual(result["boundary_loops"][0][0], result["boundary_loops"][0][-1])
+        self.assertEqual(len(result["fabric_quads"]), 1)
         self.assertEqual(len(result["strains"]), 2)
         self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
         save_native_fishnet_plot("native_simple_square", points, faces, result)
@@ -156,6 +157,7 @@ class TestFishnetSolver(unittest.TestCase):
 
         self.assertTrue(result["valid"])
         self.assertEqual(len(result["boundary_loops"]), 1)
+        self.assertGreater(len(result["fabric_quads"]), 0)
         self.assertEqual(len(result["strains"]), len(faces))
         self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
         save_native_fishnet_plot("native_concave_l_shape", points, faces, result)
@@ -177,6 +179,7 @@ class TestFishnetSolver(unittest.TestCase):
 
         self.assertTrue(result["valid"])
         self.assertEqual(len(result["boundary_loops"]), 1)
+        self.assertGreater(len(result["fabric_quads"]), 0)
         self.assertEqual(len(result["strains"]), len(faces))
         self.assertGreater(max(abs(v) for row in result["strains"] for v in row), 0.0)
         save_native_fishnet_plot("native_step_mesh", points, faces, result)

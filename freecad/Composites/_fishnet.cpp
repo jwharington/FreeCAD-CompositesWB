@@ -144,6 +144,32 @@ static PyObject *build_loop_list(const std::vector<std::vector<Vec3>> &loops) {
     return outer;
 }
 
+static PyObject *build_quad_list(const std::vector<std::vector<int>> &quads) {
+    PyObject *outer = PyList_New(static_cast<Py_ssize_t>(quads.size()));
+    if (!outer) {
+        return nullptr;
+    }
+    for (Py_ssize_t i = 0; i < static_cast<Py_ssize_t>(quads.size()); ++i) {
+        const auto &quad = quads[static_cast<size_t>(i)];
+        PyObject *inner = PyList_New(static_cast<Py_ssize_t>(quad.size()));
+        if (!inner) {
+            Py_DECREF(outer);
+            return nullptr;
+        }
+        for (Py_ssize_t j = 0; j < static_cast<Py_ssize_t>(quad.size()); ++j) {
+            PyObject *item = PyLong_FromLong(quad[static_cast<size_t>(j)]);
+            if (!item) {
+                Py_DECREF(inner);
+                Py_DECREF(outer);
+                return nullptr;
+            }
+            PyList_SET_ITEM(inner, j, item);
+        }
+        PyList_SET_ITEM(outer, i, inner);
+    }
+    return outer;
+}
+
 static PyObject *build_strain_list(const std::vector<std::array<double, 3>> &strains) {
     PyObject *outer = PyList_New(static_cast<Py_ssize_t>(strains.size()));
     if (!outer) {
@@ -319,6 +345,94 @@ static std::vector<std::array<double, 3>> face_strains(
     return result;
 }
 
+static std::vector<int> order_quad_indices(
+    const std::vector<int> &indices,
+    const std::vector<Vec3> &points
+) {
+    Vec3 center{0.0, 0.0, 0.0};
+    for (int idx : indices) {
+        center = center + points[static_cast<size_t>(idx)];
+    }
+    center = center * (1.0 / static_cast<double>(indices.size()));
+
+    Vec3 normal{0.0, 0.0, 0.0};
+    if (indices.size() >= 3) {
+        const Vec3 &p0 = points[static_cast<size_t>(indices[0])];
+        const Vec3 &p1 = points[static_cast<size_t>(indices[1])];
+        const Vec3 &p2 = points[static_cast<size_t>(indices[2])];
+        normal = normal + cross(p1 - p0, p2 - p0);
+    }
+    if (norm(normal) <= 1.0e-12 && indices.size() >= 4) {
+        const Vec3 &p0 = points[static_cast<size_t>(indices[0])];
+        const Vec3 &p2 = points[static_cast<size_t>(indices[2])];
+        const Vec3 &p3 = points[static_cast<size_t>(indices[3])];
+        normal = normal + cross(p2 - p0, p3 - p0);
+    }
+    normal = normalize(normal);
+    if (norm(normal) <= 1.0e-12) {
+        normal = {0.0, 0.0, 1.0};
+    }
+
+    Vec3 ref = points[static_cast<size_t>(indices[0])] - center;
+    if (norm(ref) <= 1.0e-12 && indices.size() > 1) {
+        ref = points[static_cast<size_t>(indices[1])] - center;
+    }
+    if (norm(ref) <= 1.0e-12) {
+        ref = {1.0, 0.0, 0.0};
+    }
+    ref = normalize(ref);
+    Vec3 y_axis = normalize(cross(normal, ref));
+    if (norm(y_axis) <= 1.0e-12) {
+        y_axis = {0.0, 1.0, 0.0};
+    }
+
+    std::vector<std::pair<double, int>> angles;
+    angles.reserve(indices.size());
+    for (int idx : indices) {
+        Vec3 rel = points[static_cast<size_t>(idx)] - center;
+        double x = dot(rel, ref);
+        double y = dot(rel, y_axis);
+        angles.emplace_back(std::atan2(y, x), idx);
+    }
+    std::sort(angles.begin(), angles.end(), [](const auto &a, const auto &b) {
+        return a.first < b.first;
+    });
+
+    std::vector<int> ordered;
+    ordered.reserve(indices.size());
+    for (const auto &entry : angles) {
+        ordered.push_back(entry.second);
+    }
+    return ordered;
+}
+
+static std::vector<std::vector<int>> extract_quads(
+    const std::vector<std::array<int, 3>> &faces,
+    const std::vector<Vec3> &points
+) {
+    std::vector<std::vector<int>> quads;
+    for (size_t i = 0; i + 1 < faces.size(); i += 2) {
+        std::vector<int> face_a{faces[i][0], faces[i][1], faces[i][2]};
+        std::vector<int> face_b{faces[i + 1][0], faces[i + 1][1], faces[i + 1][2]};
+        std::vector<int> shared;
+        for (int a : face_a) {
+            if (std::find(face_b.begin(), face_b.end(), a) != face_b.end()) {
+                shared.push_back(a);
+            }
+        }
+        if (shared.size() == 2) {
+            std::vector<int> union_indices = face_a;
+            union_indices.insert(union_indices.end(), face_b.begin(), face_b.end());
+            std::sort(union_indices.begin(), union_indices.end());
+            union_indices.erase(std::unique(union_indices.begin(), union_indices.end()), union_indices.end());
+            if (union_indices.size() == 4) {
+                quads.push_back(order_quad_indices(union_indices, points));
+            }
+        }
+    }
+    return quads;
+}
+
 static std::vector<Vec3> loop_to_points(
     const std::vector<int> &loop,
     const std::vector<Vec3> &fabric_points
@@ -441,9 +555,11 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         loops_pts.push_back(loop_to_points(loop, fabric_points));
     }
 
+    std::vector<std::vector<int>> fabric_quads = extract_quads(faces, points);
     std::vector<std::array<double, 3>> strains = face_strains(faces, local_points, normal);
 
     PyObject *fabric_points_list = build_vec3_list(fabric_points);
+    PyObject *fabric_quads_list = build_quad_list(fabric_quads);
     PyObject *boundary_loops_list = build_loop_list(loops_pts);
     PyObject *strains_list = build_strain_list(strains);
     if (!fabric_points_list || !boundary_loops_list || !strains_list) {
@@ -466,6 +582,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "valid", Py_True);
     PyDict_SetItemString(result, "error", PyUnicode_FromString(""));
     PyDict_SetItemString(result, "fabric_points", fabric_points_list);
+    PyDict_SetItemString(result, "fabric_quads", fabric_quads_list);
     PyDict_SetItemString(result, "boundary_loops", boundary_loops_list);
     PyDict_SetItemString(result, "strains", strains_list);
     PyDict_SetItemString(result, "origin", build_vec3_tuple(origin));
@@ -475,6 +592,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "parameters", params_copy);
 
     Py_DECREF(fabric_points_list);
+    Py_DECREF(fabric_quads_list);
     Py_DECREF(boundary_loops_list);
     Py_DECREF(strains_list);
     Py_DECREF(params_copy);

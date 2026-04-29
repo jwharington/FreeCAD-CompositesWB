@@ -40,6 +40,7 @@ class Draper:
         self.error = self.result.get("error", "")
         if not self.valid:
             self.fabric_points = []
+            self.fabric_quads = []
             self.boundaries = []
             self.strains = np.zeros((0, 3))
             self.T_fo = Base.Placement()
@@ -49,6 +50,10 @@ class Draper:
         self.boundaries = [
             [Vector(*node) for node in edge]
             for edge in self.result.get("boundary_loops", [])
+        ]
+        self.fabric_quads = [
+            [int(idx) for idx in quad]
+            for quad in self.result.get("fabric_quads", [])
         ]
         self.T_fo = Base.Placement()
         self.strains = np.array(self.result.get("strains", []), dtype=float)

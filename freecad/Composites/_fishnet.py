@@ -156,6 +156,54 @@ def _face_strain(face, local_points, normal):
     return [avg_abs_w, angle, spread]
 
 
+def _order_quad(indices, points):
+    pts = [points[int(i)] for i in indices]
+    center = _centroid(pts)
+    normal = _normalize(
+        _add(
+            _cross(_sub(pts[1], pts[0]), _sub(pts[2], pts[0])),
+            _cross(_sub(pts[2], pts[0]), _sub(pts[3], pts[0])),
+        )
+    )
+    if _norm(normal) <= 1.0e-12:
+        normal = (0.0, 0.0, 1.0)
+    ref = _sub(pts[0], center)
+    ref = _normalize(ref)
+    if _norm(ref) <= 1.0e-12:
+        ref = _normalize(_sub(pts[1], center))
+    if _norm(ref) <= 1.0e-12:
+        ref = (1.0, 0.0, 0.0)
+    x_axis = ref
+    y_axis = _normalize(_cross(normal, x_axis))
+    if _norm(y_axis) <= 1.0e-12:
+        y_axis = (0.0, 1.0, 0.0)
+    angles = []
+    for idx, p in zip(indices, pts):
+        rel = _sub(p, center)
+        x = _dot(rel, x_axis)
+        y = _dot(rel, y_axis)
+        angles.append((math.atan2(y, x), int(idx)))
+    angles.sort(key=lambda item: item[0])
+    return [idx for _, idx in angles]
+
+
+def _extract_quads(faces, points):
+    quads = []
+    i = 0
+    while i + 1 < len(faces):
+        face_a = [int(v) for v in faces[i][:3]]
+        face_b = [int(v) for v in faces[i + 1][:3]]
+        shared = [v for v in face_a if v in face_b]
+        if len(shared) == 2:
+            union = list(dict.fromkeys(face_a + face_b))
+            if len(union) == 4:
+                quads.append(_order_quad(union, points))
+                i += 2
+                continue
+        i += 1
+    return quads
+
+
 def solve(mesh_points: Iterable[Iterable[float]], mesh_faces, parameters=None):
     points = [tuple(map(float, p)) for p in mesh_points]
     faces = [tuple(int(i) for i in face[:3]) for face in mesh_faces]
@@ -166,6 +214,7 @@ def solve(mesh_points: Iterable[Iterable[float]], mesh_faces, parameters=None):
             "valid": False,
             "error": "fishnet solver needs at least one point",
             "fabric_points": [],
+            "fabric_quads": [],
             "boundary_loops": [],
             "strains": [],
             "parameters": params,
@@ -175,6 +224,7 @@ def solve(mesh_points: Iterable[Iterable[float]], mesh_faces, parameters=None):
             "valid": False,
             "error": "fishnet solver needs at least one face",
             "fabric_points": [],
+            "fabric_quads": [],
             "boundary_loops": [],
             "strains": [],
             "parameters": params,
@@ -188,12 +238,14 @@ def solve(mesh_points: Iterable[Iterable[float]], mesh_faces, parameters=None):
     ]
     fabric_points = [[u, v, 0.0] for u, v, _ in local_points]
     boundary_loops = _boundary_loops(faces, fabric_points)
+    fabric_quads = _extract_quads(faces, points)
     strains = [_face_strain(face, local_points, normal) for face in faces]
 
     return {
         "valid": True,
         "error": "",
         "fabric_points": fabric_points,
+        "fabric_quads": fabric_quads,
         "boundary_loops": boundary_loops,
         "strains": strains,
         "origin": list(origin),
