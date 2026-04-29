@@ -523,6 +523,11 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
         PyDict_SetItemString(res, "face_frames", PyList_New(0));
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_seams", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_breaks", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_face_frames", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_reasons", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -539,6 +544,11 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
         PyDict_SetItemString(res, "face_frames", PyList_New(0));
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_seams", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_breaks", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_face_frames", PyList_New(0));
+        PyDict_SetItemString(res, "atlas_reasons", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -649,6 +659,11 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "mesh_faces", mesh_faces_list);
     PyDict_SetItemString(result, "face_frames", face_frames_list);
     PyDict_SetItemString(result, "orientation_breaks", orientation_breaks_list);
+    PyDict_SetItemString(result, "atlas_charts", PyList_New(0));
+    PyDict_SetItemString(result, "atlas_seams", PyList_New(0));
+    PyDict_SetItemString(result, "atlas_breaks", PyList_New(0));
+    PyDict_SetItemString(result, "atlas_face_frames", PyList_New(0));
+    PyDict_SetItemString(result, "atlas_reasons", PyList_New(0));
     PyDict_SetItemString(result, "origin", build_vec3_tuple(origin));
     PyDict_SetItemString(result, "normal", build_vec3_tuple(normal));
     PyDict_SetItemString(result, "x_axis", build_vec3_tuple(x_axis));

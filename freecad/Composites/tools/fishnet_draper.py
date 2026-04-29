@@ -40,6 +40,7 @@ class Draper:
         self.valid = bool(self.result.get("valid"))
         self.error = self.result.get("error", "")
         self.mesh = self._build_mesh_from_result(self.result)
+        self.atlas_charts = self.result.get("atlas_charts", [])
         if not self.valid:
             self.fabric_points = []
             self.fabric_quads = []

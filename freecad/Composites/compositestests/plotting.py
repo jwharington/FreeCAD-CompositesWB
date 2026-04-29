@@ -140,6 +140,28 @@ def _plot_boundaries(ax, boundaries, color="#d62728", linewidth=2.4):
         ax.plot(xs, ys, color=color, linewidth=linewidth)
 
 
+def _plot_atlas_charts(ax, charts):
+    plotted = False
+    palette = ["#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf"]
+    for chart_index, chart in enumerate(charts or []):
+        points = chart.get("points", [])
+        quads = chart.get("quads", [])
+        if not points or not quads:
+            continue
+        color = palette[chart_index % len(palette)]
+        _plot_2d_mesh(
+            ax,
+            points,
+            quads,
+            edge_color=color,
+            point_color=color,
+            linewidth=1.15,
+            cells=quads,
+        )
+        plotted = True
+    return plotted
+
+
 def save_native_fishnet_plot(title, points, faces, result):
     if not plots_enabled():
         return None
@@ -217,7 +239,7 @@ def _plot_shape_3d(ax, shape, deflection=1.0):
     return pts, tris
 
 
-def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fabric_quads=None):
+def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fabric_quads=None, atlas_charts=None):
     if not plots_enabled():
         return None
 
@@ -233,7 +255,8 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     solid_shape = getattr(shape, "ShapeType", "") == "Solid" or bool(
         getattr(shape, "Solids", [])
     )
-    show_unwrapped_net = solid_shape and bool(fabric_quads)
+    atlas_charts = atlas_charts or []
+    show_unwrapped_net = solid_shape and bool(atlas_charts)
     panel_count = 3 if show_unwrapped_net else 2
     fig = plt.figure(figsize=(18 if show_unwrapped_net else 14, 6))
     fig.suptitle(title)
@@ -261,15 +284,16 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     if show_unwrapped_net:
         ax3 = fig.add_subplot(1, panel_count, 3)
         ax3.set_title("Unwrapped net")
-        _plot_2d_mesh(
-            ax3,
-            tex_coords,
-            [],
-            edge_color="#1f77b4",
-            point_color="#1f77b4",
-            linewidth=1.15,
-            cells=fabric_quads,
-        )
+        if not _plot_atlas_charts(ax3, atlas_charts):
+            _plot_2d_mesh(
+                ax3,
+                tex_coords,
+                [],
+                edge_color="#1f77b4",
+                point_color="#1f77b4",
+                linewidth=1.15,
+                cells=fabric_quads,
+            )
         _plot_boundaries(ax3, boundaries, color="#d62728")
 
     fig.tight_layout()
