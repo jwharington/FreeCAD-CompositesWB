@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fishnet Surface-Net Implementation Plan</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --sidebar: #1f2430;
+      --text: #1d2430;
+      --muted: #5a6475;
+      --accent: #2c6bed;
+      --accent2: #d9534f;
+      --border: #dbe0ea;
+      --code: #f2f4f8;
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: Arial, Helvetica, sans-serif; }
+    body { display: flex; min-height: 100vh; }
+    nav {
+      width: 300px;
+      background: var(--sidebar);
+      color: #fff;
+      padding: 22px 18px;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    nav h1 { margin: 0 0 10px; font-size: 1.2rem; }
+    nav p { color: #cfd5e3; font-size: 0.92rem; line-height: 1.45; }
+    nav ul { list-style: none; padding: 0; margin: 12px 0 0; }
+    nav li { margin: 8px 0; }
+    nav a { color: #9ec2ff; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    main { flex: 1; padding: 28px; box-sizing: border-box; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    h2 { margin: 0 0 12px; font-size: 1.45rem; }
+    h3 { margin: 16px 0 8px; font-size: 1.12rem; }
+    p, li { line-height: 1.55; }
+    .subtitle { color: var(--muted); margin-top: -4px; }
+    .meta { color: var(--muted); font-size: 0.92rem; }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; background: #edf3ff; color: #204eaa; border: 1px solid #d7e4ff; font-size: 0.8rem; margin-right: 6px; }
+    code { background: var(--code); padding: 2px 5px; border-radius: 4px; }
+    .note { border-left: 4px solid var(--accent); background: #f3f7ff; padding: 10px 14px; border-radius: 6px; }
+    .warn { border-left-color: var(--accent2); background: #fff6f5; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    .box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fff;
+    }
+    ul.tight { margin-top: 8px; }
+    ul.tight li { margin: 4px 0; }
+    .phase { border-left: 5px solid var(--accent); padding-left: 12px; }
+    .small { font-size: 0.88rem; }
+    .file-list a { word-break: break-all; }
+  </style>
+</head>
+<body>
+  <nav>
+    <h1>Fishnet Surface-Net Plan</h1>
+    <p>
+      Stage 1 implementation plan for replacing triangle-mesh draping with direct surface sampling
+      and a pin-jointed Net / GIB-style solver inspired by KinDrape.
+    </p>
+    <p class="small">Repository: <code>FreeCAD-CompositesWB</code></p>
+
+    <h3>Table of Contents</h3>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#goal">Goal and scope</a></li>
+      <li><a href="#approach">Recommended approach</a></li>
+      <li><a href="#phase1">Phase 1</a></li>
+      <li><a href="#phase2">Phase 2</a></li>
+      <li><a href="#data">Data model</a></li>
+      <li><a href="#tests">Testing</a></li>
+      <li><a href="#risks">Risks</a></li>
+      <li><a href="#deliverables">Deliverables</a></li>
+      <li><a href="#success">Success criteria</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="overview" class="card">
+      <h2>Overview</h2>
+      <p class="subtitle">Plan to remove <code>shape2Mesh()</code> / <code>MeshPart.meshFromShape()</code> from the production drape path.</p>
+      <p>
+        The current fishnet backend still starts from a triangulated mesh. The next redesign should instead sample the real CAD surface directly, construct a pin-jointed fabric net, and solve it with a GIB-style equilibrium loop. The long-term reference is the Net algorithm used in KinDrape.
+      </p>
+      <div class="note">
+        <strong>Principle:</strong> use the surface itself as the source of truth; triangulation may remain as a diagnostic or legacy comparison tool, but not as the production input pipeline.
+      </div>
+    </section>
+
+    <section id="goal" class="card">
+      <h2>Goal and scope</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>In scope</h3>
+          <ul class="tight">
+            <li>Direct surface queries on <code>Part.Face</code> / trimmed surfaces</li>
+            <li>Pin-jointed net data model (nodes, bars, quads)</li>
+            <li>GIB-style relaxation and projection to the surface</li>
+            <li>Boundary anchoring and seed lattice generation</li>
+            <li>Native solver implementation and Python adapter</li>
+            <li>Plot/test updates to visualize net topology rather than triangle faces</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Out of scope for stage 1</h3>
+          <ul class="tight">
+            <li>Full UI redesign</li>
+            <li>Multi-piece shell stitching</li>
+            <li>Manufacturing allowances, flanges, or trim stock</li>
+            <li>Exact numerical parity with KinDrape</li>
+            <li>Performance tuning beyond a solid first solver</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="approach" class="card">
+      <h2>Recommended approach</h2>
+      <p>
+        Use a hybrid formulation: sample the real surface directly, seed a warp/weft lattice in surface space, solve a pin-jointed net in 3D with tangent-plane relaxation, and project each iteration back onto the source surface.
+      </p>
+      <div class="grid">
+        <div class="box">
+          <h3>Why this approach</h3>
+          <ul class="tight">
+            <li>avoids triangle-mesh dependence</li>
+            <li>keeps the solver physically closer to a fabric net</li>
+            <li>supports quads as the primary visual/output cell type</li>
+            <li>creates a clean path to richer GIB constraints later</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Why not pure UV</h3>
+          <ul class="tight">
+            <li>UV distortion can dominate on trimmed or complex faces</li>
+            <li>multi-face transition handling becomes awkward</li>
+            <li>the result is less like a true pinned net</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Why not pure 3D from the start</h3>
+          <ul class="tight">
+            <li>harder to stabilize</li>
+            <li>projection / convergence issues are more likely</li>
+            <li>slower to validate on simple surfaces</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="phase1" class="card phase">
+      <h2>Phase 1 — solver core redesign</h2>
+      <p class="meta">Objective: build a direct-surface solver that produces a stable pin-jointed net.</p>
+
+      <h3>1. Surface sampling abstraction</h3>
+      <p>
+        Add a solver-facing geometry layer that can evaluate positions, normals, and tangents directly from a FreeCAD face or face patch. This layer should also provide boundary extraction and point-in-trim tests so the solver can stay aware of the actual trimmed domain.
+      </p>
+      <ul class="tight">
+        <li>Query <code>Surface.valueAt(u, v)</code>, <code>Surface.normalAt(u, v)</code>, and face trim membership</li>
+        <li>Support analytic faces first; keep the API generic enough for later multi-face shells</li>
+        <li>Expose boundary curves as anchor guides for the net</li>
+      </ul>
+
+      <h3>2. Net data model</h3>
+      <p>
+        Replace face-centered triangulation assumptions with a graph of pin-jointed nodes connected by warp/weft bars. The primary solver output should be quads (cells), not triangle faces.
+      </p>
+      <ul class="tight">
+        <li><strong>Node:</strong> surface point, tangent frame, boundary/anchor state</li>
+        <li><strong>Bar:</strong> connection between nodes, rest length, axial stiffness, direction (warp/weft)</li>
+        <li><strong>Cell:</strong> quad formed by adjacent warp/weft bars</li>
+        <li><strong>Boundary:</strong> anchored, sliding, or free edge constraints</li>
+      </ul>
+
+      <h3>3. GIB-style solve loop</h3>
+      <p>
+        Implement the iterative equilibrium loop in the native solver. The exact math can evolve, but the first version should be deterministic and debuggable.
+      </p>
+      <ol>
+        <li>Create a seed lattice from target spacing and starting direction.</li>
+        <li>Project lattice nodes onto the source surface.</li>
+        <li>Compute bar stretch, direction error, and force imbalance.</li>
+        <li>Update node positions in the local tangent plane.</li>
+        <li>Re-project nodes to the surface.</li>
+        <li>Enforce boundary constraints and stop when the residual is below a threshold.</li>
+      </ol>
+
+      <h3>4. Native solver interfaces</h3>
+      <p>
+        Keep the Python-facing contract narrow so future improvements stay isolated inside the native code.
+      </p>
+      <ul class="tight">
+        <li><code>solve_surface(face_or_patch, parameters) -&gt; result</code></li>
+        <li>Result includes nodes, bars, quad cells, boundary loops, strain diagnostics, convergence data</li>
+        <li>Keep invalid geometry reporting explicit and structured</li>
+      </ul>
+    </section>
+
+    <section id="phase2" class="card phase">
+      <h2>Phase 2 — workbench integration</h2>
+      <p class="meta">Objective: route <code>CompositeShell</code> to the new direct-surface net solver and update the visualization path.</p>
+
+      <h3>1. Replace mesh conversion in production</h3>
+      <ul class="tight">
+        <li>remove production dependence on <code>shape2Mesh()</code> / <code>MeshPart.meshFromShape()</code></li>
+        <li>pass the actual support surface / face patch to the adapter</li>
+        <li>keep <code>tools/draper.py</code> as reference-only during migration</li>
+      </ul>
+
+      <h3>2. Update adapter behavior</h3>
+      <ul class="tight">
+        <li>preserve <code>get_tex_coords()</code>, <code>get_boundaries()</code>, <code>get_strains()</code></li>
+        <li>generate quads / net lines from the solver result</li>
+        <li>translate solver diagnostics into <code>DrapeStatus</code> / <code>DrapeError</code></li>
+      </ul>
+
+      <h3>3. Update plotting / previews</h3>
+      <ul class="tight">
+        <li>render the source surface in one color and the drape net in another</li>
+        <li>show quads or net lines instead of triangle faces for the draped result</li>
+        <li>keep optional plot generation behind <code>FISHNET_PLOTS=1</code></li>
+      </ul>
+
+      <h3>4. Keep command/UI stable</h3>
+      <p>
+        The existing command and object type can remain stable while the backend changes. Any later task-panel refinements should only expose solver parameters, not alter the document-object contract.
+      </p>
+    </section>
+
+    <section id="data" class="card">
+      <h2>Data model</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>Inputs</h3>
+          <ul class="tight">
+            <li>support face or shell patch</li>
+            <li>surface parameterization / direct sampling hooks</li>
+            <li>seed point / seed direction</li>
+            <li>fabric spacing and relaxation parameters</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Intermediate representation</h3>
+          <ul class="tight">
+            <li>node graph with tangent frames</li>
+            <li>bars with rest length and stiffness</li>
+            <li>boundary anchors / sliding edges</li>
+            <li>convergence metrics and residuals</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Outputs</h3>
+          <ul class="tight">
+            <li>quad cells / net lines</li>
+            <li>boundary loops</li>
+            <li>fabric coordinates for preview</li>
+            <li>strain / stretch fields</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="tests" class="card">
+      <h2>Testing</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>Native solver tests</h3>
+          <ul class="tight">
+            <li>planar face</li>
+            <li>cylindrical patch</li>
+            <li>concave trimmed face</li>
+            <li>step / seam-like surface</li>
+            <li>invalid or degenerate trim / sampling case</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Integration tests</h3>
+          <ul class="tight">
+            <li>command → object → recompute path</li>
+            <li>direct-surface result is accessible from <code>CompositeShell</code></li>
+            <li>plots render quads / net lines consistently</li>
+            <li>failure states stay explicit</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note warn">
+        <strong>Important:</strong> keep the tests opt-in for visual output so CI can run headless, but let developers enable plots locally when debugging surface sampling or convergence.
+      </div>
+    </section>
+
+    <section id="risks" class="card">
+      <h2>Risks and mitigation</h2>
+      <ul class="tight">
+        <li><strong>Surface projection instability:</strong> add damping, limit step size, and clamp movement to tangent planes.</li>
+        <li><strong>Trim-edge degeneracy:</strong> track boundary anchors explicitly and test boundary-sensitive cases early.</li>
+        <li><strong>UV distortion / singularities:</strong> keep the solver primarily surface-embedded rather than UV-only.</li>
+        <li><strong>Multi-face transition complexity:</strong> defer advanced stitching until the single-face solver is stable.</li>
+        <li><strong>Visualization mismatch:</strong> update plots after solver output is stable so the pictures reflect the actual new net topology.</li>
+      </ul>
+    </section>
+
+    <section id="deliverables" class="card">
+      <h2>Deliverables</h2>
+      <ul class="tight">
+        <li>native surface-sampling API</li>
+        <li>pin-jointed net data model</li>
+        <li>GIB-style relaxation solver</li>
+        <li>Python adapter for <code>CompositeShell</code></li>
+        <li>quad/net plot updates</li>
+        <li>new/updated tests for plane, cylinder, concave, and seam-like surfaces</li>
+      </ul>
+    </section>
+
+    <section id="success" class="card">
+      <h2>Success criteria</h2>
+      <ul class="tight">
+        <li>production draping no longer depends on <code>shape2Mesh()</code> or <code>MeshPart.meshFromShape()</code></li>
+        <li>the solver samples the object surface directly</li>
+        <li>the fishnet is represented as a pin-jointed net and outputs quads as the primary cell type</li>
+        <li>existing workbench consumers still use the same <code>CompositeShell</code> API</li>
+        <li>tests and plots clearly show the new topology and remain easy to debug</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Next action</h2>
+      <p>
+        Implement the surface-sampling abstraction first, then the net model and iterative solve loop, and only after that switch <code>CompositeShell</code> and the test visualizations over to the new topology.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
