@@ -262,8 +262,19 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     fig.suptitle(title)
 
     ax1 = fig.add_subplot(1, panel_count, 1, projection="3d")
-    ax1.set_title("Source shape")
+    ax1.set_title("Source shape + drape mesh")
     _plot_shape_3d(ax1, shape)
+    if mesh and getattr(mesh, "Topology", None) and getattr(mesh, "Points", None):
+        _plot_3d_mesh(
+            ax1,
+            mesh.Points,
+            mesh.Topology[1],
+            edge_color="#1f77b4",
+            point_color="#1f77b4",
+            linewidth=0.9,
+            marker_size=8,
+            alpha=0.38,
+        )
     ax1.set_box_aspect((1, 1, 1))
 
     ax2 = fig.add_subplot(1, panel_count, 2)
