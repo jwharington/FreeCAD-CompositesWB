@@ -18,7 +18,7 @@ from ..tools.fibre import (
     make_fibre_length_analysis,
     make_fibre_orientation_analysis,
 )
-from ..util.mesh_util import shape2Mesh
+from ..tools import surface_sampling
 from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
@@ -165,7 +165,7 @@ class CompositeShellFP(CompositeBaseFP):
         self._rosette_angle = float(fp.Rosette.Angle) if fp.Rosette else 0.0
 
         try:
-            mesh = shape2Mesh(fp.Shape, fp.MaxLength)
+            mesh = surface_sampling.make_surface_mesh(fp.Shape, fp.MaxLength)
             fp.Mesh.Mesh = mesh
             self.draper = Draper(
                 mesh,
