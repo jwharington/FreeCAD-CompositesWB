@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fishnet Shell Orientation Transfer Implementation Plan</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --sidebar: #1f2430;
+      --text: #1d2430;
+      --muted: #5a6475;
+      --accent: #2c6bed;
+      --accent2: #d9534f;
+      --border: #dbe0ea;
+      --code: #f2f4f8;
+    }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: Arial, Helvetica, sans-serif; }
+    body { display: flex; min-height: 100vh; }
+    nav {
+      width: 300px;
+      background: var(--sidebar);
+      color: #fff;
+      padding: 22px 18px;
+      box-sizing: border-box;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: auto;
+    }
+    nav h1 { margin: 0 0 10px; font-size: 1.2rem; }
+    nav p { color: #cfd5e3; font-size: 0.92rem; line-height: 1.45; }
+    nav ul { list-style: none; padding: 0; margin: 12px 0 0; }
+    nav li { margin: 8px 0; }
+    nav a { color: #9ec2ff; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    main { flex: 1; padding: 28px; box-sizing: border-box; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    h2 { margin: 0 0 12px; font-size: 1.45rem; }
+    h3 { margin: 16px 0 8px; font-size: 1.12rem; }
+    p, li { line-height: 1.55; }
+    .subtitle { color: var(--muted); margin-top: -4px; }
+    .meta { color: var(--muted); font-size: 0.92rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+    .box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      background: #fff;
+    }
+    ul.tight { margin-top: 8px; }
+    ul.tight li { margin: 4px 0; }
+    ol.tight { margin-top: 8px; }
+    ol.tight li { margin: 4px 0; }
+    .phase { border-left: 5px solid var(--accent); padding-left: 12px; }
+    .warn { border-left: 5px solid var(--accent2); padding-left: 12px; background: #fffafa; }
+    code { background: var(--code); padding: 2px 5px; border-radius: 4px; }
+    .small { font-size: 0.88rem; }
+  </style>
+</head>
+<body>
+  <nav>
+    <h1>Fishnet Shell Plan</h1>
+    <p>
+      Implementation plan for the native shell adapter and orientation transfer layer.
+      This is the next step after the direct-surface fishnet face solver work.
+    </p>
+    <p class="small">Repository: <code>FreeCAD-CompositesWB</code></p>
+
+    <h3>Table of Contents</h3>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#goals">Goals and scope</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#phase1">Phase 1</a></li>
+      <li><a href="#phase2">Phase 2</a></li>
+      <li><a href="#phase3">Phase 3</a></li>
+      <li><a href="#phase4">Phase 4</a></li>
+      <li><a href="#files">Files and touch points</a></li>
+      <li><a href="#tests">Testing</a></li>
+      <li><a href="#risks">Risks</a></li>
+      <li><a href="#deliverables">Deliverables</a></li>
+      <li><a href="#success">Success criteria</a></li>
+    </ul>
+  </nav>
+
+  <main>
+    <section id="overview" class="card">
+      <h2>Overview</h2>
+      <p class="subtitle">Move from a single-face native solver to a shell-aware solver with explicit face-boundary orientation transfer.</p>
+      <p>
+        The current fishnet workbench now has direct surface sampling and a quad/net output path, but shell-wide use still needs a native adapter that preserves warp/weft orientation across adjacent faces. This plan turns the shell orientation spec into an implementation sequence that keeps the public <code>CompositeShell</code> API stable while moving the geometry work into C++.
+      </p>
+      <div class="warn">
+        <strong>Rule:</strong> the Python fallback remains only until the native extension is built. Production code should prefer the C++ path as soon as it is available.
+      </div>
+    </section>
+
+    <section id="goals" class="card">
+      <h2>Goals and scope</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>In scope</h3>
+          <ul class="tight">
+            <li>native face solver that accepts FreeCAD <code>Part::Face</code> / shell geometry directly</li>
+            <li>shell adapter that walks face adjacency and propagates orientation</li>
+            <li>explicit handling for smooth boundaries, seams, and open edges</li>
+            <li>compatibility with <code>CompositeShell</code>, <code>TexturePlan</code>, and grid rendering</li>
+            <li>Python fallback API for source checkouts before the native extension exists</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Out of scope for this phase</h3>
+          <ul class="tight">
+            <li>manufacturing-grade multi-piece shell decomposition</li>
+            <li>full UI redesign</li>
+            <li>exact numerical parity with the prototype draper</li>
+            <li>removing all Python from the workbench</li>
+            <li>changing the public <code>CompositeShell</code> document object</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture" class="card">
+      <h2>Architecture</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>Native face solver</h3>
+          <p>
+            A C++ solver owns direct surface queries, sampling, projection, and pin-jointed net relaxation for one face at a time.
+          </p>
+          <ul class="tight">
+            <li>sample the face trim domain</li>
+            <li>seed the warp/weft lattice</li>
+            <li>solve and project in the face tangent frame</li>
+            <li>emit nodes, quads, boundary loops, and face frame metadata</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Native shell adapter</h3>
+          <p>
+            A thin C++ layer above the face solver traverses adjacency, propagates orientation, and merges per-face output into a shell-level result.
+          </p>
+          <ul class="tight">
+            <li>choose a stable seed face</li>
+            <li>transfer local frames across adjacent faces</li>
+            <li>flag seams and discontinuities explicitly</li>
+            <li>stitch metadata for downstream consumers</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Python compatibility layer</h3>
+          <p>
+            Python remains the bridge into FreeCAD document objects, the task panel, and the existing renderer APIs.
+          </p>
+          <ul class="tight">
+            <li>keep the <code>CompositeShell</code> API stable</li>
+            <li>mirror the native result structure until build availability</li>
+            <li>do not use the old prototype draper in production</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="phase1" class="card phase">
+      <h2>Phase 1 — native face solver API</h2>
+      <p class="meta">Objective: make the native solver operate directly on FreeCAD face geometry.</p>
+      <ol class="tight">
+        <li>Add a C++ entrypoint that accepts a single <code>Part::Face</code> or face-like geometry handle.</li>
+        <li>Move surface sampling, projection, and frame extraction into native code.</li>
+        <li>Emit a result that includes <code>fabric_points</code>, <code>fabric_quads</code>, <code>boundary_loops</code>, <code>face_frames</code>, and error/status fields.</li>
+        <li>Keep the Python fallback API mirrored until the native extension is built.</li>
+      </ol>
+      <p>
+        The face solver should remain small and testable. It should not know about the FreeCAD GUI or document-object lifecycle.
+      </p>
+    </section>
+
+    <section id="phase2" class="card phase">
+      <h2>Phase 2 — shell adapter and orientation transfer</h2>
+      <p class="meta">Objective: propagate warp/weft continuity across face boundaries in native code.</p>
+      <ol class="tight">
+        <li>Build a face adjacency graph from the shell geometry.</li>
+        <li>Choose a stable starting face and initial frame.</li>
+        <li>For each adjacent face, transfer the previous face’s frame into the new face tangent plane.</li>
+        <li>Re-orthonormalize the local frame and choose the orientation that best preserves continuity.</li>
+        <li>Mark seams, hard breaks, and reseeds explicitly in the result.</li>
+      </ol>
+      <div class="box">
+        <h3>Orientation policy</h3>
+        <ul class="tight">
+          <li>prefer continuity across smooth boundaries</li>
+          <li>break continuity at seams, UV flips, or highly non-smooth edges</li>
+          <li>do not silently guess when projection degenerates</li>
+          <li>keep break markers in the output so tests and previews can inspect them</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="phase3" class="card phase">
+      <h2>Phase 3 — workbench integration</h2>
+      <p class="meta">Objective: connect the native shell result to the existing workbench API.</p>
+      <div class="grid">
+        <div class="box">
+          <h3><code>CompositeShell</code></h3>
+          <ul class="tight">
+            <li>switch the production path to the native shell solver</li>
+            <li>preserve <code>get_tex_coords()</code>, <code>get_boundaries()</code>, <code>get_lcs()</code>, and <code>get_strains()</code></li>
+            <li>keep <code>DrapeStatus</code> / <code>DrapeError</code> explicit</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Texture renderer</h3>
+          <ul class="tight">
+            <li>keep <code>TexturePlan</code> working from <code>get_boundaries()</code></li>
+            <li>keep <code>MeshGridShader</code> consuming <code>get_tex_coords()</code></li>
+            <li>do not expose solver internals to renderer code</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Plots and previews</h3>
+          <ul class="tight">
+            <li>keep solid-case plots showing the unwrapped net panel</li>
+            <li>use the same color split between source geometry and net output</li>
+            <li>show shell boundary breaks only when relevant</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="phase4" class="card phase">
+      <h2>Phase 4 — fallback removal and cleanup</h2>
+      <p class="meta">Objective: retire Python surface-query fallback from the production path once the native extension is built.</p>
+      <ul class="tight">
+        <li>keep the Python fallback available only for source checkout / prebuild use</li>
+        <li>remove any production dependency on Python surface queries once C++ is in place</li>
+        <li>prune obsolete mesh-sampling helpers only after native coverage is stable</li>
+        <li>update docs and handover notes to reflect the native shell adapter</li>
+      </ul>
+    </section>
+
+    <section id="files" class="card">
+      <h2>Files and touch points</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>Native code</h3>
+          <ul class="tight">
+            <li><code>freecad/Composites/_fishnet.cpp</code></li>
+            <li><code>freecad/Composites/_fishnet.py</code></li>
+            <li>new shell-adapter code in the native module or adjacent source file</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Python adapter</h3>
+          <ul class="tight">
+            <li><code>freecad/Composites/tools/fishnet_draper.py</code></li>
+            <li><code>freecad/Composites/features/CompositeShell.py</code></li>
+            <li><code>freecad/Composites/taskpanels/task_fishnet_drape.py</code></li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Tests / plots</h3>
+          <ul class="tight">
+            <li><code>freecad/Composites/compositestests/test_fishnet_native.py</code></li>
+            <li><code>freecad/Composites/compositestests/test_integration_freecad.py</code></li>
+            <li><code>freecad/Composites/compositestests/plotting.py</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="tests" class="card">
+      <h2>Testing</h2>
+      <div class="grid">
+        <div class="box">
+          <h3>Native face tests</h3>
+          <ul class="tight">
+            <li>planar face solves</li>
+            <li>cylindrical face solves</li>
+            <li>concave trimmed face solves</li>
+            <li>boundary loops and quad extraction are correct</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>Native shell tests</h3>
+          <ul class="tight">
+            <li>two smooth adjacent faces preserve orientation</li>
+            <li>hard-edge transitions are marked as breaks</li>
+            <li>seams / discontinuities reseed cleanly</li>
+            <li>flipped parameterization cases do not silently twist the net</li>
+          </ul>
+        </div>
+        <div class="box">
+          <h3>FreeCAD integration tests</h3>
+          <ul class="tight">
+            <li><code>CompositeShell</code> still recomputes in a real document</li>
+            <li><code>TexturePlan</code> still consumes shell boundaries</li>
+            <li>solid cases still show the unwrapped net panel</li>
+            <li>failure states remain explicit in <code>DrapeStatus</code> / <code>DrapeError</code></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="risks" class="card">
+      <h2>Risks</h2>
+      <ul class="tight">
+        <li><strong>Orientation drift:</strong> add explicit frame transfer and continuity checks at each face boundary.</li>
+        <li><strong>Degenerate edges:</strong> mark them as breaks instead of guessing a frame.</li>
+        <li><strong>Native API churn:</strong> keep the result structure compact and versionable.</li>
+        <li><strong>Compatibility regressions:</strong> protect <code>CompositeShell</code> / <code>TexturePlan</code> integration with tests.</li>
+        <li><strong>Fallback confusion:</strong> clearly separate the temporary Python fallback from the production code path.</li>
+      </ul>
+    </section>
+
+    <section id="deliverables" class="card">
+      <h2>Deliverables</h2>
+      <ul class="tight">
+        <li>native face solver entrypoint accepting FreeCAD face geometry</li>
+        <li>native shell adapter with orientation-transfer rules</li>
+        <li>Python fallback mirror kept only for prebuild/source use</li>
+        <li>updated <code>CompositeShell</code> integration</li>
+        <li>compatibility with <code>TexturePlan</code> and grid rendering</li>
+        <li>new face- and shell-oriented tests</li>
+      </ul>
+    </section>
+
+    <section id="success" class="card">
+      <h2>Success criteria</h2>
+      <ul class="tight">
+        <li>the solver works directly on FreeCAD surface geometry in native code</li>
+        <li>shell face orientation stays coherent across smooth boundaries</li>
+        <li>seams and discontinuities are explicit and testable</li>
+        <li><code>CompositeShell</code> keeps the same public API for downstream tools</li>
+        <li><code>TexturePlan</code> and grid rendering continue to work from the consumer side</li>
+        <li>Python fallback remains only as a temporary build-time compatibility layer</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>Next action</h2>
+      <p>
+        Implement the native face solver first, then add the shell adapter and orientation propagation, then re-run the workbench integration tests to confirm the existing consumers still behave the same.
+      </p>
+    </section>
+  </main>
+</body>
+</html>
