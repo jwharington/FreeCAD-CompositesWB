@@ -9,11 +9,20 @@ These tests intentionally avoid any FreeCAD mocks. Run them with:
         freecad/Composites/compositestests/run_freecad_integration_tests.py
 """
 
+import os
 import sys
 import types
 import unittest
 
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 import FreeCAD
+
+from freecad.Composites.compositestests.plotting import (
+    save_integration_fishnet_plot,
+)
 
 # Some existing modules import CompositesWB by name.
 if "CompositesWB" not in sys.modules:
