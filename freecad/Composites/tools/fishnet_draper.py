@@ -3,6 +3,7 @@
 
 import numpy as np
 import Part
+import Mesh
 from FreeCAD import Base, Rotation, Vector
 
 from .._fishnet import solve
@@ -26,7 +27,7 @@ class Draper:
         relax_weight=None,
         steps=None,
     ):
-        self.mesh = mesh
+        self.source = mesh
         self.shape = shape
         self.lcs = lcs
         self.fabric_spacing = float(fabric_spacing or 0.0)
@@ -38,10 +39,13 @@ class Draper:
         self.result = self._solve()
         self.valid = bool(self.result.get("valid"))
         self.error = self.result.get("error", "")
+        self.mesh = self._build_mesh_from_result(self.result)
         if not self.valid:
             self.fabric_points = []
             self.fabric_quads = []
             self.boundaries = []
+            self.face_frames = []
+            self.orientation_breaks = []
             self.strains = np.zeros((0, 3))
             self.T_fo = Base.Placement()
             return
@@ -55,35 +59,50 @@ class Draper:
             [int(idx) for idx in quad]
             for quad in self.result.get("fabric_quads", [])
         ]
+        self.face_frames = self.result.get("face_frames", [])
+        self.orientation_breaks = self.result.get("orientation_breaks", [])
         self.T_fo = Base.Placement()
         self.strains = np.array(self.result.get("strains", []), dtype=float)
         if self.strains.size == 0:
             self.strains = np.zeros((0, 3))
 
-    def _solve(self):
-        points = []
-        faces = []
-        if getattr(self.mesh, "Points", None):
-            points = [[p.x, p.y, p.z] for p in self.mesh.Points]
-        if getattr(self.mesh, "Topology", None):
-            faces = [list(face) for face in self.mesh.Topology[1]]
+    def _build_mesh_from_result(self, result):
+        if not result or not result.get("mesh_points") or not result.get("mesh_faces"):
+            return Mesh.Mesh()
+        mesh = Mesh.Mesh()
+        points = [Vector(*p) for p in result["mesh_points"]]
+        for face in result["mesh_faces"]:
+            idx = [int(i) for i in face[:3]]
+            if len(idx) < 3:
+                continue
+            mesh.addFacet(points[idx[0]], points[idx[1]], points[idx[2]])
+        return mesh
 
-        if not points or not faces:
+    def _solve(self):
+        params = {
+            "seed": 0,
+            "fabric_spacing": self.fabric_spacing,
+            "max_length": self.fabric_spacing or 0.0,
+            "relax_weight": self.unwrap_relax_weight,
+            "steps": self.unwrap_steps,
+        }
+        result = solve(self.shape, parameters=params)
+        if not result.get("valid"):
+            return result
+        if not result.get("mesh_points") or not result.get("mesh_faces"):
             return {
                 "valid": False,
                 "error": "Can't flatten shape",
                 "fabric_points": [],
+                "fabric_quads": [],
                 "boundary_loops": [],
                 "strains": [],
+                "mesh_points": [],
+                "mesh_faces": [],
+                "face_frames": [],
+                "orientation_breaks": [],
             }
-
-        params = {
-            "seed": 0,
-            "fabric_spacing": self.fabric_spacing,
-            "relax_weight": self.unwrap_relax_weight,
-            "steps": self.unwrap_steps,
-        }
-        return solve(points, faces, params)
+        return result
 
     def isValid(self):
         return self.valid

@@ -189,13 +189,31 @@ def _plot_shape_3d(ax, shape, deflection=1.0):
         return None
 
     pts = [_xyz(point) for point in points]
-    for tri in tris:
-        idx = [int(i) for i in tri[:3]]
-        loop = [pts[i] for i in idx] + [pts[idx[0]]]
-        xs = [p[0] for p in loop]
-        ys = [p[1] for p in loop]
-        zs = [p[2] for p in loop]
-        ax.plot(xs, ys, zs, color="#8b949e", linewidth=0.7, alpha=0.9)
+    if not pts or not tris:
+        return pts, tris
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    zs = [p[2] for p in pts]
+    try:
+        ax.plot_trisurf(
+            xs,
+            ys,
+            zs,
+            triangles=[tuple(int(i) for i in tri[:3]) for tri in tris],
+            color="#c7d2fe",
+            edgecolor="#8b949e",
+            linewidth=0.25,
+            alpha=0.92,
+            shade=True,
+        )
+    except Exception:
+        for tri in tris:
+            idx = [int(i) for i in tri[:3]]
+            loop = [pts[i] for i in idx] + [pts[idx[0]]]
+            xs_loop = [p[0] for p in loop]
+            ys_loop = [p[1] for p in loop]
+            zs_loop = [p[2] for p in loop]
+            ax.plot(xs_loop, ys_loop, zs_loop, color="#8b949e", linewidth=0.7, alpha=0.9)
     return pts, tris
 
 

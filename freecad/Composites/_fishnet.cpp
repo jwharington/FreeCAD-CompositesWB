@@ -516,8 +516,13 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "valid", Py_False);
         PyDict_SetItemString(res, "error", PyUnicode_FromString("fishnet solver needs at least one point"));
         PyDict_SetItemString(res, "fabric_points", PyList_New(0));
+        PyDict_SetItemString(res, "fabric_quads", PyList_New(0));
         PyDict_SetItemString(res, "boundary_loops", PyList_New(0));
         PyDict_SetItemString(res, "strains", PyList_New(0));
+        PyDict_SetItemString(res, "mesh_points", PyList_New(0));
+        PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
+        PyDict_SetItemString(res, "face_frames", PyList_New(0));
+        PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -527,8 +532,13 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "valid", Py_False);
         PyDict_SetItemString(res, "error", PyUnicode_FromString("fishnet solver needs at least one face"));
         PyDict_SetItemString(res, "fabric_points", PyList_New(0));
+        PyDict_SetItemString(res, "fabric_quads", PyList_New(0));
         PyDict_SetItemString(res, "boundary_loops", PyList_New(0));
         PyDict_SetItemString(res, "strains", PyList_New(0));
+        PyDict_SetItemString(res, "mesh_points", PyList_New(0));
+        PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
+        PyDict_SetItemString(res, "face_frames", PyList_New(0));
+        PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -562,10 +572,55 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyObject *fabric_quads_list = build_quad_list(fabric_quads);
     PyObject *boundary_loops_list = build_loop_list(loops_pts);
     PyObject *strains_list = build_strain_list(strains);
-    if (!fabric_points_list || !boundary_loops_list || !strains_list) {
+    PyObject *mesh_points_list = build_vec3_list(points);
+    std::vector<std::vector<int>> mesh_face_vec;
+    mesh_face_vec.reserve(faces.size());
+    for (const auto &face : faces) {
+        mesh_face_vec.push_back({face[0], face[1], face[2]});
+    }
+    PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
+    PyObject *face_frames_list = PyList_New(1);
+    PyObject *orientation_breaks_list = PyList_New(0);
+    if (face_frames_list) {
+        PyObject *frame = PyDict_New();
+        if (frame) {
+            PyObject *face_index = PyLong_FromLong(0);
+            PyObject *origin_obj = build_vec3_tuple(origin);
+            PyObject *normal_obj = build_vec3_tuple(normal);
+            PyObject *x_axis_obj = build_vec3_tuple(x_axis);
+            PyObject *y_axis_obj = build_vec3_tuple(y_axis);
+            if (face_index && origin_obj && normal_obj && x_axis_obj && y_axis_obj) {
+                PyDict_SetItemString(frame, "face_index", face_index);
+                PyDict_SetItemString(frame, "origin", origin_obj);
+                PyDict_SetItemString(frame, "normal", normal_obj);
+                PyDict_SetItemString(frame, "x_axis", x_axis_obj);
+                PyDict_SetItemString(frame, "y_axis", y_axis_obj);
+                PyDict_SetItemString(frame, "continuous", Py_True);
+                PyList_SET_ITEM(face_frames_list, 0, frame);
+            } else {
+                Py_DECREF(frame);
+                Py_DECREF(face_frames_list);
+                face_frames_list = nullptr;
+            }
+            Py_XDECREF(face_index);
+            Py_XDECREF(origin_obj);
+            Py_XDECREF(normal_obj);
+            Py_XDECREF(x_axis_obj);
+            Py_XDECREF(y_axis_obj);
+        } else {
+            Py_DECREF(face_frames_list);
+            face_frames_list = nullptr;
+        }
+    }
+    if (!fabric_points_list || !fabric_quads_list || !boundary_loops_list || !strains_list || !mesh_points_list || !mesh_faces_list || !face_frames_list || !orientation_breaks_list) {
         Py_XDECREF(fabric_points_list);
+        Py_XDECREF(fabric_quads_list);
         Py_XDECREF(boundary_loops_list);
         Py_XDECREF(strains_list);
+        Py_XDECREF(mesh_points_list);
+        Py_XDECREF(mesh_faces_list);
+        Py_XDECREF(face_frames_list);
+        Py_XDECREF(orientation_breaks_list);
         Py_DECREF(params_copy);
         return nullptr;
     }
@@ -573,8 +628,13 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyObject *result = PyDict_New();
     if (!result) {
         Py_DECREF(fabric_points_list);
+        Py_DECREF(fabric_quads_list);
         Py_DECREF(boundary_loops_list);
         Py_DECREF(strains_list);
+        Py_DECREF(mesh_points_list);
+        Py_DECREF(mesh_faces_list);
+        Py_DECREF(face_frames_list);
+        Py_DECREF(orientation_breaks_list);
         Py_DECREF(params_copy);
         return nullptr;
     }
@@ -585,6 +645,10 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "fabric_quads", fabric_quads_list);
     PyDict_SetItemString(result, "boundary_loops", boundary_loops_list);
     PyDict_SetItemString(result, "strains", strains_list);
+    PyDict_SetItemString(result, "mesh_points", mesh_points_list);
+    PyDict_SetItemString(result, "mesh_faces", mesh_faces_list);
+    PyDict_SetItemString(result, "face_frames", face_frames_list);
+    PyDict_SetItemString(result, "orientation_breaks", orientation_breaks_list);
     PyDict_SetItemString(result, "origin", build_vec3_tuple(origin));
     PyDict_SetItemString(result, "normal", build_vec3_tuple(normal));
     PyDict_SetItemString(result, "x_axis", build_vec3_tuple(x_axis));
@@ -595,6 +659,10 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     Py_DECREF(fabric_quads_list);
     Py_DECREF(boundary_loops_list);
     Py_DECREF(strains_list);
+    Py_DECREF(mesh_points_list);
+    Py_DECREF(mesh_faces_list);
+    Py_DECREF(face_frames_list);
+    Py_DECREF(orientation_breaks_list);
     Py_DECREF(params_copy);
     return result;
 }
