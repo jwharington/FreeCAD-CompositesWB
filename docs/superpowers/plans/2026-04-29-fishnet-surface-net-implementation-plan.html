@@ -215,7 +215,7 @@
 
     <section id="phase2" class="card phase">
       <h2>Phase 2 — workbench integration</h2>
-      <p class="meta">Objective: route <code>CompositeShell</code> to the new direct-surface net solver and update the visualization path.</p>
+      <p class="meta">Objective: route <code>CompositeShell</code> to the new direct-surface net solver, preserve the existing texture-plan workflow, and update the visualization path.</p>
 
       <h3>1. Replace mesh conversion in production</h3>
       <ul class="tight">
@@ -231,14 +231,25 @@
         <li>translate solver diagnostics into <code>DrapeStatus</code> / <code>DrapeError</code></li>
       </ul>
 
-      <h3>3. Update plotting / previews</h3>
+      <h3>3. Integrate with existing texture renderer</h3>
+      <p>
+        Keep the current texture-plan and grid-rendering path working by continuing to expose the same boundary and texture-coordinate concepts, but source them from the new surface-sampled net result instead of the triangulated mesh pipeline.
+      </p>
+      <ul class="tight">
+        <li>preserve <code>get_tex_coords()</code> and <code>get_boundaries()</code> as the compatibility boundary for <code>TexturePlan</code> and <code>MeshGridShader</code></li>
+        <li>ensure the new solver emits node ordering and boundary loops that can drive the existing wire/texture overlays</li>
+        <li>keep the display-layer / rosette orientation flow intact so texture orientation remains consistent</li>
+        <li>avoid requiring the texture renderer to know about solver internals; it should consume the same high-level data it does today</li>
+      </ul>
+
+      <h3>4. Update plotting / previews</h3>
       <ul class="tight">
         <li>render the source surface in one color and the drape net in another</li>
         <li>show quads or net lines instead of triangle faces for the draped result</li>
         <li>keep optional plot generation behind <code>FISHNET_PLOTS=1</code></li>
       </ul>
 
-      <h3>4. Keep command/UI stable</h3>
+      <h3>5. Keep command/UI stable</h3>
       <p>
         The existing command and object type can remain stable while the backend changes. Any later task-panel refinements should only expose solver parameters, not alter the document-object contract.
       </p>
@@ -323,6 +334,7 @@
         <li>pin-jointed net data model</li>
         <li>GIB-style relaxation solver</li>
         <li>Python adapter for <code>CompositeShell</code></li>
+        <li>compatibility with the existing texture renderer (<code>TexturePlan</code> / <code>MeshGridShader</code>)</li>
         <li>quad/net plot updates</li>
         <li>new/updated tests for plane, cylinder, concave, and seam-like surfaces</li>
       </ul>
@@ -335,6 +347,7 @@
         <li>the solver samples the object surface directly</li>
         <li>the fishnet is represented as a pin-jointed net and outputs quads as the primary cell type</li>
         <li>existing workbench consumers still use the same <code>CompositeShell</code> API</li>
+        <li>the texture-plan workflow continues to work using the new solver output</li>
         <li>tests and plots clearly show the new topology and remain easy to debug</li>
       </ul>
     </section>
