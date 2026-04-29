@@ -1092,20 +1092,19 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
 
     PyObject *face_frames_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
     PyObject *orientation_breaks_list = PyList_New(0);
-    PyObject *atlas_charts_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
+    PyObject *sampled_faces_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
+    PyObject *atlas_charts_list = PyList_New(0);
     PyObject *atlas_seams_list = PyList_New(0);
     PyObject *atlas_breaks_list = PyList_New(0);
-    PyObject *atlas_face_frames_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
+    PyObject *atlas_face_frames_list = PyList_New(0);
     PyObject *atlas_reasons_list = PyList_New(0);
-    if (!fabric_points_list || !fabric_quads_list || !boundary_loops_list || !strains_list || !mesh_points_list || !mesh_faces_list || !face_frames_list || !orientation_breaks_list || !atlas_charts_list || !atlas_seams_list || !atlas_breaks_list || !atlas_face_frames_list || !atlas_reasons_list) {
-        Py_XDECREF(fabric_points_list);
-        Py_XDECREF(fabric_quads_list);
-        Py_XDECREF(boundary_loops_list);
-        Py_XDECREF(strains_list);
-        Py_XDECREF(mesh_points_list);
-        Py_XDECREF(mesh_faces_list);
+    PyObject *fishnet_module = nullptr;
+    PyObject *atlas_builder = nullptr;
+    PyObject *helper_args = nullptr;
+    if (!face_frames_list || !orientation_breaks_list || !sampled_faces_list || !atlas_charts_list || !atlas_seams_list || !atlas_breaks_list || !atlas_face_frames_list || !atlas_reasons_list) {
         Py_XDECREF(face_frames_list);
         Py_XDECREF(orientation_breaks_list);
+        Py_XDECREF(sampled_faces_list);
         Py_XDECREF(atlas_charts_list);
         Py_XDECREF(atlas_seams_list);
         Py_XDECREF(atlas_breaks_list);
@@ -1115,24 +1114,27 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         return nullptr;
     }
 
-    double chart_offset = 0.0;
-    double chart_gap = 4.0;
     for (size_t i = 0; i < samples.size(); ++i) {
-        PyObject *frame = build_face_frame_dict(samples[i], face_indices[i], true);
-        PyObject *atlas_frame = build_face_frame_dict(samples[i], face_indices[i], true, static_cast<int>(i));
-        PyObject *chart = build_chart_dict(samples[i], static_cast<int>(i), chart_offset);
-        if (!frame || !atlas_frame || !chart) {
+        const FaceSample &sample = samples[i];
+        PyObject *frame = build_face_frame_dict(sample, face_indices[i], true);
+        PyObject *sampled = PyDict_New();
+        PyObject *points_list = build_vec3_list(sample.points);
+        std::vector<std::vector<int>> triangle_vec;
+        triangle_vec.reserve(sample.triangles.size());
+        for (const auto &tri : sample.triangles) {
+            triangle_vec.push_back({tri[0], tri[1], tri[2]});
+        }
+        PyObject *triangles_list = build_quad_list(triangle_vec);
+        PyObject *quads_list = build_quad_list(sample.quads);
+        if (!frame || !sampled || !points_list || !triangles_list || !quads_list) {
             Py_XDECREF(frame);
-            Py_XDECREF(atlas_frame);
-            Py_XDECREF(chart);
-            Py_DECREF(fabric_points_list);
-            Py_DECREF(fabric_quads_list);
-            Py_DECREF(boundary_loops_list);
-            Py_DECREF(strains_list);
-            Py_DECREF(mesh_points_list);
-            Py_DECREF(mesh_faces_list);
+            Py_XDECREF(sampled);
+            Py_XDECREF(points_list);
+            Py_XDECREF(triangles_list);
+            Py_XDECREF(quads_list);
             Py_DECREF(face_frames_list);
             Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
             Py_DECREF(atlas_charts_list);
             Py_DECREF(atlas_seams_list);
             Py_DECREF(atlas_breaks_list);
@@ -1141,22 +1143,242 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             Py_DECREF(params_copy);
             return nullptr;
         }
+        PyDict_SetItemString(sampled, "points", points_list);
+        PyDict_SetItemString(sampled, "triangles", triangles_list);
+        PyDict_SetItemString(sampled, "quads", quads_list);
+        PyDict_SetItemString(sampled, "frame", frame);
+        PyObject *sampled_face = Py_BuildValue("(iOO)", static_cast<int>(i), faces[i], sampled);
+        if (!sampled_face) {
+            Py_DECREF(frame);
+            Py_DECREF(sampled);
+            Py_DECREF(points_list);
+            Py_DECREF(triangles_list);
+            Py_DECREF(quads_list);
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyList_SET_ITEM(sampled_faces_list, static_cast<Py_ssize_t>(i), sampled_face);
         PyList_SET_ITEM(face_frames_list, static_cast<Py_ssize_t>(i), frame);
-        PyList_SET_ITEM(atlas_face_frames_list, static_cast<Py_ssize_t>(i), atlas_frame);
-        PyList_SET_ITEM(atlas_charts_list, static_cast<Py_ssize_t>(i), chart);
-        chart_offset += chart_x_span(samples[i]) + chart_gap;
+        Py_DECREF(sampled);
+        Py_DECREF(points_list);
+        Py_DECREF(triangles_list);
+        Py_DECREF(quads_list);
+    }
+
+    if (samples.size() == 1) {
+        Py_DECREF(atlas_charts_list);
+        atlas_charts_list = PyList_New(1);
+        if (!atlas_charts_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyObject *chart = build_chart_dict(samples[0], 0, 0.0);
+        if (!chart) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyList_SET_ITEM(atlas_charts_list, 0, chart);
+
+        Py_DECREF(atlas_breaks_list);
+        atlas_breaks_list = PySequence_List(orientation_breaks_list);
+        if (!atlas_breaks_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+
+        Py_DECREF(atlas_face_frames_list);
+        atlas_face_frames_list = PyList_New(1);
+        if (!atlas_face_frames_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyObject *atlas_frame = build_face_frame_dict(samples[0], face_indices[0], true, 0);
+        if (!atlas_frame) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyList_SET_ITEM(atlas_face_frames_list, 0, atlas_frame);
+
+        Py_DECREF(atlas_reasons_list);
+        atlas_reasons_list = PyList_New(0);
+        if (!atlas_reasons_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+    } else {
+        fishnet_module = PyImport_ImportModule("freecad.Composites.tools.fishnet_atlas");
+        if (fishnet_module) {
+            atlas_builder = PyObject_GetAttrString(fishnet_module, "build_atlas_charts_from_samples");
+        }
+        if (!atlas_builder) {
+            PyErr_Clear();
+            Py_XDECREF(fishnet_module);
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        helper_args = Py_BuildValue("(OOO)", sampled_faces_list, face_frames_list, orientation_breaks_list);
+        if (!helper_args) {
+            Py_DECREF(fishnet_module);
+            Py_DECREF(atlas_builder);
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        PyObject *native_atlas = PyObject_CallObject(atlas_builder, helper_args);
+        Py_DECREF(helper_args);
+        Py_DECREF(atlas_builder);
+        Py_DECREF(fishnet_module);
+        if (!native_atlas) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        Py_DECREF(atlas_charts_list);
+        atlas_charts_list = native_atlas;
+
+        Py_DECREF(atlas_breaks_list);
+        atlas_breaks_list = PySequence_List(orientation_breaks_list);
+        if (!atlas_breaks_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(atlas_reasons_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        Py_DECREF(atlas_reasons_list);
+        atlas_reasons_list = PyList_New(PyList_Size(atlas_breaks_list));
+        if (!atlas_reasons_list) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(sampled_faces_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(atlas_seams_list);
+            Py_DECREF(atlas_breaks_list);
+            Py_DECREF(atlas_face_frames_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        for (Py_ssize_t i = 0; i < PyList_Size(atlas_breaks_list); ++i) {
+            PyObject *item = PyList_GetItem(atlas_breaks_list, i);
+            PyObject *reason = item ? PyDict_GetItemString(item, "reason") : nullptr;
+            if (reason) {
+                Py_INCREF(reason);
+                PyList_SET_ITEM(atlas_reasons_list, i, reason);
+            } else {
+                PyList_SET_ITEM(atlas_reasons_list, i, PyUnicode_FromString(""));
+            }
+        }
+    }
+
+    Py_ssize_t chart_count = PyList_Size(atlas_charts_list);
+    for (Py_ssize_t chart_index = 0; chart_index < chart_count; ++chart_index) {
+        PyObject *chart = PyList_GetItem(atlas_charts_list, chart_index);
+        if (!chart) {
+            continue;
+        }
+        PyObject *chart_seams = PyDict_GetItemString(chart, "seams");
+        if (chart_seams && PyList_Check(chart_seams)) {
+            for (Py_ssize_t i = 0; i < PyList_Size(chart_seams); ++i) {
+                PyObject *item = PyList_GetItem(chart_seams, i);
+                if (item) {
+                    PyList_Append(atlas_seams_list, item);
+                }
+            }
+        }
+        PyObject *chart_face_frames = PyDict_GetItemString(chart, "face_frames");
+        if (chart_face_frames && PyList_Check(chart_face_frames)) {
+            for (Py_ssize_t i = 0; i < PyList_Size(chart_face_frames); ++i) {
+                PyObject *item = PyList_GetItem(chart_face_frames, i);
+                if (item) {
+                    PyList_Append(atlas_face_frames_list, item);
+                }
+            }
+        }
     }
 
     PyObject *result = PyDict_New();
     if (!result) {
-        Py_DECREF(fabric_points_list);
-        Py_DECREF(fabric_quads_list);
-        Py_DECREF(boundary_loops_list);
-        Py_DECREF(strains_list);
-        Py_DECREF(mesh_points_list);
-        Py_DECREF(mesh_faces_list);
         Py_DECREF(face_frames_list);
         Py_DECREF(orientation_breaks_list);
+        Py_DECREF(sampled_faces_list);
         Py_DECREF(atlas_charts_list);
         Py_DECREF(atlas_seams_list);
         Py_DECREF(atlas_breaks_list);
@@ -1195,6 +1417,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     Py_DECREF(mesh_faces_list);
     Py_DECREF(face_frames_list);
     Py_DECREF(orientation_breaks_list);
+    Py_DECREF(sampled_faces_list);
     Py_DECREF(atlas_charts_list);
     Py_DECREF(atlas_seams_list);
     Py_DECREF(atlas_breaks_list);
