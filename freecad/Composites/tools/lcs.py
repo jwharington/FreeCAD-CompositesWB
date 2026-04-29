@@ -12,7 +12,7 @@ from Part import (
 )
 
 from ..util.geometry_util import normalise_orientation
-from .draper import Draper
+from .fishnet_draper import Draper
 
 
 def transfer_lcs_to_point(

@@ -106,10 +106,7 @@ sys.modules["Part"] = _part_mod
 # MeshEnums mock (required by CompositeShell.py)
 sys.modules["MeshEnums"] = MagicMock()
 
-# flatmesh mock (required by tools/draper.py which CompositeShell.py imports)
-sys.modules["flatmesh"] = MagicMock()
-
-# Mesh / MeshPart mocks (required by util/mesh_util.py via draper.py)
+# Mesh / MeshPart mocks (required by util/mesh_util.py via fishnet_draper.py)
 sys.modules["Mesh"] = MagicMock()
 sys.modules["MeshPart"] = MagicMock()
 
@@ -359,11 +356,11 @@ _mesh_util_mod = _load_module(
     "freecad/Composites/util/mesh_util.py",
 )
 
-_draper_mod = _load_module(
-    "freecad.Composites.tools.draper",
-    "freecad/Composites/tools/draper.py",
+_fishnet_draper_mod = _load_module(
+    "freecad.Composites.tools.fishnet_draper",
+    "freecad/Composites/tools/fishnet_draper.py",
 )
-_fake_tools_pkg.draper = _draper_mod
+_fake_tools_pkg.fishnet_draper = _fishnet_draper_mod
 
 _lcs_mod = _load_module(
     "freecad.Composites.tools.lcs",

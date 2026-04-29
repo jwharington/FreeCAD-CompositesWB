@@ -12,7 +12,8 @@ from .. import (
     roma_map,
 )
 from ..shaders.MeshGridShader import MeshGridShader
-from ..tools.draper import Draper
+from ..taskpanels import task_fishnet_drape
+from ..tools.fishnet_draper import Draper
 from ..tools.fibre import (
     make_fibre_length_analysis,
     make_fibre_orientation_analysis,
@@ -80,6 +81,41 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyFloat",
+            name="FabricSpacing",
+            group="Draping",
+            doc="Target spacing between fishnet nodes",
+        )
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="RelaxWeight",
+            group="Draping",
+            doc="Fishnet relaxation damping",
+        )
+
+        obj.addProperty(
+            type="App::PropertyInteger",
+            name="SolveSteps",
+            group="Draping",
+            doc="Number of fishnet propagation passes",
+        )
+
+        obj.addProperty(
+            type="App::PropertyString",
+            name="DrapeStatus",
+            group="Draping",
+            doc="Fishnet drape solver status",
+        )
+
+        obj.addProperty(
+            type="App::PropertyString",
+            name="DrapeError",
+            group="Draping",
+            doc="Fishnet drape solver error message",
+        )
+
+        obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Mesh",
             group="Orthographic",
@@ -95,17 +131,26 @@ class CompositeShellFP(CompositeBaseFP):
         obj.setPropertyStatus("Mesh", "ReadOnly")
 
         obj.MaxLength = 5.0
+        obj.FabricSpacing = 5.0
+        obj.RelaxWeight = 0.95
+        obj.SolveSteps = 5
+        obj.DrapeStatus = "Idle"
+        obj.DrapeError = ""
         obj.LocalCoordinateSystem = lcs
         obj.Rosette = rosette
         obj.Laminate = laminate
         obj.Support = support
 
+        self.draper = None
         self._rosette_angle = 0.0
 
         super().__init__(obj)
 
     def execute(self, fp):
         if (not fp.Support) or (not fp.Laminate):
+            fp.DrapeStatus = "Error"
+            fp.DrapeError = "Support and laminate are required"
+            self.draper = None
             return
 
         fp.Shape = fp.Support.Shape
@@ -121,12 +166,28 @@ class CompositeShellFP(CompositeBaseFP):
 
         try:
             mesh = shape2Mesh(fp.Shape, fp.MaxLength)
-            self.draper = Draper(mesh, get_lcs(), fp.Shape)
-            if self.has_valid_draper():
-                fp.Mesh.Mesh = mesh
+            fp.Mesh.Mesh = mesh
+            self.draper = Draper(
+                mesh,
+                get_lcs(),
+                fp.Shape,
+                fabric_spacing=fp.FabricSpacing,
+                relax_weight=fp.RelaxWeight,
+                steps=fp.SolveSteps,
+            )
+            if not self.has_valid_draper():
+                raise ValueError(getattr(self.draper, "error", "Can't flatten shape"))
+            fp.DrapeStatus = "Ready"
+            fp.DrapeError = ""
+            try:
                 self.fibre_analysis(fp)
-        except Exception:
+            except Exception as exc:
+                Console.PrintError(f"Fishnet fibre analysis skipped: {exc}\n")
+        except Exception as exc:
             self.draper = None
+            fp.DrapeStatus = "Error"
+            fp.DrapeError = str(exc)
+            Console.PrintError(f"Fishnet drape failed: {exc}\n")
 
         if fp.ViewObject:
             fp.ViewObject.update()
@@ -147,11 +208,11 @@ class CompositeShellFP(CompositeBaseFP):
                 fp.recompute()
             case "LocalCoordinateSystem" | "Rosette":
                 fp.recompute()
-            case "MaxLength" | "Support":
+            case "MaxLength" | "Support" | "FabricSpacing" | "RelaxWeight" | "SolveSteps":
                 fp.recompute()
 
     def has_valid_draper(self):
-        return hasattr(self, "draper") and self.draper and self.draper.isValid()
+        return bool(getattr(self, "draper", None) and self.draper.isValid())
 
     def get_tex_coords(self, offset_angle_deg):
         if self.has_valid_draper():
@@ -164,7 +225,7 @@ class CompositeShellFP(CompositeBaseFP):
     def get_draper(self):
         if self.has_valid_draper():
             return self.draper
-        raise ValueError("Draper invalid")
+        raise ValueError("Fishnet draper invalid")
 
     def get_drape_lcs(self, tris):
         if self.has_valid_draper():
@@ -190,6 +251,8 @@ class CompositeShellFP(CompositeBaseFP):
 
 
 class ViewProviderCompositeShell:
+    _taskPanel = task_fishnet_drape._TaskPanel
+
     def __init__(self, obj):
         self.grid_shader = MeshGridShader()
 
@@ -427,7 +490,7 @@ class ViewProviderCompositeShell:
             return
         vobj = self.Object
         obj = vobj.Proxy
-        if not hasattr(obj, "draper"):
+        if not getattr(obj, "draper", None):
             return
 
         aobj = vobj.Mesh
