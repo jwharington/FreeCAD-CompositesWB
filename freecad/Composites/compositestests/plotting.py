@@ -203,6 +203,63 @@ def save_native_fishnet_plot(title, points, faces, result):
     return out
 
 
+def save_single_face_comparison_plot(
+    title,
+    legacy_points,
+    legacy_faces,
+    native_points,
+    native_faces,
+    legacy_boundaries=None,
+    native_boundaries=None,
+    legacy_cells=None,
+    native_cells=None,
+):
+    if not plots_enabled():
+        return None
+
+    try:
+        plt = _import_pyplot()
+    except Exception as exc:  # pragma: no cover - opt-in only
+        print(f"Fishnet plot skipped (matplotlib unavailable): {exc}")
+        return None
+
+    out = plot_output_dir() / f"{title}.png"
+    fig = plt.figure(figsize=(14, 6))
+    fig.suptitle(title)
+
+    ax1 = fig.add_subplot(1, 2, 1)
+    ax1.set_title("Legacy flatten")
+    _plot_2d_mesh(
+        ax1,
+        legacy_points,
+        legacy_faces,
+        edge_color="#6b7280",
+        point_color="#4b5563",
+        linewidth=1.1,
+        cells=legacy_cells or legacy_faces,
+    )
+    _plot_boundaries(ax1, legacy_boundaries, color="#d62728")
+
+    ax2 = fig.add_subplot(1, 2, 2)
+    ax2.set_title("Native fishnet")
+    _plot_2d_mesh(
+        ax2,
+        native_points,
+        native_faces,
+        edge_color="#1f77b4",
+        point_color="#1f77b4",
+        linewidth=1.1,
+        cells=native_cells or native_faces,
+    )
+    _plot_boundaries(ax2, native_boundaries, color="#d62728")
+
+    fig.tight_layout()
+    fig.savefig(out, dpi=160)
+    plt.close(fig)
+    print(f"Saved fishnet plot: {out}")
+    return out
+
+
 def _plot_shape_3d(ax, shape, deflection=1.0):
     try:
         points, tris = shape.tessellate(deflection)

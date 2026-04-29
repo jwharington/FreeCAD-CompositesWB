@@ -6,6 +6,7 @@ import importlib.util
 import math
 import os
 import sys
+import types
 import unittest
 
 
@@ -28,7 +29,9 @@ def _load_plotting_module():
     return mod
 
 
-save_native_fishnet_plot = _load_plotting_module().save_native_fishnet_plot
+_plotting = _load_plotting_module()
+save_native_fishnet_plot = _plotting.save_native_fishnet_plot
+save_single_face_comparison_plot = _plotting.save_single_face_comparison_plot
 
 
 def _load_fishnet_module():
@@ -71,6 +74,63 @@ def _make_grid_mesh(xs, ys, z_func):
             faces.append((a, b, c))
             faces.append((a, c, d))
     return points, faces
+
+
+def _best_face_alignment(face):
+    import FreeCAD
+
+    u0, u1, v0, v1 = face.ParameterRange
+    u = (u0 + u1) / 2.0
+    v = (v0 + v1) / 2.0
+    origin = face.valueAt(u, v)
+    normal = face.normalAt(u, v)
+
+    best = None
+    for edge in face.Edges:
+        tangent = edge.tangentAt(edge.FirstParameter)
+        projected = tangent - normal * tangent.dot(normal)
+        if best is None or projected.Length > best[0]:
+            best = (projected.Length, projected)
+
+    if best is None or best[0] <= 1.0e-9:
+        ref = FreeCAD.Vector(0, 0, 1) if abs(normal.z) < 0.9 else FreeCAD.Vector(1, 0, 0)
+        x_axis = ref.cross(normal)
+    else:
+        x_axis = best[1]
+
+    x_axis.normalize()
+    y_axis = normal.cross(x_axis)
+    y_axis.normalize()
+    rotation = FreeCAD.Rotation(x_axis, y_axis, normal, "ZXY")
+    return FreeCAD.Placement(origin, rotation)
+
+
+def _make_legacy_single_face_draper(face, deflection=1.0):
+    import FreeCAD
+    import freecad.Composites.tools.draper as draper_mod
+
+    points, tris = face.tessellate(deflection)
+    mesh_points = [types.SimpleNamespace(x=float(p[0]), y=float(p[1]), z=float(p[2]), Vector=FreeCAD.Vector(*p)) for p in points]
+    mesh = types.SimpleNamespace(
+        Points=mesh_points,
+        Topology=(None, [list(tri[:3]) for tri in tris]),
+        CountFacets=len(tris),
+    )
+
+    class _LCS:
+        def __init__(self, placement):
+            self._placement = placement
+
+        def getGlobalPlacement(self):
+            return self._placement
+
+    placement = _best_face_alignment(face)
+    original_calc_strain = draper_mod.Draper.calc_strain
+    draper_mod.Draper.calc_strain = lambda self, facet: [0.0, 0.0, 0.0]
+    try:
+        return draper_mod.Draper(mesh, _LCS(placement), face)
+    finally:
+        draper_mod.Draper.calc_strain = original_calc_strain
 
 
 def _make_axially_sliced_cone_mesh():
@@ -151,6 +211,83 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertGreaterEqual(len(result["boundary_loops"]), 1)
         self.assertEqual(len(result["strains"]), len(faces))
         save_native_fishnet_plot("native_cylinder_patch", cylinder_points, faces, result)
+
+    def test_cylinder_face_legacy_vs_native_compare(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCylinder(
+                12,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius")
+        )
+        legacy = _make_legacy_single_face_draper(face)
+        native = _fishnet.solve(face, parameters={"fabric_spacing": 3.0})
+
+        self.assertTrue(legacy.isValid())
+        self.assertTrue(native["valid"])
+        self.assertGreater(len(legacy.fabric_points), 0)
+        self.assertGreater(len(native["fabric_points"]), 0)
+        self.assertEqual(len(legacy.get_boundaries()), 1)
+        self.assertEqual(len(native["boundary_loops"]), 1)
+        plot_path = save_single_face_comparison_plot(
+            title="native_vs_legacy_cylinder_face",
+            legacy_points=legacy.fabric_points,
+            legacy_faces=legacy.mesh.Topology[1],
+            native_points=native["fabric_points"],
+            native_faces=native["mesh_faces"],
+            legacy_boundaries=legacy.get_boundaries(),
+            native_boundaries=native["boundary_loops"],
+            legacy_cells=legacy.mesh.Topology[1],
+            native_cells=native["fabric_quads"],
+        )
+        if plot_path is not None:
+            self.assertTrue(plot_path.exists())
+
+    def test_cone_face_legacy_vs_native_compare(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                5,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+        legacy = _make_legacy_single_face_draper(face)
+        native = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
+
+        self.assertTrue(legacy.isValid())
+        self.assertTrue(native["valid"])
+        self.assertGreater(len(legacy.fabric_points), 0)
+        self.assertGreater(len(native["fabric_points"]), 0)
+        self.assertEqual(len(legacy.get_boundaries()), 1)
+        self.assertEqual(len(native["boundary_loops"]), 1)
+        plot_path = save_single_face_comparison_plot(
+            title="native_vs_legacy_cone_face",
+            legacy_points=legacy.fabric_points,
+            legacy_faces=legacy.mesh.Topology[1],
+            native_points=native["fabric_points"],
+            native_faces=native["mesh_faces"],
+            legacy_boundaries=legacy.get_boundaries(),
+            native_boundaries=native["boundary_loops"],
+            legacy_cells=legacy.mesh.Topology[1],
+            native_cells=native["fabric_quads"],
+        )
+        if plot_path is not None:
+            self.assertTrue(plot_path.exists())
 
     def test_axially_sliced_cone_mesh_solves(self):
         points, faces = _make_axially_sliced_cone_mesh()
