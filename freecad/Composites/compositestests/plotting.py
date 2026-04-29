@@ -40,19 +40,37 @@ def _xyz(value):
     raise TypeError(f"unsupported point value {value!r}")
 
 
-def _plot_2d_mesh(ax, points, faces, color="0.75", linewidth=0.7, marker_size=6):
+def _plot_2d_mesh(
+    ax,
+    points,
+    faces,
+    edge_color="#7f8c8d",
+    point_color=None,
+    linewidth=1.0,
+    marker_size=10,
+    alpha=1.0,
+):
     pts = [_xyz(point) for point in points]
     for face in faces:
         idx = [int(i) for i in face[:3]]
         loop = [pts[i] for i in idx] + [pts[idx[0]]]
         xs = [p[0] for p in loop]
         ys = [p[1] for p in loop]
-        ax.plot(xs, ys, color=color, linewidth=linewidth)
-    ax.scatter([p[0] for p in pts], [p[1] for p in pts], s=marker_size, color="black")
+        ax.plot(xs, ys, color=edge_color, linewidth=linewidth, alpha=alpha)
+    ax.scatter(
+        [p[0] for p in pts],
+        [p[1] for p in pts],
+        s=marker_size,
+        color=point_color or edge_color,
+        edgecolors="white",
+        linewidths=0.4,
+        alpha=alpha,
+        zorder=3,
+    )
     ax.set_aspect("equal", adjustable="box")
 
 
-def _plot_boundaries(ax, boundaries, color="tab:red", linewidth=2.0):
+def _plot_boundaries(ax, boundaries, color="#d62728", linewidth=2.4):
     for loop in boundaries or []:
         pts = [_xyz(point) for point in loop]
         if len(pts) < 2:
@@ -78,14 +96,21 @@ def save_native_fishnet_plot(title, points, faces, result):
 
     ax1 = fig.add_subplot(1, 2, 1)
     ax1.set_title("Input mesh")
-    _plot_2d_mesh(ax1, points, faces, color="0.7")
+    _plot_2d_mesh(ax1, points, faces, edge_color="#9aa0a6", point_color="#4b5563")
 
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.set_title("Solved drape")
     fabric_points = result.get("fabric_points", [])
     fabric_faces = faces
-    _plot_2d_mesh(ax2, fabric_points, fabric_faces, color="0.55")
-    _plot_boundaries(ax2, result.get("boundary_loops", []), color="tab:red")
+    _plot_2d_mesh(
+        ax2,
+        fabric_points,
+        fabric_faces,
+        edge_color="#1f77b4",
+        point_color="#1f77b4",
+        linewidth=1.2,
+    )
+    _plot_boundaries(ax2, result.get("boundary_loops", []), color="#d62728")
 
     fig.tight_layout()
     fig.savefig(out, dpi=160)
@@ -108,7 +133,7 @@ def _plot_shape_3d(ax, shape, deflection=1.0):
         xs = [p[0] for p in loop]
         ys = [p[1] for p in loop]
         zs = [p[2] for p in loop]
-        ax.plot(xs, ys, zs, color="0.6", linewidth=0.6)
+        ax.plot(xs, ys, zs, color="#8b949e", linewidth=0.7, alpha=0.9)
     return pts, tris
 
 
@@ -137,8 +162,15 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries):
     ax2.set_title("Drape mesh")
     if mesh and getattr(mesh, "Topology", None):
         faces = mesh.Topology[1]
-        _plot_2d_mesh(ax2, tex_coords, faces, color="0.55")
-    _plot_boundaries(ax2, boundaries, color="tab:red")
+        _plot_2d_mesh(
+            ax2,
+            tex_coords,
+            faces,
+            edge_color="#1f77b4",
+            point_color="#1f77b4",
+            linewidth=1.15,
+        )
+    _plot_boundaries(ax2, boundaries, color="#d62728")
 
     fig.tight_layout()
     fig.savefig(out, dpi=160)
