@@ -73,6 +73,25 @@ def _make_grid_mesh(xs, ys, z_func):
     return points, faces
 
 
+def _make_axially_sliced_cone_mesh():
+    import FreeCAD
+    import Part
+
+    cone = Part.makeCone(
+        12,
+        0,
+        24,
+        FreeCAD.Vector(0, 0, 0),
+        FreeCAD.Vector(0, 0, 1),
+    )
+    cutter = Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100))
+    half_cone = cone.cut(cutter)
+    points, tris = half_cone.tessellate(1.0)
+    mesh_points = [tuple(point) for point in points]
+    mesh_faces = [tuple(int(index) for index in tri[:3]) for tri in tris]
+    return mesh_points, mesh_faces
+
+
 class TestFishnetSolver(unittest.TestCase):
     def test_simple_square_mesh_solves(self):
         points = [
@@ -132,6 +151,21 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertGreaterEqual(len(result["boundary_loops"]), 1)
         self.assertEqual(len(result["strains"]), len(faces))
         save_native_fishnet_plot("native_cylinder_patch", cylinder_points, faces, result)
+
+    def test_axially_sliced_cone_mesh_solves(self):
+        points, faces = _make_axially_sliced_cone_mesh()
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"steps": 6},
+        )
+
+        self.assertTrue(result["valid"])
+        self.assertGreater(len(result["fabric_quads"]), 0)
+        self.assertEqual(len(result["boundary_loops"]), 0)
+        self.assertGreater(len(result["strains"]), 0)
+        save_native_fishnet_plot("native_axially_sliced_cone", points, faces, result)
 
     def test_concave_l_shape_mesh_solves(self):
         points = [
