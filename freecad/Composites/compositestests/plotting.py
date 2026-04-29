@@ -70,6 +70,58 @@ def _plot_2d_mesh(
     ax.set_aspect("equal", adjustable="box")
 
 
+def _plot_3d_mesh(
+    ax,
+    points,
+    faces,
+    edge_color="#7f8c8d",
+    point_color=None,
+    linewidth=1.0,
+    marker_size=10,
+    alpha=1.0,
+):
+    pts = [_xyz(point) for point in points]
+    if not pts:
+        return
+    xs_all = [p[0] for p in pts]
+    ys_all = [p[1] for p in pts]
+    zs_all = [p[2] for p in pts]
+    for face in faces:
+        idx = [int(i) for i in face[:3]]
+        loop = [pts[i] for i in idx] + [pts[idx[0]]]
+        xs = [p[0] for p in loop]
+        ys = [p[1] for p in loop]
+        zs = [p[2] for p in loop]
+        ax.plot(xs, ys, zs, color=edge_color, linewidth=linewidth, alpha=alpha)
+    ax.scatter(
+        xs_all,
+        ys_all,
+        zs_all,
+        s=marker_size,
+        color=point_color or edge_color,
+        edgecolors="white",
+        linewidths=0.4,
+        alpha=alpha,
+        zorder=3,
+    )
+    ranges = [
+        max(coord) - min(coord)
+        for coord in (xs_all, ys_all, zs_all)
+    ]
+    max_range = max(ranges) if ranges else 1.0
+    if max_range <= 0:
+        max_range = 1.0
+    centers = [
+        (max(coord) + min(coord)) / 2.0
+        for coord in (xs_all, ys_all, zs_all)
+    ]
+    half = max_range / 2.0
+    ax.set_xlim(centers[0] - half, centers[0] + half)
+    ax.set_ylim(centers[1] - half, centers[1] + half)
+    ax.set_zlim(centers[2] - half, centers[2] + half)
+    ax.set_box_aspect((1, 1, 1))
+
+
 def _plot_boundaries(ax, boundaries, color="#d62728", linewidth=2.4):
     for loop in boundaries or []:
         pts = [_xyz(point) for point in loop]
@@ -94,9 +146,9 @@ def save_native_fishnet_plot(title, points, faces, result):
     fig = plt.figure(figsize=(12, 6))
     fig.suptitle(title)
 
-    ax1 = fig.add_subplot(1, 2, 1)
+    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
     ax1.set_title("Input mesh")
-    _plot_2d_mesh(ax1, points, faces, edge_color="#9aa0a6", point_color="#4b5563")
+    _plot_3d_mesh(ax1, points, faces, edge_color="#9aa0a6", point_color="#4b5563")
 
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.set_title("Solved drape")
