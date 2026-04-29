@@ -212,15 +212,20 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
     out = plot_output_dir() / f"{title}.png"
-    fig = plt.figure(figsize=(14, 6))
+    solid_shape = getattr(shape, "ShapeType", "") == "Solid" or bool(
+        getattr(shape, "Solids", [])
+    )
+    show_unwrapped_net = solid_shape and bool(fabric_quads)
+    panel_count = 3 if show_unwrapped_net else 2
+    fig = plt.figure(figsize=(18 if show_unwrapped_net else 14, 6))
     fig.suptitle(title)
 
-    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
+    ax1 = fig.add_subplot(1, panel_count, 1, projection="3d")
     ax1.set_title("Source shape")
     _plot_shape_3d(ax1, shape)
     ax1.set_box_aspect((1, 1, 1))
 
-    ax2 = fig.add_subplot(1, 2, 2)
+    ax2 = fig.add_subplot(1, panel_count, 2)
     ax2.set_title("Drape mesh")
     if mesh and getattr(mesh, "Topology", None):
         faces = mesh.Topology[1]
@@ -234,6 +239,20 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
             cells=fabric_quads,
         )
     _plot_boundaries(ax2, boundaries, color="#d62728")
+
+    if show_unwrapped_net:
+        ax3 = fig.add_subplot(1, panel_count, 3)
+        ax3.set_title("Unwrapped net")
+        _plot_2d_mesh(
+            ax3,
+            tex_coords,
+            [],
+            edge_color="#1f77b4",
+            point_color="#1f77b4",
+            linewidth=1.15,
+            cells=fabric_quads,
+        )
+        _plot_boundaries(ax3, boundaries, color="#d62728")
 
     fig.tight_layout()
     fig.savefig(out, dpi=160)
