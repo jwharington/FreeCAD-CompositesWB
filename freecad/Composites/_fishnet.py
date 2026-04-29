@@ -703,24 +703,6 @@ def _centroid2(points):
     )
 
 
-def build_atlas_charts_from_samples(sampled_faces, face_frames=None, orientation_breaks=None):
-    """Build stitched atlas charts from pre-sampled faces.
-
-    This is a thin public wrapper so the native C++ solver can sample faces
-    directly and still reuse the existing atlas stitching logic.
-    """
-
-    faces = [face for _, face, _ in sampled_faces]
-    graph, _ = _adjacent_face_graph(faces)
-    return _build_atlas_charts(
-        faces,
-        sampled_faces,
-        graph,
-        list(face_frames or []),
-        list(orientation_breaks or []),
-    )
-
-
 def _pack_result(
     points,
     triangles,
