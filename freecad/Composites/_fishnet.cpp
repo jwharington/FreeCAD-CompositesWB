@@ -1600,6 +1600,8 @@ static FaceSample sample_face(
     double max_length,
     CurrentNodeSolverMode solver_mode,
     double max_adjacent_normal_angle,
+    bool strict_inside_updates,
+    double max_local_fold_ratio,
     ExperimentalSolveStats *experimental_stats
 ) {
     FaceSample sample;
@@ -1759,12 +1761,12 @@ static FaceSample sample_face(
                 return false;
             }
             gp_Pnt p = surface.Value(u, v);
-            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
-                if (!native_face_is_inside(face, p, kFaceInsideTolerance)) {
+            if (strict_inside_updates || solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                if (!native_face_is_strictly_inside(face, p, kFaceInsideTolerance)) {
                     return false;
                 }
             } else {
-                if (!native_face_is_strictly_inside(face, p, kFaceInsideTolerance)) {
+                if (!native_face_is_inside(face, p, kFaceInsideTolerance)) {
                     return false;
                 }
             }
@@ -1806,6 +1808,30 @@ static FaceSample sample_face(
                     !normal_compatible(i + 1, j) ||
                     !normal_compatible(i, j - 1) ||
                     !normal_compatible(i, j + 1)) {
+                    return false;
+                }
+            }
+
+            if (std::isfinite(max_local_fold_ratio) && max_local_fold_ratio > 1.0) {
+                auto local_fold_ok = [&](int ni, int nj) {
+                    if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
+                        return true;
+                    }
+                    int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                    if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                        return true;
+                    }
+                    double d_seed = norm(seed_points[static_cast<size_t>(idx)] - seed_points[static_cast<size_t>(nidx)]);
+                    if (d_seed <= kVectorZeroEpsilon) {
+                        return true;
+                    }
+                    double d_new = norm(new_point - sample.points[static_cast<size_t>(nidx)]);
+                    return d_new <= d_seed * max_local_fold_ratio && d_new >= d_seed / max_local_fold_ratio;
+                };
+                if (!local_fold_ok(i - 1, j) ||
+                    !local_fold_ok(i + 1, j) ||
+                    !local_fold_ok(i, j - 1) ||
+                    !local_fold_ok(i, j + 1)) {
                     return false;
                 }
             }
@@ -2322,6 +2348,24 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
+    bool strict_inside_updates = (solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental);
+    if (PyObject *strict_obj = PyDict_GetItemString(params_copy, "strict_inside_updates")) {
+        int parsed_bool = PyObject_IsTrue(strict_obj);
+        if (parsed_bool >= 0) {
+            strict_inside_updates = (parsed_bool != 0);
+        } else {
+            PyErr_Clear();
+        }
+    }
+    double max_local_fold_ratio = 0.0;
+    if (PyObject *ratio_obj = PyDict_GetItemString(params_copy, "max_local_fold_ratio")) {
+        double parsed_ratio = PyFloat_AsDouble(ratio_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_ratio) && parsed_ratio > 1.0) {
+            max_local_fold_ratio = parsed_ratio;
+        } else {
+            PyErr_Clear();
+        }
+    }
     ExperimentalSolveStats experimental_stats;
 
     double sample_max_length = 0.0;
@@ -2360,6 +2404,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             sample_max_length,
             solver_mode,
             max_adjacent_normal_angle,
+            strict_inside_updates,
+            max_local_fold_ratio,
             (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) ? &experimental_stats : nullptr
         );
         if (sample.points.empty() || sample.triangles.empty()) {

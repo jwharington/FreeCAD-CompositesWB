@@ -518,6 +518,19 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
                 row=1,
                 col=1,
             )
+            xs, ys, zs = _cells_to_3d_line_coords(lifted_points, tris)
+            fig.add_trace(
+                go.Scatter3d(
+                    x=xs,
+                    y=ys,
+                    z=zs,
+                    mode="lines",
+                    name="Drape edges",
+                    line={"color": "#0f3f7a", "width": 5},
+                ),
+                row=1,
+                col=1,
+            )
 
     edge_cells_2d = fabric_quads or (mesh.Topology[1] if mesh and getattr(mesh, "Topology", None) else [])
     xs2, ys2 = _cells_to_2d_line_coords(tex_coords or [], edge_cells_2d)
