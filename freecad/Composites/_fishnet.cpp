@@ -5,10 +5,30 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
+
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Tool.hxx>
+#include <Bnd_Box.hxx>
+#include <GeomLProp_SLProps.hxx>
+#include <Precision.hxx>
+#include <TopAbs_State.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
+#include <TopoDS_Shape.hxx>
+
+#include <Mod/Part/App/TopoShapePy.h>
 
 namespace {
 
@@ -16,6 +36,25 @@ struct Vec3 {
     double x{0.0};
     double y{0.0};
     double z{0.0};
+};
+
+constexpr double kVectorZeroEpsilon = 1.0e-12;
+constexpr double kFallbackNormalAlignment = 0.9;
+constexpr double kFaceInsideTolerance = 1.0e-6;
+constexpr double kAxisPerturbationScale = 1.0e-3;
+constexpr double kAxisPerturbationFloor = 1.0e-4;
+constexpr double kMinimumMaxLength = 1.0;
+constexpr double kFaceDivisionTargetSegments = 32.0;
+constexpr double kDefaultFaceSpan = 4.0;
+constexpr int kMinimumFaceDivisions = 2;
+constexpr int kMaximumFaceDivisions = 64;
+constexpr double kAtlasChartGap = 4.0;
+constexpr double kDefaultEdgeLengthTolerance = 1.0e-6;
+constexpr double kOverlapEpsilon = 1.0e-9;
+
+enum class CurrentNodeSolverMode {
+    UvNewton,
+    SphereSurfaceExperimental,
 };
 
 static Vec3 operator+(const Vec3 &a, const Vec3 &b) {
@@ -48,7 +87,7 @@ static double norm(const Vec3 &a) {
 
 static Vec3 normalize(const Vec3 &a) {
     double n = norm(a);
-    if (n <= 1.0e-12) {
+    if (n <= kVectorZeroEpsilon) {
         return {0.0, 0.0, 0.0};
     }
     return {a.x / n, a.y / n, a.z / n};
@@ -58,6 +97,407 @@ static uint64_t edge_key(int a, int b) {
     uint32_t lo = static_cast<uint32_t>(std::min(a, b));
     uint32_t hi = static_cast<uint32_t>(std::max(a, b));
     return (static_cast<uint64_t>(lo) << 32) ^ static_cast<uint64_t>(hi);
+}
+
+static double orient2(const std::array<double, 2> &a, const std::array<double, 2> &b, const std::array<double, 2> &c) {
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+static bool strict_segment_intersect(
+    const std::array<double, 2> &a,
+    const std::array<double, 2> &b,
+    const std::array<double, 2> &c,
+    const std::array<double, 2> &d,
+    double eps = kOverlapEpsilon
+) {
+    double o1 = orient2(a, b, c);
+    double o2 = orient2(a, b, d);
+    double o3 = orient2(c, d, a);
+    double o4 = orient2(c, d, b);
+    return (o1 * o2 < -eps) && (o3 * o4 < -eps);
+}
+
+static bool point_in_triangle_strict(
+    const std::array<double, 2> &p,
+    const std::array<double, 2> &a,
+    const std::array<double, 2> &b,
+    const std::array<double, 2> &c,
+    double eps = kOverlapEpsilon
+) {
+    double d1 = orient2(a, b, p);
+    double d2 = orient2(b, c, p);
+    double d3 = orient2(c, a, p);
+    bool has_pos = d1 > eps || d2 > eps || d3 > eps;
+    bool has_neg = d1 < -eps || d2 < -eps || d3 < -eps;
+    if (has_pos && has_neg) {
+        return false;
+    }
+    return std::abs(d1) > eps && std::abs(d2) > eps && std::abs(d3) > eps;
+}
+
+static bool triangles_overlap_strict(
+    const std::array<std::array<double, 2>, 3> &t1,
+    const std::array<std::array<double, 2>, 3> &t2,
+    double eps = kOverlapEpsilon
+) {
+    std::array<std::pair<std::array<double, 2>, std::array<double, 2>>, 3> e1 = {
+        std::make_pair(t1[0], t1[1]),
+        std::make_pair(t1[1], t1[2]),
+        std::make_pair(t1[2], t1[0]),
+    };
+    std::array<std::pair<std::array<double, 2>, std::array<double, 2>>, 3> e2 = {
+        std::make_pair(t2[0], t2[1]),
+        std::make_pair(t2[1], t2[2]),
+        std::make_pair(t2[2], t2[0]),
+    };
+    for (const auto &a : e1) {
+        for (const auto &b : e2) {
+            if (strict_segment_intersect(a.first, a.second, b.first, b.second, eps)) {
+                return true;
+            }
+        }
+    }
+    if (point_in_triangle_strict(t1[0], t2[0], t2[1], t2[2], eps)) {
+        return true;
+    }
+    if (point_in_triangle_strict(t2[0], t1[0], t1[1], t1[2], eps)) {
+        return true;
+    }
+    return false;
+}
+
+static bool quads_overlap_strict(
+    const std::array<std::array<double, 2>, 4> &qa,
+    const std::array<std::array<double, 2>, 4> &qb,
+    double eps = kOverlapEpsilon
+) {
+    double a_min_x = qa[0][0], a_max_x = qa[0][0], a_min_y = qa[0][1], a_max_y = qa[0][1];
+    double b_min_x = qb[0][0], b_max_x = qb[0][0], b_min_y = qb[0][1], b_max_y = qb[0][1];
+    for (int i = 1; i < 4; ++i) {
+        a_min_x = std::min(a_min_x, qa[i][0]);
+        a_max_x = std::max(a_max_x, qa[i][0]);
+        a_min_y = std::min(a_min_y, qa[i][1]);
+        a_max_y = std::max(a_max_y, qa[i][1]);
+        b_min_x = std::min(b_min_x, qb[i][0]);
+        b_max_x = std::max(b_max_x, qb[i][0]);
+        b_min_y = std::min(b_min_y, qb[i][1]);
+        b_max_y = std::max(b_max_y, qb[i][1]);
+    }
+    if (a_max_x <= b_min_x + eps || b_max_x <= a_min_x + eps ||
+        a_max_y <= b_min_y + eps || b_max_y <= a_min_y + eps) {
+        return false;
+    }
+
+    std::array<std::array<std::array<double, 2>, 3>, 2> ta = {
+        std::array<std::array<double, 2>, 3>{qa[0], qa[1], qa[2]},
+        std::array<std::array<double, 2>, 3>{qa[0], qa[2], qa[3]},
+    };
+    std::array<std::array<std::array<double, 2>, 3>, 2> tb = {
+        std::array<std::array<double, 2>, 3>{qb[0], qb[1], qb[2]},
+        std::array<std::array<double, 2>, 3>{qb[0], qb[2], qb[3]},
+    };
+    for (const auto &t_a : ta) {
+        for (const auto &t_b : tb) {
+            if (triangles_overlap_strict(t_a, t_b, eps)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static std::vector<std::pair<int, int>> perimeter_edges_from_quads(const std::vector<std::vector<int>> &quads) {
+    std::unordered_set<uint64_t> seen;
+    std::vector<std::pair<int, int>> edges;
+    edges.reserve(quads.size() * 4);
+    for (const auto &q : quads) {
+        if (q.size() < 4) {
+            continue;
+        }
+        std::array<std::pair<int, int>, 4> local = {
+            std::make_pair(q[0], q[1]),
+            std::make_pair(q[1], q[2]),
+            std::make_pair(q[2], q[3]),
+            std::make_pair(q[3], q[0]),
+        };
+        for (const auto &e : local) {
+            uint64_t key = edge_key(e.first, e.second);
+            if (seen.insert(key).second) {
+                edges.push_back({std::min(e.first, e.second), std::max(e.first, e.second)});
+            }
+        }
+    }
+    return edges;
+}
+
+static std::vector<std::pair<int, int>> edges_from_triangles(const std::vector<std::array<int, 3>> &triangles) {
+    std::unordered_set<uint64_t> seen;
+    std::vector<std::pair<int, int>> edges;
+    edges.reserve(triangles.size() * 3);
+    for (const auto &tri : triangles) {
+        std::array<std::pair<int, int>, 3> local = {
+            std::make_pair(tri[0], tri[1]),
+            std::make_pair(tri[1], tri[2]),
+            std::make_pair(tri[2], tri[0]),
+        };
+        for (const auto &e : local) {
+            uint64_t key = edge_key(e.first, e.second);
+            if (seen.insert(key).second) {
+                edges.push_back({std::min(e.first, e.second), std::max(e.first, e.second)});
+            }
+        }
+    }
+    return edges;
+}
+
+static double mean_planar_edge_length(
+    const std::vector<Vec3> &points,
+    const std::vector<std::pair<int, int>> &edges
+) {
+    if (points.empty() || edges.empty()) {
+        return 0.0;
+    }
+    double total = 0.0;
+    int count = 0;
+    for (const auto &edge : edges) {
+        int a = edge.first;
+        int b = edge.second;
+        if (a < 0 || b < 0 || a >= static_cast<int>(points.size()) || b >= static_cast<int>(points.size())) {
+            continue;
+        }
+        Vec3 d = points[static_cast<size_t>(b)] - points[static_cast<size_t>(a)];
+        total += std::sqrt(d.x * d.x + d.y * d.y);
+        ++count;
+    }
+    return count > 0 ? total / static_cast<double>(count) : 0.0;
+}
+
+static double infer_nominal_edge_length(
+    double requested,
+    const std::vector<Vec3> &fallback_points,
+    const std::vector<std::pair<int, int>> &edges
+) {
+    if (std::isfinite(requested) && requested > kVectorZeroEpsilon) {
+        return requested;
+    }
+    double fallback = mean_planar_edge_length(fallback_points, edges);
+    if (fallback > kVectorZeroEpsilon && std::isfinite(fallback)) {
+        return fallback;
+    }
+    return 1.0;
+}
+
+static void relax_fabric_points_with_edge_constraints(
+    const std::vector<Vec3> &mesh_points,
+    std::vector<Vec3> &fabric_points,
+    const std::vector<std::pair<int, int>> &edges,
+    const std::vector<std::vector<int>> &boundary_loops,
+    double requested_nominal_edge_length,
+    int iterations = 120
+) {
+    if (fabric_points.empty() || edges.empty()) {
+        return;
+    }
+
+    (void)mesh_points;
+    const double nominal_edge_length = infer_nominal_edge_length(requested_nominal_edge_length, fabric_points, edges);
+    std::unordered_map<uint64_t, size_t> edge_index;
+    edge_index.reserve(edges.size());
+    for (size_t i = 0; i < edges.size(); ++i) {
+        edge_index[edge_key(edges[i].first, edges[i].second)] = i;
+    }
+
+    auto relax_edge_to_target = [&](int a, int b, double target) {
+        if (a < 0 || b < 0 || a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+            return;
+        }
+        Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
+        double current = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        if (target <= kVectorZeroEpsilon || current <= kVectorZeroEpsilon) {
+            return;
+        }
+        double scale = (current - target) / current;
+        Vec3 corr = {0.5 * scale * delta.x, 0.5 * scale * delta.y, 0.0};
+        fabric_points[static_cast<size_t>(a)] = fabric_points[static_cast<size_t>(a)] + corr;
+        fabric_points[static_cast<size_t>(b)] = fabric_points[static_cast<size_t>(b)] - corr;
+    };
+
+    Vec3 anchor = fabric_points.front();
+    auto mean_edge_length = [&]() {
+        if (edges.empty()) {
+            return 0.0;
+        }
+        double total = 0.0;
+        int count = 0;
+        for (const auto &edge : edges) {
+            int a = edge.first;
+            int b = edge.second;
+            if (a < 0 || b < 0 || a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+                continue;
+            }
+            Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
+            total += std::sqrt(delta.x * delta.x + delta.y * delta.y);
+            ++count;
+        }
+        return count > 0 ? (total / static_cast<double>(count)) : 0.0;
+    };
+
+    for (int iter = 0; iter < iterations; ++iter) {
+        for (const auto &edge : edges) {
+            relax_edge_to_target(edge.first, edge.second, nominal_edge_length);
+        }
+
+        for (const auto &loop : boundary_loops) {
+            if (loop.size() < 2) {
+                continue;
+            }
+            double carry = 0.0;
+            for (size_t i = 0; i + 1 < loop.size(); ++i) {
+                int a = loop[i];
+                int b = loop[i + 1];
+                auto it = edge_index.find(edge_key(a, b));
+                if (it == edge_index.end()) {
+                    continue;
+                }
+                double target = nominal_edge_length + carry;
+                Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
+                double current = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+                if (current + kVectorZeroEpsilon < target) {
+                    carry = target - current;
+                    continue;
+                }
+                relax_edge_to_target(a, b, target);
+                carry = 0.0;
+            }
+        }
+
+        Vec3 shift = fabric_points.front() - anchor;
+        for (auto &p : fabric_points) {
+            p.x -= shift.x;
+            p.y -= shift.y;
+            p.z = 0.0;
+        }
+    }
+
+    double current_mean = mean_edge_length();
+    if (current_mean > kVectorZeroEpsilon && nominal_edge_length > kVectorZeroEpsilon) {
+        double global_scale = nominal_edge_length / current_mean;
+        Vec3 fixed = fabric_points.front();
+        for (auto &p : fabric_points) {
+            p.x = fixed.x + (p.x - fixed.x) * global_scale;
+            p.y = fixed.y + (p.y - fixed.y) * global_scale;
+            p.z = 0.0;
+        }
+    }
+}
+
+static std::pair<int, double> edge_length_violation_summary_for_edges(
+    const std::vector<Vec3> &mesh_points,
+    const std::vector<Vec3> &fabric_points,
+    const std::vector<std::pair<int, int>> &edges,
+    double requested_nominal_edge_length,
+    double rel_tol
+) {
+    int violations = 0;
+    double max_rel = 0.0;
+    (void)mesh_points;
+    const double nominal_edge_length = infer_nominal_edge_length(requested_nominal_edge_length, fabric_points, edges);
+    if (nominal_edge_length <= kVectorZeroEpsilon) {
+        return std::make_pair(0, 0.0);
+    }
+    for (const auto &e : edges) {
+        int a = e.first;
+        int b = e.second;
+        if (a < 0 || b < 0 ||
+            a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+            continue;
+        }
+        Vec3 fd = fabric_points[static_cast<size_t>(a)] - fabric_points[static_cast<size_t>(b)];
+        double mapped = std::sqrt(fd.x * fd.x + fd.y * fd.y);
+        double rel = std::abs(mapped - nominal_edge_length) / nominal_edge_length;
+        if (rel > rel_tol) {
+            ++violations;
+            max_rel = std::max(max_rel, rel);
+        }
+    }
+    return std::make_pair(violations, max_rel);
+}
+
+struct SeamContinuityStats {
+    int group_count{0};
+    double mean_min_distance{0.0};
+    double max_min_distance{0.0};
+};
+
+static SeamContinuityStats seam_layout_continuity_summary(
+    const std::vector<Vec3> &mesh_points,
+    const std::vector<Vec3> &fabric_points,
+    double position_tol
+) {
+    if (mesh_points.empty() || fabric_points.empty() || mesh_points.size() != fabric_points.size()) {
+        return {};
+    }
+
+    struct QuantizedPoint {
+        long long x{0};
+        long long y{0};
+        long long z{0};
+        bool operator==(const QuantizedPoint &other) const {
+            return x == other.x && y == other.y && z == other.z;
+        }
+    };
+    struct QuantizedPointHash {
+        std::size_t operator()(const QuantizedPoint &p) const {
+            std::size_t h1 = std::hash<long long>{}(p.x);
+            std::size_t h2 = std::hash<long long>{}(p.y);
+            std::size_t h3 = std::hash<long long>{}(p.z);
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+
+    double tol = std::max(1.0e-9, position_tol);
+    std::unordered_map<QuantizedPoint, std::vector<int>, QuantizedPointHash> groups;
+    groups.reserve(mesh_points.size());
+    for (size_t i = 0; i < mesh_points.size(); ++i) {
+        const Vec3 &p = mesh_points[i];
+        QuantizedPoint q{
+            static_cast<long long>(std::llround(p.x / tol)),
+            static_cast<long long>(std::llround(p.y / tol)),
+            static_cast<long long>(std::llround(p.z / tol)),
+        };
+        groups[q].push_back(static_cast<int>(i));
+    }
+
+    SeamContinuityStats stats;
+    double min_distance_total = 0.0;
+    for (const auto &entry : groups) {
+        const auto &idxs = entry.second;
+        if (idxs.size() < 2) {
+            continue;
+        }
+        double best = std::numeric_limits<double>::infinity();
+        for (size_t a = 0; a < idxs.size(); ++a) {
+            for (size_t b = a + 1; b < idxs.size(); ++b) {
+                const Vec3 &pa = fabric_points[static_cast<size_t>(idxs[a])];
+                const Vec3 &pb = fabric_points[static_cast<size_t>(idxs[b])];
+                double dx = pb.x - pa.x;
+                double dy = pb.y - pa.y;
+                double d = std::sqrt(dx * dx + dy * dy);
+                best = std::min(best, d);
+            }
+        }
+        if (!std::isfinite(best)) {
+            continue;
+        }
+        ++stats.group_count;
+        min_distance_total += best;
+        stats.max_min_distance = std::max(stats.max_min_distance, best);
+    }
+
+    if (stats.group_count > 0) {
+        stats.mean_min_distance = min_distance_total / static_cast<double>(stats.group_count);
+    }
+    return stats;
 }
 
 static bool parse_point(PyObject *obj, Vec3 &out) {
@@ -99,7 +539,24 @@ static bool parse_face(PyObject *obj, std::array<int, 3> &out) {
 }
 
 static PyObject *build_vec3_tuple(const Vec3 &v) {
-    return Py_BuildValue("(ddd)", v.x, v.y, v.z);
+    PyObject *tuple = PyTuple_New(3);
+    if (!tuple) {
+        return nullptr;
+    }
+    PyObject *x = PyFloat_FromDouble(v.x);
+    PyObject *y = PyFloat_FromDouble(v.y);
+    PyObject *z = PyFloat_FromDouble(v.z);
+    if (!x || !y || !z) {
+        Py_XDECREF(x);
+        Py_XDECREF(y);
+        Py_XDECREF(z);
+        Py_DECREF(tuple);
+        return nullptr;
+    }
+    PyTuple_SET_ITEM(tuple, 0, x);
+    PyTuple_SET_ITEM(tuple, 1, y);
+    PyTuple_SET_ITEM(tuple, 2, z);
+    return tuple;
 }
 
 static PyObject *build_vec3_list(const std::vector<Vec3> &values) {
@@ -145,13 +602,13 @@ static PyObject *build_loop_list(const std::vector<std::vector<Vec3>> &loops) {
 }
 
 static PyObject *build_quad_list(const std::vector<std::vector<int>> &quads) {
-    PyObject *outer = PyList_New(static_cast<Py_ssize_t>(quads.size()));
+    PyObject *outer = PyTuple_New(static_cast<Py_ssize_t>(quads.size()));
     if (!outer) {
         return nullptr;
     }
     for (Py_ssize_t i = 0; i < static_cast<Py_ssize_t>(quads.size()); ++i) {
         const auto &quad = quads[static_cast<size_t>(i)];
-        PyObject *inner = PyList_New(static_cast<Py_ssize_t>(quad.size()));
+        PyObject *inner = PyTuple_New(static_cast<Py_ssize_t>(quad.size()));
         if (!inner) {
             Py_DECREF(outer);
             return nullptr;
@@ -163,9 +620,9 @@ static PyObject *build_quad_list(const std::vector<std::vector<int>> &quads) {
                 Py_DECREF(outer);
                 return nullptr;
             }
-            PyList_SET_ITEM(inner, j, item);
+            PyTuple_SET_ITEM(inner, j, item);
         }
-        PyList_SET_ITEM(outer, i, inner);
+        PyTuple_SET_ITEM(outer, i, inner);
     }
     return outer;
 }
@@ -211,21 +668,21 @@ static void build_basis(
         accum = accum + cross(b - a, c - a);
     }
     normal = normalize(accum);
-    if (norm(normal) <= 1.0e-12) {
+    if (norm(normal) <= kVectorZeroEpsilon) {
         normal = {0.0, 0.0, 1.0};
     }
 
-    Vec3 ref = std::fabs(normal.z) < 0.9 ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+    Vec3 ref = std::fabs(normal.z) < kFallbackNormalAlignment ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
     x_axis = normalize(cross(ref, normal));
-    if (norm(x_axis) <= 1.0e-12) {
+    if (norm(x_axis) <= kVectorZeroEpsilon) {
         ref = {0.0, 1.0, 0.0};
         x_axis = normalize(cross(ref, normal));
     }
-    if (norm(x_axis) <= 1.0e-12) {
+    if (norm(x_axis) <= kVectorZeroEpsilon) {
         x_axis = {1.0, 0.0, 0.0};
     }
     y_axis = normalize(cross(normal, x_axis));
-    if (norm(y_axis) <= 1.0e-12) {
+    if (norm(y_axis) <= kVectorZeroEpsilon) {
         y_axis = {0.0, 1.0, 0.0};
     }
 }
@@ -362,27 +819,27 @@ static std::vector<int> order_quad_indices(
         const Vec3 &p2 = points[static_cast<size_t>(indices[2])];
         normal = normal + cross(p1 - p0, p2 - p0);
     }
-    if (norm(normal) <= 1.0e-12 && indices.size() >= 4) {
+    if (norm(normal) <= kVectorZeroEpsilon && indices.size() >= 4) {
         const Vec3 &p0 = points[static_cast<size_t>(indices[0])];
         const Vec3 &p2 = points[static_cast<size_t>(indices[2])];
         const Vec3 &p3 = points[static_cast<size_t>(indices[3])];
         normal = normal + cross(p2 - p0, p3 - p0);
     }
     normal = normalize(normal);
-    if (norm(normal) <= 1.0e-12) {
+    if (norm(normal) <= kVectorZeroEpsilon) {
         normal = {0.0, 0.0, 1.0};
     }
 
     Vec3 ref = points[static_cast<size_t>(indices[0])] - center;
-    if (norm(ref) <= 1.0e-12 && indices.size() > 1) {
+    if (norm(ref) <= kVectorZeroEpsilon && indices.size() > 1) {
         ref = points[static_cast<size_t>(indices[1])] - center;
     }
-    if (norm(ref) <= 1.0e-12) {
+    if (norm(ref) <= kVectorZeroEpsilon) {
         ref = {1.0, 0.0, 0.0};
     }
     ref = normalize(ref);
     Vec3 y_axis = normalize(cross(normal, ref));
-    if (norm(y_axis) <= 1.0e-12) {
+    if (norm(y_axis) <= kVectorZeroEpsilon) {
         y_axis = {0.0, 1.0, 0.0};
     }
 
@@ -448,8 +905,105 @@ static std::vector<Vec3> loop_to_points(
     return coords;
 }
 
+struct AtlasChartBuild {
+    std::vector<Vec3> points;
+    std::vector<std::vector<int>> quads;
+    std::vector<std::array<std::array<double, 2>, 4>> quad_polys;
+    std::unordered_map<int, int> global_to_local;
+};
+
+static std::array<std::array<double, 2>, 4> quad_poly2d(const std::vector<Vec3> &points, const std::vector<int> &quad) {
+    std::array<std::array<double, 2>, 4> poly{};
+    for (size_t i = 0; i < 4; ++i) {
+        int idx = quad[i];
+        poly[i] = {points[static_cast<size_t>(idx)].x, points[static_cast<size_t>(idx)].y};
+    }
+    return poly;
+}
+
+static std::vector<AtlasChartBuild> split_into_non_overlapping_charts(
+    const std::vector<Vec3> &fabric_points,
+    const std::vector<std::vector<int>> &quads,
+    int &overlap_rejections
+) {
+    std::vector<AtlasChartBuild> charts;
+    overlap_rejections = 0;
+    for (const auto &quad : quads) {
+        if (quad.size() < 4) {
+            continue;
+        }
+        auto candidate_poly = quad_poly2d(fabric_points, quad);
+        bool placed = false;
+        for (auto &chart : charts) {
+            bool overlaps = false;
+            for (const auto &existing : chart.quad_polys) {
+                if (quads_overlap_strict(candidate_poly, existing)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (overlaps) {
+                continue;
+            }
+            std::vector<int> local_quad;
+            local_quad.reserve(4);
+            for (int gidx : quad) {
+                auto it = chart.global_to_local.find(gidx);
+                if (it == chart.global_to_local.end()) {
+                    int lidx = static_cast<int>(chart.points.size());
+                    chart.global_to_local[gidx] = lidx;
+                    chart.points.push_back(fabric_points[static_cast<size_t>(gidx)]);
+                    local_quad.push_back(lidx);
+                } else {
+                    local_quad.push_back(it->second);
+                }
+            }
+            chart.quads.push_back(std::move(local_quad));
+            chart.quad_polys.push_back(candidate_poly);
+            placed = true;
+            break;
+        }
+
+        if (placed) {
+            continue;
+        }
+
+        AtlasChartBuild chart;
+        std::vector<int> local_quad;
+        local_quad.reserve(4);
+        for (int gidx : quad) {
+            int lidx = static_cast<int>(chart.points.size());
+            chart.global_to_local[gidx] = lidx;
+            chart.points.push_back(fabric_points[static_cast<size_t>(gidx)]);
+            local_quad.push_back(lidx);
+        }
+        chart.quads.push_back(std::move(local_quad));
+        chart.quad_polys.push_back(candidate_poly);
+
+        bool overlapped_existing = false;
+        for (const auto &existing_chart : charts) {
+            for (const auto &existing : existing_chart.quad_polys) {
+                if (quads_overlap_strict(candidate_poly, existing)) {
+                    overlapped_existing = true;
+                    break;
+                }
+            }
+            if (overlapped_existing) {
+                break;
+            }
+        }
+        if (overlapped_existing) {
+            ++overlap_rejections;
+        }
+
+        charts.push_back(std::move(chart));
+    }
+    return charts;
+}
+
 struct FaceSample {
     std::vector<Vec3> points;
+    std::vector<Vec3> layout_points;
     std::vector<std::array<int, 3>> triangles;
     std::vector<std::vector<int>> quads;
     Vec3 origin{0.0, 0.0, 0.0};
@@ -458,23 +1012,221 @@ struct FaceSample {
     Vec3 y_axis{0.0, 1.0, 0.0};
 };
 
-static PyObject *call_method(PyObject *obj, const char *name, PyObject *args) {
-    if (!obj) {
-        return nullptr;
+struct ExperimentalSolveStats {
+    int calls{0};
+    int base_failures{0};
+    int seed_attempts{0};
+    int seed_solved{0};
+    int seed_local{0};
+    int better_candidate_hits{0};
+    int fallback_count{0};
+    double improvement_sum{0.0};
+    double best_shift_norm_sum{0.0};
+    double best_shift_norm_max{0.0};
+};
+
+static double point_set_span(const std::vector<Vec3> &pts) {
+    if (pts.empty()) {
+        return 0.0;
     }
-    PyObject *method = PyObject_GetAttrString(obj, name);
-    if (!method) {
-        PyErr_Clear();
-        return nullptr;
+    double min_x = pts[0].x;
+    double max_x = pts[0].x;
+    double min_y = pts[0].y;
+    double max_y = pts[0].y;
+    double min_z = pts[0].z;
+    double max_z = pts[0].z;
+    for (const auto &p : pts) {
+        min_x = std::min(min_x, p.x);
+        max_x = std::max(max_x, p.x);
+        min_y = std::min(min_y, p.y);
+        max_y = std::max(max_y, p.y);
+        min_z = std::min(min_z, p.z);
+        max_z = std::max(max_z, p.z);
     }
-    PyObject *result = PyObject_CallObject(method, args);
-    Py_DECREF(method);
-    return result;
+    double dx = max_x - min_x;
+    double dy = max_y - min_y;
+    double dz = max_z - min_z;
+    return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
+static void transfer_layout_between_faces(const FaceSample &prev, FaceSample &curr) {
+    if (prev.points.empty() || prev.layout_points.empty() || curr.points.empty() || curr.layout_points.empty()) {
+        return;
+    }
+
+    struct Match {
+        size_t prev_idx;
+        size_t curr_idx;
+        double d2;
+    };
+
+    std::vector<Match> matches;
+    matches.reserve(curr.points.size());
+
+    double best_d2 = std::numeric_limits<double>::infinity();
+    size_t anchor_prev = 0;
+    size_t anchor_curr = 0;
+
+    for (size_t j = 0; j < curr.points.size(); ++j) {
+        double local_best_d2 = std::numeric_limits<double>::infinity();
+        size_t local_best_i = 0;
+        const Vec3 &b = curr.points[j];
+        for (size_t i = 0; i < prev.points.size(); ++i) {
+            const Vec3 &a = prev.points[i];
+            double dx = a.x - b.x;
+            double dy = a.y - b.y;
+            double dz = a.z - b.z;
+            double d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 < local_best_d2) {
+                local_best_d2 = d2;
+                local_best_i = i;
+            }
+        }
+        if (std::isfinite(local_best_d2)) {
+            matches.push_back({local_best_i, j, local_best_d2});
+            if (local_best_d2 < best_d2) {
+                best_d2 = local_best_d2;
+                anchor_prev = local_best_i;
+                anchor_curr = j;
+            }
+        }
+    }
+
+    if (matches.empty() || !std::isfinite(best_d2)) {
+        return;
+    }
+
+    double span = std::max(point_set_span(prev.points), point_set_span(curr.points));
+    double tol = std::max(1.0e-6, span * 0.05);
+    double tol2 = tol * tol;
+
+    std::vector<Match> close_matches;
+    close_matches.reserve(matches.size());
+    for (const auto &m : matches) {
+        if (m.d2 <= tol2) {
+            close_matches.push_back(m);
+        }
+    }
+    if (close_matches.empty()) {
+        close_matches.push_back({anchor_prev, anchor_curr, best_d2});
+    }
+
+    auto unit_2d = [&](double x, double y, double &ux, double &uy) {
+        double n = std::sqrt(x * x + y * y);
+        if (n <= kVectorZeroEpsilon) {
+            return false;
+        }
+        ux = x / n;
+        uy = y / n;
+        return true;
+    };
+
+    bool has_layout_rotation = false;
+    double cos_layout = 1.0;
+    double sin_layout = 0.0;
+    double best_dir_norm = 0.0;
+    Vec3 prev_dir{1.0, 0.0, 0.0};
+    Vec3 curr_dir{1.0, 0.0, 0.0};
+    const Vec3 &prev_anchor_lp = prev.layout_points[anchor_prev];
+    const Vec3 &curr_anchor_lp = curr.layout_points[anchor_curr];
+    for (const auto &m : close_matches) {
+        if (m.prev_idx == anchor_prev || m.curr_idx == anchor_curr) {
+            continue;
+        }
+        Vec3 pv = prev.layout_points[m.prev_idx] - prev_anchor_lp;
+        Vec3 cv = curr.layout_points[m.curr_idx] - curr_anchor_lp;
+        double n = std::min(std::sqrt(pv.x * pv.x + pv.y * pv.y), std::sqrt(cv.x * cv.x + cv.y * cv.y));
+        if (n > best_dir_norm) {
+            best_dir_norm = n;
+            prev_dir = pv;
+            curr_dir = cv;
+        }
+    }
+    if (best_dir_norm > kVectorZeroEpsilon) {
+        double pnx = 0.0;
+        double pny = 0.0;
+        double cnx = 0.0;
+        double cny = 0.0;
+        if (unit_2d(prev_dir.x, prev_dir.y, pnx, pny) && unit_2d(curr_dir.x, curr_dir.y, cnx, cny)) {
+            cos_layout = cnx * pnx + cny * pny;
+            sin_layout = cnx * pny - cny * pnx;
+            has_layout_rotation = true;
+        }
+    }
+
+    bool has_basis_rotation = false;
+    double cos_basis = 1.0;
+    double sin_basis = 0.0;
+    double best_edge_len = 0.0;
+    Vec3 shared_tangent{0.0, 0.0, 0.0};
+    const Vec3 &anchor_prev_point = prev.points[anchor_prev];
+    for (const auto &m : close_matches) {
+        if (m.prev_idx == anchor_prev || m.curr_idx == anchor_curr) {
+            continue;
+        }
+        Vec3 edge_vec = prev.points[m.prev_idx] - anchor_prev_point;
+        double edge_len = norm(edge_vec);
+        if (edge_len > best_edge_len) {
+            best_edge_len = edge_len;
+            shared_tangent = edge_vec;
+        }
+    }
+    if (best_edge_len > kVectorZeroEpsilon) {
+        shared_tangent = normalize(shared_tangent);
+        double ptx = dot(shared_tangent, prev.x_axis);
+        double pty = dot(shared_tangent, prev.y_axis);
+        double ctx = dot(shared_tangent, curr.x_axis);
+        double cty = dot(shared_tangent, curr.y_axis);
+        double pnx = 0.0;
+        double pny = 0.0;
+        double cnx = 0.0;
+        double cny = 0.0;
+        if (unit_2d(ptx, pty, pnx, pny) && unit_2d(ctx, cty, cnx, cny)) {
+            cos_basis = cnx * pnx + cny * pny;
+            sin_basis = cnx * pny - cny * pnx;
+            has_basis_rotation = true;
+        }
+    }
+
+    double cos_t = 1.0;
+    double sin_t = 0.0;
+    if (has_layout_rotation && has_basis_rotation) {
+        cos_t = cos_layout + cos_basis;
+        sin_t = sin_layout + sin_basis;
+    } else if (has_basis_rotation) {
+        cos_t = cos_basis;
+        sin_t = sin_basis;
+    } else if (has_layout_rotation) {
+        cos_t = cos_layout;
+        sin_t = sin_layout;
+    }
+    double nrm = std::sqrt(cos_t * cos_t + sin_t * sin_t);
+    if (nrm > kVectorZeroEpsilon) {
+        cos_t /= nrm;
+        sin_t /= nrm;
+    } else {
+        cos_t = 1.0;
+        sin_t = 0.0;
+    }
+
+    auto rotate_xy = [&](const Vec3 &p) {
+        return Vec3{cos_t * p.x - sin_t * p.y, sin_t * p.x + cos_t * p.y, p.z};
+    };
+
+    Vec3 rotated_anchor = rotate_xy(curr_anchor_lp);
+    Vec3 translation = prev_anchor_lp - rotated_anchor;
+
+    for (auto &lp : curr.layout_points) {
+        lp = rotate_xy(lp) + translation;
+    }
 }
 
 static bool geometry_like(PyObject *obj) {
     if (!obj) {
         return false;
+    }
+    if (PyObject_TypeCheck(obj, &(Part::TopoShapePy::Type)) > 0) {
+        return true;
     }
     if (PyObject_HasAttrString(obj, "Faces") > 0) {
         return true;
@@ -492,259 +1244,590 @@ static bool geometry_like(PyObject *obj) {
     return result;
 }
 
-static bool face_parameter_range(PyObject *face, double &u0, double &u1, double &v0, double &v1) {
-    PyObject *candidates[2] = {face, nullptr};
-    PyObject *surface = PyObject_GetAttrString(face, "Surface");
-    if (surface) {
-        candidates[1] = surface;
-    } else {
+static bool ensure_part_module_loaded() {
+    PyObject *part = PyImport_ImportModule("Part");
+    if (!part) {
         PyErr_Clear();
-    }
-
-    for (PyObject *candidate : candidates) {
-        if (!candidate) {
-            continue;
-        }
-        PyObject *range_obj = PyObject_GetAttrString(candidate, "ParameterRange");
-        if (!range_obj) {
-            PyErr_Clear();
-            continue;
-        }
-        PyObject *seq = PySequence_Fast(range_obj, "ParameterRange must be a sequence");
-        Py_DECREF(range_obj);
-        if (!seq) {
-            PyErr_Clear();
-            continue;
-        }
-        if (PySequence_Fast_GET_SIZE(seq) < 4) {
-            Py_DECREF(seq);
-            PyErr_Clear();
-            continue;
-        }
-        PyObject **items = PySequence_Fast_ITEMS(seq);
-        u0 = PyFloat_AsDouble(items[0]);
-        u1 = PyFloat_AsDouble(items[1]);
-        v0 = PyFloat_AsDouble(items[2]);
-        v1 = PyFloat_AsDouble(items[3]);
-        Py_DECREF(seq);
-        if (PyErr_Occurred()) {
-            PyErr_Clear();
-            continue;
-        }
-        Py_XDECREF(surface);
-        return true;
-    }
-
-    Py_XDECREF(surface);
-    return false;
-}
-
-static bool face_value_at(PyObject *face, double u, double v, Vec3 &out, PyObject **raw_point = nullptr) {
-    PyObject *args = Py_BuildValue("(dd)", u, v);
-    if (!args) {
         return false;
     }
-
-    PyObject *candidates[2] = {face, nullptr};
-    PyObject *surface = PyObject_GetAttrString(face, "Surface");
-    if (surface) {
-        candidates[1] = surface;
-    } else {
-        PyErr_Clear();
-    }
-
-    for (PyObject *candidate : candidates) {
-        if (!candidate) {
-            continue;
-        }
-        PyObject *value = call_method(candidate, "valueAt", args);
-        if (!value) {
-            PyErr_Clear();
-            continue;
-        }
-        if (!parse_point(value, out)) {
-            Py_DECREF(value);
-            PyErr_Clear();
-            continue;
-        }
-        if (raw_point) {
-            *raw_point = value;
-        } else {
-            Py_DECREF(value);
-        }
-        Py_DECREF(args);
-        Py_XDECREF(surface);
-        return true;
-    }
-
-    Py_DECREF(args);
-    Py_XDECREF(surface);
-    return false;
-}
-
-static bool face_normal_at(PyObject *face, double u, double v, Vec3 &out) {
-    PyObject *args = Py_BuildValue("(dd)", u, v);
-    if (!args) {
-        return false;
-    }
-
-    PyObject *candidates[2] = {face, nullptr};
-    PyObject *surface = PyObject_GetAttrString(face, "Surface");
-    if (surface) {
-        candidates[1] = surface;
-    } else {
-        PyErr_Clear();
-    }
-
-    for (PyObject *candidate : candidates) {
-        if (!candidate) {
-            continue;
-        }
-        PyObject *value = call_method(candidate, "normalAt", args);
-        if (!value) {
-            PyErr_Clear();
-            continue;
-        }
-        if (!parse_point(value, out)) {
-            Py_DECREF(value);
-            PyErr_Clear();
-            continue;
-        }
-        out = normalize(out);
-        Py_DECREF(value);
-        Py_DECREF(args);
-        Py_XDECREF(surface);
-        return true;
-    }
-
-    Py_DECREF(args);
-    Py_XDECREF(surface);
-    return false;
-}
-
-static bool face_is_inside(PyObject *face, PyObject *point_obj, double tolerance) {
-    PyObject *candidates[2] = {face, nullptr};
-    PyObject *surface = PyObject_GetAttrString(face, "Surface");
-    if (surface) {
-        candidates[1] = surface;
-    } else {
-        PyErr_Clear();
-    }
-
-    for (PyObject *candidate : candidates) {
-        if (!candidate) {
-            continue;
-        }
-
-        PyObject *args3 = Py_BuildValue("(Odi)", point_obj, tolerance, 1);
-        if (args3) {
-            PyObject *result = call_method(candidate, "isInside", args3);
-            Py_DECREF(args3);
-            if (result) {
-                int truth = PyObject_IsTrue(result);
-                Py_DECREF(result);
-                if (truth >= 0) {
-                    Py_XDECREF(surface);
-                    return truth != 0;
-                }
-                PyErr_Clear();
-            } else {
-                PyErr_Clear();
-            }
-        }
-
-        PyObject *args2 = Py_BuildValue("(Od)", point_obj, tolerance);
-        if (args2) {
-            PyObject *result = call_method(candidate, "isInside", args2);
-            Py_DECREF(args2);
-            if (result) {
-                int truth = PyObject_IsTrue(result);
-                Py_DECREF(result);
-                if (truth >= 0) {
-                    Py_XDECREF(surface);
-                    return truth != 0;
-                }
-                PyErr_Clear();
-            } else {
-                PyErr_Clear();
-            }
-        }
-
-        PyObject *args1 = Py_BuildValue("(O)", point_obj);
-        if (args1) {
-            PyObject *result = call_method(candidate, "isInside", args1);
-            Py_DECREF(args1);
-            if (result) {
-                int truth = PyObject_IsTrue(result);
-                Py_DECREF(result);
-                if (truth >= 0) {
-                    Py_XDECREF(surface);
-                    return truth != 0;
-                }
-                PyErr_Clear();
-            } else {
-                PyErr_Clear();
-            }
-        }
-    }
-
-    Py_XDECREF(surface);
+    Py_DECREF(part);
     return true;
 }
 
-static int face_divisions(PyObject *face, double max_length) {
-    double diagonal = 0.0;
-    PyObject *bbox = PyObject_GetAttrString(face, "BoundBox");
-    if (bbox) {
-        PyObject *diag = PyObject_GetAttrString(bbox, "DiagonalLength");
-        if (diag) {
-            diagonal = PyFloat_AsDouble(diag);
-            Py_DECREF(diag);
-            if (PyErr_Occurred()) {
-                PyErr_Clear();
-                diagonal = 0.0;
-            }
-        } else {
-            PyErr_Clear();
-        }
-        Py_DECREF(bbox);
-    } else {
-        PyErr_Clear();
+static bool extract_native_face(PyObject *face_obj, TopoDS_Face &face) {
+    if (!face_obj) {
+        return false;
     }
-
-    max_length = std::max(1.0, std::max(max_length, diagonal / 32.0));
-    double estimate = diagonal > 0.0 ? diagonal / max_length : 4.0;
-    return std::max(2, std::min(64, static_cast<int>(std::ceil(estimate))));
+    if (PyObject_TypeCheck(face_obj, &(Part::TopoShapePy::Type)) <= 0) {
+        return false;
+    }
+    auto *shape_py = static_cast<Part::TopoShapePy *>(face_obj);
+    Part::TopoShape *topo = shape_py->getTopoShapePtr();
+    if (!topo) {
+        return false;
+    }
+    TopoDS_Shape shape = topo->getShape();
+    if (shape.IsNull() || shape.ShapeType() != TopAbs_FACE) {
+        return false;
+    }
+    face = TopoDS::Face(shape);
+    return !face.IsNull();
 }
 
-static FaceSample sample_face(PyObject *face, double max_length) {
+static bool native_face_parameter_range(const TopoDS_Face &face, double &u0, double &u1, double &v0, double &v1) {
+    BRepTools::UVBounds(face, u0, u1, v0, v1);
+    return std::isfinite(u0) && std::isfinite(u1) && std::isfinite(v0) && std::isfinite(v1) && u1 >= u0 && v1 >= v0;
+}
+
+static bool native_face_value_at(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double u,
+    double v,
+    Vec3 &out,
+    gp_Pnt *raw_point = nullptr
+) {
+    (void)face;
+    gp_Pnt point = surface.Value(u, v);
+    if (raw_point) {
+        *raw_point = point;
+    }
+    out = {point.X(), point.Y(), point.Z()};
+    return true;
+}
+
+static bool native_face_normal_at(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double u,
+    double v,
+    Vec3 &out
+) {
+    const Handle(Geom_Surface) &geom = surface.Surface().Surface();
+    if (geom.IsNull()) {
+        return false;
+    }
+    GeomLProp_SLProps props(geom, u, v, 1, std::max(BRep_Tool::Tolerance(face), Precision::Confusion()));
+    if (!props.IsNormalDefined()) {
+        return false;
+    }
+    gp_Dir normal = props.Normal();
+    out = {normal.X(), normal.Y(), normal.Z()};
+    return true;
+}
+
+static TopAbs_State native_face_point_state(const TopoDS_Face &face, const gp_Pnt &point, double tolerance) {
+    BRepClass_FaceClassifier classifier(face, point, tolerance, Standard_True);
+    return classifier.State();
+}
+
+static bool native_face_is_inside(const TopoDS_Face &face, const gp_Pnt &point, double tolerance) {
+    TopAbs_State state = native_face_point_state(face, point, tolerance);
+    return state == TopAbs_IN || state == TopAbs_ON;
+}
+
+static bool native_face_is_strictly_inside(const TopoDS_Face &face, const gp_Pnt &point, double tolerance) {
+    return native_face_point_state(face, point, tolerance) == TopAbs_IN;
+}
+
+static bool solve_uv_two_distance_constraints(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double &u,
+    double &v,
+    const Vec3 &pb,
+    double rb,
+    const Vec3 &pc,
+    double rc,
+    double u0,
+    double u1,
+    double v0,
+    double v1
+) {
+    if (!(rb > kVectorZeroEpsilon && rc > kVectorZeroEpsilon)) {
+        return false;
+    }
+
+    auto clamp = [](double x, double lo, double hi) {
+        return std::max(lo, std::min(hi, x));
+    };
+
+    auto eval_F = [&](double uu, double vv, double &f1, double &f2, gp_Pnt *out_p = nullptr) {
+        gp_Pnt p = surface.Value(uu, vv);
+        if (out_p) {
+            *out_p = p;
+        }
+        Vec3 pv{p.X(), p.Y(), p.Z()};
+        Vec3 db = pv - pb;
+        Vec3 dc = pv - pc;
+        f1 = dot(db, db) - rb * rb;
+        f2 = dot(dc, dc) - rc * rc;
+    };
+
+    double du = std::max((u1 - u0) / 400.0, 1.0e-6);
+    double dv = std::max((v1 - v0) / 400.0, 1.0e-6);
+    u = clamp(u, u0, u1);
+    v = clamp(v, v0, v1);
+
+    for (int iter = 0; iter < 16; ++iter) {
+        double f1 = 0.0;
+        double f2 = 0.0;
+        gp_Pnt p;
+        eval_F(u, v, f1, f2, &p);
+        double err = std::sqrt(f1 * f1 + f2 * f2);
+        if (err < 1.0e-8) {
+            return native_face_is_inside(face, p, kFaceInsideTolerance);
+        }
+
+        double fu1 = 0.0, fu2 = 0.0;
+        double fv1 = 0.0, fv2 = 0.0;
+        double up = clamp(u + du, u0, u1);
+        double vp = clamp(v + dv, v0, v1);
+        eval_F(up, v, fu1, fu2, nullptr);
+        eval_F(u, vp, fv1, fv2, nullptr);
+        double j11 = (fu1 - f1) / std::max(up - u, 1.0e-12);
+        double j21 = (fu2 - f2) / std::max(up - u, 1.0e-12);
+        double j12 = (fv1 - f1) / std::max(vp - v, 1.0e-12);
+        double j22 = (fv2 - f2) / std::max(vp - v, 1.0e-12);
+
+        double det = j11 * j22 - j12 * j21;
+        if (std::abs(det) < 1.0e-14) {
+            break;
+        }
+
+        double step_u = (-f1 * j22 + f2 * j12) / det;
+        double step_v = (-j11 * f2 + j21 * f1) / det;
+        u = clamp(u + 0.7 * step_u, u0, u1);
+        v = clamp(v + 0.7 * step_v, v0, v1);
+    }
+
+    gp_Pnt p = surface.Value(u, v);
+    return native_face_is_inside(face, p, kFaceInsideTolerance);
+}
+
+static bool solve_uv_two_distance_constraints_spheresurface_experimental(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double &u,
+    double &v,
+    const Vec3 &pb,
+    double rb,
+    const Vec3 &pc,
+    double rc,
+    double u0,
+    double u1,
+    double v0,
+    double v1,
+    ExperimentalSolveStats *stats
+) {
+    auto clamp = [](double x, double lo, double hi) {
+        return std::max(lo, std::min(hi, x));
+    };
+
+    const double u_ref = clamp(u, u0, u1);
+    const double v_ref = clamp(v, v0, v1);
+
+    // Baseline solve from current estimate; experimental path is only allowed
+    // to make local improvements around this stable reference.
+    double base_u = u_ref;
+    double base_v = v_ref;
+    if (stats) {
+        ++stats->calls;
+    }
+
+    bool base_ok = solve_uv_two_distance_constraints(
+        face,
+        surface,
+        base_u,
+        base_v,
+        pb,
+        rb,
+        pc,
+        rc,
+        u0,
+        u1,
+        v0,
+        v1);
+    if (!base_ok) {
+        if (stats) {
+            ++stats->base_failures;
+        }
+        return false;
+    }
+
+    auto residual = [&](double uu, double vv) {
+        gp_Pnt p = surface.Value(uu, vv);
+        Vec3 pv{p.X(), p.Y(), p.Z()};
+        double db = std::abs(norm(pv - pb) - rb);
+        double dc = std::abs(norm(pv - pc) - rc);
+        return db + dc;
+    };
+
+    const double u_span = std::max(u1 - u0, 1.0e-9);
+    const double v_span = std::max(v1 - v0, 1.0e-9);
+    const double du = std::max((u1 - u0) / 300.0, 1.0e-6);
+    const double dv = std::max((v1 - v0) / 300.0, 1.0e-6);
+    const double max_norm_shift2 = 0.005 * 0.005;  // keep branch very local
+
+    std::vector<std::pair<double, double>> seeds;
+    seeds.reserve(5);
+    seeds.push_back({base_u, base_v});
+    seeds.push_back({clamp(base_u - du, u0, u1), base_v});
+    seeds.push_back({clamp(base_u + du, u0, u1), base_v});
+    seeds.push_back({base_u, clamp(base_v - dv, v0, v1)});
+    seeds.push_back({base_u, clamp(base_v + dv, v0, v1)});
+
+    int solved_seed_count = 0;
+    int local_seed_count = 0;
+    if (stats) {
+        stats->seed_attempts += static_cast<int>(seeds.size());
+    }
+
+    double best_u = base_u;
+    double best_v = base_v;
+    double best_shift_norm = 0.0;
+    double base_score = residual(base_u, base_v);
+    double best_score = base_score;
+
+    for (const auto &seed : seeds) {
+        double cand_u = seed.first;
+        double cand_v = seed.second;
+        bool solved = solve_uv_two_distance_constraints(
+            face,
+            surface,
+            cand_u,
+            cand_v,
+            pb,
+            rb,
+            pc,
+            rc,
+            u0,
+            u1,
+            v0,
+            v1);
+        if (!solved) {
+            continue;
+        }
+        ++solved_seed_count;
+
+        double du_norm = (cand_u - base_u) / u_span;
+        double dv_norm = (cand_v - base_v) / v_span;
+        double shift2 = du_norm * du_norm + dv_norm * dv_norm;
+        if (shift2 > max_norm_shift2) {
+            continue;
+        }
+        ++local_seed_count;
+
+        double score = residual(cand_u, cand_v);
+        if (score < best_score) {
+            best_u = cand_u;
+            best_v = cand_v;
+            best_score = score;
+            best_shift_norm = std::sqrt(std::max(shift2, 0.0));
+        }
+    }
+
+    if (stats) {
+        stats->seed_solved += solved_seed_count;
+        stats->seed_local += local_seed_count;
+        ++stats->fallback_count;
+        if (best_score + 1.0e-12 < base_score) {
+            ++stats->better_candidate_hits;
+            stats->improvement_sum += (base_score - best_score);
+            stats->best_shift_norm_sum += best_shift_norm;
+            stats->best_shift_norm_max = std::max(stats->best_shift_norm_max, best_shift_norm);
+        }
+    }
+
+    // Keep experimental branch numerically aligned with baseline for now.
+    // Candidate search is retained for instrumentation/iteration hooks.
+    (void)best_u;
+    (void)best_v;
+    u = base_u;
+    v = base_v;
+    return true;
+}
+
+static int native_face_divisions(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double u0,
+    double u1,
+    double v0,
+    double v1,
+    double max_length
+) {
+    Bnd_Box box;
+    BRepBndLib::Add(face, box);
+    double diagonal = 0.0;
+    if (!box.IsVoid() && !box.IsOpen()) {
+        double xmin = 0.0;
+        double ymin = 0.0;
+        double zmin = 0.0;
+        double xmax = 0.0;
+        double ymax = 0.0;
+        double zmax = 0.0;
+        box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        diagonal = std::sqrt((xmax - xmin) * (xmax - xmin) + (ymax - ymin) * (ymax - ymin) + (zmax - zmin) * (zmax - zmin));
+    }
+    if (!(diagonal > 0.0 && std::isfinite(diagonal))) {
+        const gp_Pnt p00 = surface.Value(u0, v0);
+        const gp_Pnt p10 = surface.Value(u1, v0);
+        const gp_Pnt p11 = surface.Value(u1, v1);
+        const gp_Pnt p01 = surface.Value(u0, v1);
+        diagonal = std::max({
+            p00.Distance(p10),
+            p10.Distance(p11),
+            p11.Distance(p01),
+            p01.Distance(p00),
+            p00.Distance(p11),
+            p10.Distance(p01),
+        });
+    }
+    if (!(diagonal > 0.0 && std::isfinite(diagonal))) {
+        diagonal = std::max(std::fabs(u1 - u0), std::fabs(v1 - v0));
+    }
+    if (!(diagonal > 0.0 && std::isfinite(diagonal))) {
+        diagonal = kDefaultFaceSpan;
+    }
+    max_length = std::max(kMinimumMaxLength, std::max(max_length, diagonal / kFaceDivisionTargetSegments));
+    double estimate = diagonal > 0.0 ? diagonal / max_length : kDefaultFaceSpan;
+    return std::max(kMinimumFaceDivisions, std::min(kMaximumFaceDivisions, static_cast<int>(std::ceil(estimate))));
+}
+
+static FaceSample sample_face(
+    const TopoDS_Face &face,
+    double max_length,
+    CurrentNodeSolverMode solver_mode,
+    ExperimentalSolveStats *experimental_stats
+) {
     FaceSample sample;
     double u0 = 0.0, u1 = 0.0, v0 = 0.0, v1 = 0.0;
-    if (!face_parameter_range(face, u0, u1, v0, v1)) {
+    if (!native_face_parameter_range(face, u0, u1, v0, v1)) {
         return sample;
     }
 
-    int divisions = face_divisions(face, max_length);
+    BRepAdaptor_Surface surface(face, Standard_True);
+    int divisions = native_face_divisions(face, surface, u0, u1, v0, v1, max_length);
     std::vector<std::vector<int>> grid_indices(static_cast<size_t>(divisions + 1), std::vector<int>(static_cast<size_t>(divisions + 1), -1));
+    std::vector<std::vector<double>> grid_u(static_cast<size_t>(divisions + 1), std::vector<double>(static_cast<size_t>(divisions + 1), std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<double>> grid_v(static_cast<size_t>(divisions + 1), std::vector<double>(static_cast<size_t>(divisions + 1), std::numeric_limits<double>::quiet_NaN()));
+    std::vector<std::vector<Vec3>> grid_normals(static_cast<size_t>(divisions + 1), std::vector<Vec3>(static_cast<size_t>(divisions + 1), Vec3{0.0, 0.0, 1.0}));
 
     for (int i = 0; i <= divisions; ++i) {
         double u = u0 + (u1 - u0) * static_cast<double>(i) / static_cast<double>(divisions);
         for (int j = 0; j <= divisions; ++j) {
             double v = v0 + (v1 - v0) * static_cast<double>(j) / static_cast<double>(divisions);
             Vec3 point{};
-            PyObject *raw_point = nullptr;
-            if (!face_value_at(face, u, v, point, &raw_point)) {
-                Py_XDECREF(raw_point);
+            gp_Pnt raw_point{};
+            if (!native_face_value_at(face, surface, u, v, point, &raw_point)) {
                 continue;
             }
-            bool inside = face_is_inside(face, raw_point, 1.0e-6);
-            Py_DECREF(raw_point);
-            if (!inside) {
+            if (!native_face_is_inside(face, raw_point, kFaceInsideTolerance)) {
                 continue;
             }
             grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] = static_cast<int>(sample.points.size());
+            grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
+            grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
             sample.points.push_back(point);
+            Vec3 point_normal{0.0, 0.0, 1.0};
+            native_face_normal_at(face, surface, u, v, point_normal);
+            if (norm(point_normal) <= kVectorZeroEpsilon) {
+                point_normal = {0.0, 0.0, 1.0};
+            }
+            grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = point_normal;
         }
+    }
+
+    const double gib_arc = (max_length > kVectorZeroEpsilon) ? max_length : 1.0;
+    auto chord_from_arc_and_curvature_gib = [&](double arc, double kappa_n) {
+        double kappa = std::abs(kappa_n);
+        if (kappa <= 1.0e-9) {
+            return arc;
+        }
+        double half_angle = 0.5 * arc * kappa;
+        return (2.0 / kappa) * std::sin(half_angle);
+    };
+    auto gib_curvature_step = [&](int i, int j, bool along_u) {
+        int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+        if (idx < 0 || idx >= static_cast<int>(sample.points.size())) {
+            return gib_arc;
+        }
+        int im = along_u ? (i - 1) : i;
+        int ip = along_u ? (i + 1) : i;
+        int jm = along_u ? j : (j - 1);
+        int jp = along_u ? j : (j + 1);
+        if (im < 0 || jm < 0 || ip > divisions || jp > divisions) {
+            return gib_arc;
+        }
+        int idx_m = grid_indices[static_cast<size_t>(im)][static_cast<size_t>(jm)];
+        int idx_p = grid_indices[static_cast<size_t>(ip)][static_cast<size_t>(jp)];
+        if (idx_m < 0 || idx_p < 0 ||
+            idx_m >= static_cast<int>(sample.points.size()) || idx_p >= static_cast<int>(sample.points.size())) {
+            return gib_arc;
+        }
+        Vec3 p_m = sample.points[static_cast<size_t>(idx_m)];
+        Vec3 p_0 = sample.points[static_cast<size_t>(idx)];
+        Vec3 p_p = sample.points[static_cast<size_t>(idx_p)];
+        Vec3 n_0 = normalize(grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)]);
+        if (norm(n_0) <= kVectorZeroEpsilon) {
+            return gib_arc;
+        }
+        double ds1 = norm(p_0 - p_m);
+        double ds2 = norm(p_p - p_0);
+        double ds = 0.5 * (ds1 + ds2);
+        if (ds <= kVectorZeroEpsilon) {
+            return gib_arc;
+        }
+        Vec3 second = p_p - p_0 * 2.0 + p_m;
+        double kappa_n = dot(second, n_0) / (ds * ds);
+        double chord = chord_from_arc_and_curvature_gib(gib_arc, kappa_n);
+        if (!(chord > kVectorZeroEpsilon && std::isfinite(chord))) {
+            return gib_arc;
+        }
+        return chord;
+    };
+
+    std::vector<Vec3> seed_points = sample.points;
+
+    int seed_i_uv = -1;
+    int seed_j_uv = -1;
+    for (int i = 0; i <= divisions && seed_i_uv < 0; ++i) {
+        for (int j = 0; j <= divisions; ++j) {
+            if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0) {
+                seed_i_uv = i;
+                seed_j_uv = j;
+                break;
+            }
+        }
+    }
+
+    if (seed_i_uv >= 0) {
+        auto attempt_uv_update = [&](int i, int j, int ib, int jb, int ic, int jc, double rb, double rc) {
+            int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            int idx_b = grid_indices[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
+            int idx_c = grid_indices[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
+            if (idx < 0 || idx_b < 0 || idx_c < 0) {
+                return false;
+            }
+            if (!(rb > kVectorZeroEpsilon && rc > kVectorZeroEpsilon)) {
+                return false;
+            }
+            double u = std::isfinite(grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)])
+                ? grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)]
+                : (u0 + (u1 - u0) * static_cast<double>(i) / static_cast<double>(divisions));
+            double v = std::isfinite(grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)])
+                ? grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)]
+                : (v0 + (v1 - v0) * static_cast<double>(j) / static_cast<double>(divisions));
+            double old_u = u;
+            double old_v = v;
+            Vec3 old_point = sample.points[static_cast<size_t>(idx)];
+            bool solved = false;
+            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                solved = solve_uv_two_distance_constraints_spheresurface_experimental(
+                    face,
+                    surface,
+                    u,
+                    v,
+                    sample.points[static_cast<size_t>(idx_b)],
+                    rb,
+                    sample.points[static_cast<size_t>(idx_c)],
+                    rc,
+                    u0,
+                    u1,
+                    v0,
+                    v1,
+                    experimental_stats);
+            }
+            if (!solved) {
+                solved = solve_uv_two_distance_constraints(
+                    face,
+                    surface,
+                    u,
+                    v,
+                    sample.points[static_cast<size_t>(idx_b)],
+                    rb,
+                    sample.points[static_cast<size_t>(idx_c)],
+                    rc,
+                    u0,
+                    u1,
+                    v0,
+                    v1);
+            }
+            if (!solved) {
+                return false;
+            }
+            gp_Pnt p = surface.Value(u, v);
+            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                if (!native_face_is_inside(face, p, kFaceInsideTolerance)) {
+                    return false;
+                }
+            } else {
+                if (!native_face_is_strictly_inside(face, p, kFaceInsideTolerance)) {
+                    return false;
+                }
+            }
+            Vec3 new_point{p.X(), p.Y(), p.Z()};
+            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                double max_branch_shift = std::max(4.0 * std::max(rb, rc), 1.0);
+                if (norm(new_point - old_point) > max_branch_shift) {
+                    return false;
+                }
+            }
+            double max_seed_shift = std::max(12.0 * std::max(rb, rc), 1.0);
+            if (norm(new_point - seed_points[static_cast<size_t>(idx)]) > max_seed_shift) {
+                return false;
+            }
+            sample.points[static_cast<size_t>(idx)] = new_point;
+            Vec3 n{0.0, 0.0, 1.0};
+            native_face_normal_at(face, surface, u, v, n);
+            if (norm(n) > kVectorZeroEpsilon) {
+                grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = n;
+            }
+            grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
+            grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
+            return (std::abs(u - old_u) > 1.0e-9 || std::abs(v - old_v) > 1.0e-9);
+        };
+
+        for (int pass = 0; pass < (divisions + 1) * 3; ++pass) {
+            bool changed = false;
+            for (int i = 0; i <= divisions; ++i) {
+                for (int j = 0; j <= divisions; ++j) {
+                    if (i == seed_i_uv && j == seed_j_uv) {
+                        continue;
+                    }
+                    // Keep boundary samples fixed to avoid collapsing whole rows/columns
+                    // onto parametric borders during iterative UV refinement.
+                    if (i == 0 || j == 0 || i == divisions || j == divisions) {
+                        continue;
+                    }
+                    if (i > 0 && j > 0) {
+                        changed = attempt_uv_update(i, j, i - 1, j, i, j - 1,
+                            gib_curvature_step(i - 1, j, true),
+                            gib_curvature_step(i, j - 1, false)) || changed;
+                    }
+                    if (i + 1 <= divisions && j + 1 <= divisions) {
+                        changed = attempt_uv_update(i, j, i + 1, j, i, j + 1,
+                            gib_curvature_step(i, j, true),
+                            gib_curvature_step(i, j, false)) || changed;
+                    }
+                    if (i > 0 && j + 1 <= divisions) {
+                        changed = attempt_uv_update(i, j, i - 1, j, i, j + 1,
+                            gib_curvature_step(i - 1, j, true),
+                            gib_curvature_step(i, j, false)) || changed;
+                    }
+                    if (i + 1 <= divisions && j > 0) {
+                        changed = attempt_uv_update(i, j, i + 1, j, i, j - 1,
+                            gib_curvature_step(i, j, true),
+                            gib_curvature_step(i, j - 1, false)) || changed;
+                    }
+                }
+            }
+            if (!changed) {
+                break;
+            }
+        }
+
     }
 
     for (int i = 0; i < divisions; ++i) {
@@ -762,28 +1845,274 @@ static FaceSample sample_face(PyObject *face, double max_length) {
         }
     }
 
+    sample.layout_points.assign(sample.points.size(), Vec3{0.0, 0.0, 0.0});
+    const double nominal_arc = (max_length > kVectorZeroEpsilon) ? max_length : 1.0;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::vector<std::vector<double>> grid_x(static_cast<size_t>(divisions + 1), std::vector<double>(static_cast<size_t>(divisions + 1), nan));
+    std::vector<std::vector<double>> grid_y(static_cast<size_t>(divisions + 1), std::vector<double>(static_cast<size_t>(divisions + 1), nan));
+
+    auto chord_from_arc_and_curvature = [&](double arc, double kappa_n) {
+        double kappa = std::abs(kappa_n);
+        if (kappa <= 1.0e-9) {
+            return arc;
+        }
+        double half_angle = 0.5 * arc * kappa;
+        return (2.0 / kappa) * std::sin(half_angle);
+    };
+
+    auto local_curvature_step = [&](int i, int j, bool along_u) {
+        int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+        if (idx < 0 || idx >= static_cast<int>(sample.points.size())) {
+            return nominal_arc;
+        }
+        int im = along_u ? (i - 1) : i;
+        int ip = along_u ? (i + 1) : i;
+        int jm = along_u ? j : (j - 1);
+        int jp = along_u ? j : (j + 1);
+        if (im < 0 || jm < 0 || ip > divisions || jp > divisions) {
+            return nominal_arc;
+        }
+        int idx_m = grid_indices[static_cast<size_t>(im)][static_cast<size_t>(jm)];
+        int idx_p = grid_indices[static_cast<size_t>(ip)][static_cast<size_t>(jp)];
+        if (idx_m < 0 || idx_p < 0 ||
+            idx_m >= static_cast<int>(sample.points.size()) || idx_p >= static_cast<int>(sample.points.size())) {
+            return nominal_arc;
+        }
+        Vec3 p_m = sample.points[static_cast<size_t>(idx_m)];
+        Vec3 p_0 = sample.points[static_cast<size_t>(idx)];
+        Vec3 p_p = sample.points[static_cast<size_t>(idx_p)];
+        Vec3 n_0 = normalize(grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)]);
+        if (norm(n_0) <= kVectorZeroEpsilon) {
+            return nominal_arc;
+        }
+        double ds1 = norm(p_0 - p_m);
+        double ds2 = norm(p_p - p_0);
+        double ds = 0.5 * (ds1 + ds2);
+        if (ds <= kVectorZeroEpsilon) {
+            return nominal_arc;
+        }
+        Vec3 second = p_p - p_0 * 2.0 + p_m;
+        double kappa_n = dot(second, n_0) / (ds * ds);
+        double chord = chord_from_arc_and_curvature(nominal_arc, kappa_n);
+        if (!(chord > kVectorZeroEpsilon && std::isfinite(chord))) {
+            return nominal_arc;
+        }
+        return chord;
+    };
+
+    auto add_circle_intersection_candidate = [&](double cx0, double cy0, double r0,
+                                                 double cx1, double cy1, double r1,
+                                                 double gx, double gy,
+                                                 std::vector<std::pair<double, double>> &out) {
+        if (!(r0 > kVectorZeroEpsilon && r1 > kVectorZeroEpsilon)) {
+            return;
+        }
+        double dx = cx1 - cx0;
+        double dy = cy1 - cy0;
+        double d = std::sqrt(dx * dx + dy * dy);
+        if (!(d > kVectorZeroEpsilon)) {
+            return;
+        }
+        if (d > (r0 + r1) + 1.0e-9) {
+            return;
+        }
+        if (d < std::abs(r0 - r1) - 1.0e-9) {
+            return;
+        }
+        double a = (r0 * r0 - r1 * r1 + d * d) / (2.0 * d);
+        double h2 = r0 * r0 - a * a;
+        if (h2 < -1.0e-9) {
+            return;
+        }
+        double h = h2 > 0.0 ? std::sqrt(std::max(0.0, h2)) : 0.0;
+        double px = cx0 + (a / d) * dx;
+        double py = cy0 + (a / d) * dy;
+        double rx = -dy * (h / d);
+        double ry = dx * (h / d);
+        std::pair<double, double> c0 = {px + rx, py + ry};
+        std::pair<double, double> c1 = {px - rx, py - ry};
+        double d0 = (c0.first - gx) * (c0.first - gx) + (c0.second - gy) * (c0.second - gy);
+        double d1 = (c1.first - gx) * (c1.first - gx) + (c1.second - gy) * (c1.second - gy);
+        out.push_back(d0 <= d1 ? c0 : c1);
+    };
+
+    int seed_i = -1;
+    int seed_j = -1;
+    for (int i = 0; i <= divisions && seed_i < 0; ++i) {
+        for (int j = 0; j <= divisions; ++j) {
+            if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0) {
+                seed_i = i;
+                seed_j = j;
+                break;
+            }
+        }
+    }
+    if (seed_i >= 0) {
+        grid_x[static_cast<size_t>(seed_i)][static_cast<size_t>(seed_j)] = 0.0;
+        grid_y[static_cast<size_t>(seed_i)][static_cast<size_t>(seed_j)] = 0.0;
+        const int max_passes = (divisions + 1) * 4;
+        for (int pass = 0; pass < max_passes; ++pass) {
+            bool changed = false;
+            for (int i = 0; i <= divisions; ++i) {
+                for (int j = 0; j <= divisions; ++j) {
+                    if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] < 0) {
+                        continue;
+                    }
+                    if (std::isfinite(grid_x[static_cast<size_t>(i)][static_cast<size_t>(j)]) &&
+                        std::isfinite(grid_y[static_cast<size_t>(i)][static_cast<size_t>(j)])) {
+                        continue;
+                    }
+                    std::vector<std::pair<double, double>> candidates;
+                    double guess_x = static_cast<double>(i - seed_i) * nominal_arc;
+                    double guess_y = static_cast<double>(j - seed_j) * nominal_arc;
+
+                    bool has_left = i > 0 && std::isfinite(grid_x[static_cast<size_t>(i - 1)][static_cast<size_t>(j)]) &&
+                        std::isfinite(grid_y[static_cast<size_t>(i - 1)][static_cast<size_t>(j)]);
+                    bool has_down = j > 0 && std::isfinite(grid_x[static_cast<size_t>(i)][static_cast<size_t>(j - 1)]) &&
+                        std::isfinite(grid_y[static_cast<size_t>(i)][static_cast<size_t>(j - 1)]);
+                    bool has_right = i + 1 <= divisions && std::isfinite(grid_x[static_cast<size_t>(i + 1)][static_cast<size_t>(j)]) &&
+                        std::isfinite(grid_y[static_cast<size_t>(i + 1)][static_cast<size_t>(j)]);
+                    bool has_up = j + 1 <= divisions && std::isfinite(grid_x[static_cast<size_t>(i)][static_cast<size_t>(j + 1)]) &&
+                        std::isfinite(grid_y[static_cast<size_t>(i)][static_cast<size_t>(j + 1)]);
+
+                    if (has_left && has_down) {
+                        double rl = local_curvature_step(i - 1, j, true);
+                        double rd = local_curvature_step(i, j - 1, false);
+                        add_circle_intersection_candidate(
+                            grid_x[static_cast<size_t>(i - 1)][static_cast<size_t>(j)],
+                            grid_y[static_cast<size_t>(i - 1)][static_cast<size_t>(j)],
+                            rl,
+                            grid_x[static_cast<size_t>(i)][static_cast<size_t>(j - 1)],
+                            grid_y[static_cast<size_t>(i)][static_cast<size_t>(j - 1)],
+                            rd,
+                            guess_x,
+                            guess_y,
+                            candidates
+                        );
+                    }
+                    if (has_right && has_down) {
+                        double rr = local_curvature_step(i, j, true);
+                        double rd = local_curvature_step(i, j - 1, false);
+                        add_circle_intersection_candidate(
+                            grid_x[static_cast<size_t>(i + 1)][static_cast<size_t>(j)],
+                            grid_y[static_cast<size_t>(i + 1)][static_cast<size_t>(j)],
+                            rr,
+                            grid_x[static_cast<size_t>(i)][static_cast<size_t>(j - 1)],
+                            grid_y[static_cast<size_t>(i)][static_cast<size_t>(j - 1)],
+                            rd,
+                            guess_x,
+                            guess_y,
+                            candidates
+                        );
+                    }
+                    if (has_left && has_up) {
+                        double rl = local_curvature_step(i - 1, j, true);
+                        double ru = local_curvature_step(i, j, false);
+                        add_circle_intersection_candidate(
+                            grid_x[static_cast<size_t>(i - 1)][static_cast<size_t>(j)],
+                            grid_y[static_cast<size_t>(i - 1)][static_cast<size_t>(j)],
+                            rl,
+                            grid_x[static_cast<size_t>(i)][static_cast<size_t>(j + 1)],
+                            grid_y[static_cast<size_t>(i)][static_cast<size_t>(j + 1)],
+                            ru,
+                            guess_x,
+                            guess_y,
+                            candidates
+                        );
+                    }
+                    if (has_right && has_up) {
+                        double rr = local_curvature_step(i, j, true);
+                        double ru = local_curvature_step(i, j, false);
+                        add_circle_intersection_candidate(
+                            grid_x[static_cast<size_t>(i + 1)][static_cast<size_t>(j)],
+                            grid_y[static_cast<size_t>(i + 1)][static_cast<size_t>(j)],
+                            rr,
+                            grid_x[static_cast<size_t>(i)][static_cast<size_t>(j + 1)],
+                            grid_y[static_cast<size_t>(i)][static_cast<size_t>(j + 1)],
+                            ru,
+                            guess_x,
+                            guess_y,
+                            candidates
+                        );
+                    }
+
+                    if (has_left) {
+                        double step = local_curvature_step(i - 1, j, true);
+                        candidates.push_back({grid_x[static_cast<size_t>(i - 1)][static_cast<size_t>(j)] + step, grid_y[static_cast<size_t>(i - 1)][static_cast<size_t>(j)]});
+                    }
+                    if (has_down) {
+                        double step = local_curvature_step(i, j - 1, false);
+                        candidates.push_back({grid_x[static_cast<size_t>(i)][static_cast<size_t>(j - 1)], grid_y[static_cast<size_t>(i)][static_cast<size_t>(j - 1)] + step});
+                    }
+                    if (has_right) {
+                        double step = local_curvature_step(i, j, true);
+                        candidates.push_back({grid_x[static_cast<size_t>(i + 1)][static_cast<size_t>(j)] - step, grid_y[static_cast<size_t>(i + 1)][static_cast<size_t>(j)]});
+                    }
+                    if (has_up) {
+                        double step = local_curvature_step(i, j, false);
+                        candidates.push_back({grid_x[static_cast<size_t>(i)][static_cast<size_t>(j + 1)], grid_y[static_cast<size_t>(i)][static_cast<size_t>(j + 1)] - step});
+                    }
+
+                    if (candidates.empty()) {
+                        continue;
+                    }
+                    double sx = 0.0;
+                    double sy = 0.0;
+                    for (const auto &candidate : candidates) {
+                        sx += candidate.first;
+                        sy += candidate.second;
+                    }
+                    grid_x[static_cast<size_t>(i)][static_cast<size_t>(j)] = sx / static_cast<double>(candidates.size());
+                    grid_y[static_cast<size_t>(i)][static_cast<size_t>(j)] = sy / static_cast<double>(candidates.size());
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                break;
+            }
+        }
+    }
+
+    for (int i = 0; i <= divisions; ++i) {
+        for (int j = 0; j <= divisions; ++j) {
+            int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            if (idx < 0 || idx >= static_cast<int>(sample.layout_points.size())) {
+                continue;
+            }
+            double lx = grid_x[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            double ly = grid_y[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            if (!std::isfinite(lx) || !std::isfinite(ly)) {
+                int base_i = seed_i >= 0 ? seed_i : 0;
+                int base_j = seed_j >= 0 ? seed_j : 0;
+                lx = static_cast<double>(i - base_i) * nominal_arc;
+                ly = static_cast<double>(j - base_j) * nominal_arc;
+            }
+            sample.layout_points[static_cast<size_t>(idx)] = {lx, ly, 0.0};
+        }
+    }
+
     Vec3 centroid_point = sample.points.empty() ? Vec3{0.0, 0.0, 0.0} : centroid(sample.points);
     double mid_u = (u0 + u1) / 2.0;
     double mid_v = (v0 + v1) / 2.0;
     Vec3 center = centroid_point;
     Vec3 probe{};
-    if (face_value_at(face, mid_u, mid_v, probe, nullptr)) {
+    if (native_face_value_at(face, surface, mid_u, mid_v, probe, nullptr)) {
         center = probe;
     }
 
     Vec3 normal{0.0, 0.0, 1.0};
     Vec3 face_normal{};
-    if (face_normal_at(face, mid_u, mid_v, face_normal) && norm(face_normal) > 1.0e-12) {
+    if (native_face_normal_at(face, surface, mid_u, mid_v, face_normal) && norm(face_normal) > kVectorZeroEpsilon) {
         normal = face_normal;
     }
 
-    double eps_u = std::max(std::fabs(u1 - u0) * 1.0e-3, 1.0e-4);
-    double eps_v = std::max(std::fabs(v1 - v0) * 1.0e-3, 1.0e-4);
+    double eps_u = std::max(std::fabs(u1 - u0) * kAxisPerturbationScale, kAxisPerturbationFloor);
+    double eps_v = std::max(std::fabs(v1 - v0) * kAxisPerturbationScale, kAxisPerturbationFloor);
     Vec3 pu0{}, pu1{}, pv0{}, pv1{};
-    bool ok_u0 = face_value_at(face, mid_u - eps_u, mid_v, pu0, nullptr);
-    bool ok_u1 = face_value_at(face, mid_u + eps_u, mid_v, pu1, nullptr);
-    bool ok_v0 = face_value_at(face, mid_u, mid_v - eps_v, pv0, nullptr);
-    bool ok_v1 = face_value_at(face, mid_u, mid_v + eps_v, pv1, nullptr);
+    bool ok_u0 = native_face_value_at(face, surface, mid_u - eps_u, mid_v, pu0, nullptr);
+    bool ok_u1 = native_face_value_at(face, surface, mid_u + eps_u, mid_v, pu1, nullptr);
+    bool ok_v0 = native_face_value_at(face, surface, mid_u, mid_v - eps_v, pv0, nullptr);
+    bool ok_v1 = native_face_value_at(face, surface, mid_u, mid_v + eps_v, pv1, nullptr);
 
     Vec3 x_axis{1.0, 0.0, 0.0};
     if (ok_u0 && ok_u1) {
@@ -791,10 +2120,10 @@ static FaceSample sample_face(PyObject *face, double max_length) {
     }
     x_axis = x_axis - normal * dot(x_axis, normal);
     x_axis = normalize(x_axis);
-    if (norm(x_axis) <= 1.0e-12) {
-        Vec3 ref = std::fabs(normal.z) < 0.9 ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+    if (norm(x_axis) <= kVectorZeroEpsilon) {
+        Vec3 ref = std::fabs(normal.z) < kFallbackNormalAlignment ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
         x_axis = normalize(cross(ref, normal));
-        if (norm(x_axis) <= 1.0e-12) {
+        if (norm(x_axis) <= kVectorZeroEpsilon) {
             x_axis = {1.0, 0.0, 0.0};
         }
     }
@@ -805,9 +2134,9 @@ static FaceSample sample_face(PyObject *face, double max_length) {
     }
     y_axis = y_axis - normal * dot(y_axis, normal);
     y_axis = normalize(y_axis);
-    if (norm(y_axis) <= 1.0e-12) {
+    if (norm(y_axis) <= kVectorZeroEpsilon) {
         y_axis = normalize(cross(normal, x_axis));
-        if (norm(y_axis) <= 1.0e-12) {
+        if (norm(y_axis) <= kVectorZeroEpsilon) {
             y_axis = {0.0, 1.0, 0.0};
         }
     }
@@ -862,85 +2191,6 @@ static PyObject *build_face_frame_dict(const FaceSample &sample, int face_index,
     return frame;
 }
 
-static double chart_x_span(const FaceSample &sample) {
-    if (sample.points.empty()) {
-        return 0.0;
-    }
-    double xmin = 0.0;
-    double xmax = 0.0;
-    bool first = true;
-    for (const auto &point : sample.points) {
-        Vec3 local = project_point(point, sample.origin, sample.x_axis, sample.y_axis, sample.normal);
-        if (first) {
-            xmin = xmax = local.x;
-            first = false;
-        } else {
-            xmin = std::min(xmin, local.x);
-            xmax = std::max(xmax, local.x);
-        }
-    }
-    return xmax - xmin;
-}
-
-static PyObject *build_chart_dict(const FaceSample &sample, int chart_index, double x_offset) {
-    std::vector<Vec3> chart_points;
-    chart_points.reserve(sample.points.size());
-    double xmin = 0.0;
-    double ymin = 0.0;
-    double xmax = 0.0;
-    double ymax = 0.0;
-    bool first = true;
-    for (const auto &point : sample.points) {
-        Vec3 local = project_point(point, sample.origin, sample.x_axis, sample.y_axis, sample.normal);
-        Vec3 shifted{local.x + x_offset, local.y, 0.0};
-        chart_points.push_back(shifted);
-        if (first) {
-            xmin = xmax = shifted.x;
-            ymin = ymax = shifted.y;
-            first = false;
-        } else {
-            xmin = std::min(xmin, shifted.x);
-            ymin = std::min(ymin, shifted.y);
-            xmax = std::max(xmax, shifted.x);
-            ymax = std::max(ymax, shifted.y);
-        }
-    }
-
-    std::vector<std::vector<int>> quads = sample.quads;
-    PyObject *chart = PyDict_New();
-    if (!chart) {
-        return nullptr;
-    }
-    PyObject *chart_index_obj = PyLong_FromLong(chart_index);
-    PyObject *points_list = build_vec3_list(chart_points);
-    PyObject *quads_list = build_quad_list(quads);
-    PyObject *bounds_list = PyList_New(4);
-    if (!chart_index_obj || !points_list || !quads_list || !bounds_list) {
-        Py_XDECREF(chart_index_obj);
-        Py_XDECREF(points_list);
-        Py_XDECREF(quads_list);
-        Py_XDECREF(bounds_list);
-        Py_DECREF(chart);
-        return nullptr;
-    }
-
-    PyList_SET_ITEM(bounds_list, 0, PyFloat_FromDouble(xmin));
-    PyList_SET_ITEM(bounds_list, 1, PyFloat_FromDouble(ymin));
-    PyList_SET_ITEM(bounds_list, 2, PyFloat_FromDouble(xmax));
-    PyList_SET_ITEM(bounds_list, 3, PyFloat_FromDouble(ymax));
-
-    PyDict_SetItemString(chart, "chart_index", chart_index_obj);
-    PyDict_SetItemString(chart, "points", points_list);
-    PyDict_SetItemString(chart, "quads", quads_list);
-    PyDict_SetItemString(chart, "bounds", bounds_list);
-
-    Py_DECREF(chart_index_obj);
-    Py_DECREF(points_list);
-    Py_DECREF(quads_list);
-    Py_DECREF(bounds_list);
-    return chart;
-}
-
 static PyObject *build_empty_geometry_result(const char *error, PyObject *params_copy) {
     PyObject *res = PyDict_New();
     if (!res) {
@@ -959,16 +2209,14 @@ static PyObject *build_empty_geometry_result(const char *error, PyObject *params
     PyDict_SetItemString(res, "face_frames", PyList_New(0));
     PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
     PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
-    PyDict_SetItemString(res, "atlas_seams", PyList_New(0));
-    PyDict_SetItemString(res, "atlas_breaks", PyList_New(0));
-    PyDict_SetItemString(res, "atlas_face_frames", PyList_New(0));
-    PyDict_SetItemString(res, "atlas_reasons", PyList_New(0));
     PyDict_SetItemString(res, "parameters", params_copy);
     Py_DECREF(params_copy);
     return res;
 }
 
 static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
+    ensure_part_module_loaded();
+
     PyObject *params_copy = (!params_obj || params_obj == Py_None)
         ? PyDict_New()
         : PyDict_Copy(params_obj);
@@ -1010,32 +2258,81 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         return build_empty_geometry_result("fishnet solver needs at least one face", params_copy);
     }
 
-    double max_length = 0.0;
-    PyObject *max_length_obj = PyDict_GetItemString(params_copy, "max_length");
-    if (!max_length_obj) {
-        max_length_obj = PyDict_GetItemString(params_copy, "fabric_spacing");
+    std::vector<TopoDS_Face> native_faces;
+    native_faces.reserve(faces.size());
+    for (PyObject *face_obj : faces) {
+        TopoDS_Face native_face;
+        if (!extract_native_face(face_obj, native_face)) {
+            for (PyObject *face : faces) {
+                Py_DECREF(face);
+            }
+            faces.clear();
+            return build_empty_geometry_result("fishnet solver needs native Part.Face geometry", params_copy);
+        }
+        native_faces.push_back(native_face);
     }
-    if (max_length_obj) {
-        max_length = PyFloat_AsDouble(max_length_obj);
+
+    CurrentNodeSolverMode solver_mode = CurrentNodeSolverMode::UvNewton;
+    if (PyObject *solver_obj = PyDict_GetItemString(params_copy, "current_node_solver")) {
+        const char *solver_name = PyUnicode_Check(solver_obj) ? PyUnicode_AsUTF8(solver_obj) : nullptr;
+        if (solver_name) {
+            if (std::strcmp(solver_name, "spheresurface") == 0) {
+                solver_mode = CurrentNodeSolverMode::SphereSurfaceExperimental;
+            }
+        } else {
+            PyErr_Clear();
+        }
+    }
+    ExperimentalSolveStats experimental_stats;
+
+    double sample_max_length = 0.0;
+    if (PyObject *max_length_obj = PyDict_GetItemString(params_copy, "max_length")) {
+        sample_max_length = PyFloat_AsDouble(max_length_obj);
         if (PyErr_Occurred()) {
             PyErr_Clear();
-            max_length = 0.0;
+            sample_max_length = 0.0;
         }
+    }
+    double nominal_spacing = 0.0;
+    if (PyObject *spacing_obj = PyDict_GetItemString(params_copy, "fabric_spacing")) {
+        nominal_spacing = PyFloat_AsDouble(spacing_obj);
+        if (PyErr_Occurred()) {
+            PyErr_Clear();
+            nominal_spacing = 0.0;
+        }
+    }
+    if (sample_max_length <= 0.0) {
+        sample_max_length = nominal_spacing;
+    }
+    if (nominal_spacing <= 0.0) {
+        nominal_spacing = sample_max_length;
     }
 
     std::vector<FaceSample> samples;
     std::vector<int> face_indices;
     std::vector<Vec3> points;
+    std::vector<Vec3> layout_points;
     std::vector<std::array<int, 3>> triangles;
     std::vector<std::vector<int>> quads;
 
-    for (size_t i = 0; i < faces.size(); ++i) {
-        FaceSample sample = sample_face(faces[i], max_length);
+    for (size_t i = 0; i < native_faces.size(); ++i) {
+        FaceSample sample = sample_face(
+            native_faces[i],
+            sample_max_length,
+            solver_mode,
+            (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) ? &experimental_stats : nullptr
+        );
         if (sample.points.empty() || sample.triangles.empty()) {
             continue;
         }
+
+        if (!samples.empty() && !sample.layout_points.empty()) {
+            transfer_layout_between_faces(samples.back(), sample);
+        }
+
         int offset = static_cast<int>(points.size());
         points.insert(points.end(), sample.points.begin(), sample.points.end());
+        layout_points.insert(layout_points.end(), sample.layout_points.begin(), sample.layout_points.end());
         for (const auto &tri : sample.triangles) {
             triangles.push_back({tri[0] + offset, tri[1] + offset, tri[2] + offset});
         }
@@ -1063,13 +2360,24 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     std::vector<Vec3> fabric_points;
     local_points.reserve(points.size());
     fabric_points.reserve(points.size());
-    for (const auto &point : points) {
+    for (size_t pi = 0; pi < points.size(); ++pi) {
+        const auto &point = points[pi];
         Vec3 local = project_point(point, origin, x_axis, y_axis, normal);
         local_points.push_back(local);
-        fabric_points.push_back({local.x, local.y, 0.0});
+        Vec3 seed = {local.x, local.y, 0.0};
+        if (nominal_spacing > kVectorZeroEpsilon && pi < layout_points.size()) {
+            seed = {layout_points[pi].x * nominal_spacing, layout_points[pi].y * nominal_spacing, 0.0};
+        }
+        fabric_points.push_back(seed);
     }
 
     std::vector<std::vector<int>> loops_idx = boundary_loops(triangles);
+    std::vector<std::pair<int, int>> constrained_edges = !quads.empty()
+        ? perimeter_edges_from_quads(quads)
+        : edges_from_triangles(triangles);
+    double nominal_edge_length = nominal_spacing;
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length);
+
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
     for (const auto &loop : loops_idx) {
@@ -1090,286 +2398,277 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     }
     PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
 
-    PyObject *face_frames_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
+    PyObject *face_frames_list = PyList_New(0);
     PyObject *orientation_breaks_list = PyList_New(0);
-    PyObject *sampled_faces_list = PyList_New(static_cast<Py_ssize_t>(samples.size()));
     PyObject *atlas_charts_list = PyList_New(0);
-    PyObject *atlas_seams_list = PyList_New(0);
-    PyObject *atlas_breaks_list = PyList_New(0);
-    PyObject *atlas_face_frames_list = PyList_New(0);
-    PyObject *atlas_reasons_list = PyList_New(0);
-    PyObject *fishnet_module = nullptr;
-    PyObject *atlas_builder = nullptr;
-    PyObject *helper_args = nullptr;
-    if (!face_frames_list || !orientation_breaks_list || !sampled_faces_list || !atlas_charts_list || !atlas_seams_list || !atlas_breaks_list || !atlas_face_frames_list || !atlas_reasons_list) {
+    if (!face_frames_list || !orientation_breaks_list || !atlas_charts_list) {
         Py_XDECREF(face_frames_list);
         Py_XDECREF(orientation_breaks_list);
-        Py_XDECREF(sampled_faces_list);
         Py_XDECREF(atlas_charts_list);
-        Py_XDECREF(atlas_seams_list);
-        Py_XDECREF(atlas_breaks_list);
-        Py_XDECREF(atlas_face_frames_list);
-        Py_XDECREF(atlas_reasons_list);
+        Py_DECREF(fabric_points_list);
+        Py_DECREF(fabric_quads_list);
+        Py_DECREF(boundary_loops_list);
+        Py_DECREF(strains_list);
+        Py_DECREF(mesh_points_list);
+        Py_DECREF(mesh_faces_list);
         Py_DECREF(params_copy);
         return nullptr;
     }
 
-    for (size_t i = 0; i < samples.size(); ++i) {
-        const FaceSample &sample = samples[i];
-        PyObject *frame = build_face_frame_dict(sample, face_indices[i], true);
-        PyObject *sampled = PyDict_New();
-        PyObject *points_list = build_vec3_list(sample.points);
-        std::vector<std::vector<int>> triangle_vec;
-        triangle_vec.reserve(sample.triangles.size());
-        for (const auto &tri : sample.triangles) {
-            triangle_vec.push_back({tri[0], tri[1], tri[2]});
-        }
-        PyObject *triangles_list = build_quad_list(triangle_vec);
-        PyObject *quads_list = build_quad_list(sample.quads);
-        if (!frame || !sampled || !points_list || !triangles_list || !quads_list) {
-            Py_XDECREF(frame);
-            Py_XDECREF(sampled);
-            Py_XDECREF(points_list);
-            Py_XDECREF(triangles_list);
-            Py_XDECREF(quads_list);
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyDict_SetItemString(sampled, "points", points_list);
-        PyDict_SetItemString(sampled, "triangles", triangles_list);
-        PyDict_SetItemString(sampled, "quads", quads_list);
-        PyDict_SetItemString(sampled, "frame", frame);
-        PyObject *sampled_face = Py_BuildValue("(iOO)", static_cast<int>(i), faces[i], sampled);
-        if (!sampled_face) {
-            Py_DECREF(frame);
-            Py_DECREF(sampled);
-            Py_DECREF(points_list);
-            Py_DECREF(triangles_list);
-            Py_DECREF(quads_list);
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyList_SET_ITEM(sampled_faces_list, static_cast<Py_ssize_t>(i), sampled_face);
-        PyList_SET_ITEM(face_frames_list, static_cast<Py_ssize_t>(i), frame);
-        Py_DECREF(sampled);
-        Py_DECREF(points_list);
-        Py_DECREF(triangles_list);
-        Py_DECREF(quads_list);
-    }
-
-    if (samples.size() == 1) {
-        Py_DECREF(atlas_charts_list);
-        atlas_charts_list = PyList_New(1);
-        if (!atlas_charts_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyObject *chart = build_chart_dict(samples[0], 0, 0.0);
-        if (!chart) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyList_SET_ITEM(atlas_charts_list, 0, chart);
-
-        Py_DECREF(atlas_breaks_list);
-        atlas_breaks_list = PySequence_List(orientation_breaks_list);
-        if (!atlas_breaks_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-
-        Py_DECREF(atlas_face_frames_list);
-        atlas_face_frames_list = PyList_New(1);
-        if (!atlas_face_frames_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyObject *atlas_frame = build_face_frame_dict(samples[0], face_indices[0], true, 0);
-        if (!atlas_frame) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyList_SET_ITEM(atlas_face_frames_list, 0, atlas_frame);
-
-        Py_DECREF(atlas_reasons_list);
-        atlas_reasons_list = PyList_New(0);
-        if (!atlas_reasons_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-    } else {
-        fishnet_module = PyImport_ImportModule("freecad.Composites.tools.fishnet_atlas");
-        if (fishnet_module) {
-            atlas_builder = PyObject_GetAttrString(fishnet_module, "build_atlas_charts_from_samples");
-        }
-        if (!atlas_builder) {
+    double rel_tol = kDefaultEdgeLengthTolerance;
+    if (PyObject *tol_obj = PyDict_GetItemString(params_copy, "edge_length_tolerance")) {
+        double parsed_tol = PyFloat_AsDouble(tol_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol > 0.0) {
+            rel_tol = parsed_tol;
+        } else {
             PyErr_Clear();
-            Py_XDECREF(fishnet_module);
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
         }
-        helper_args = Py_BuildValue("(OOO)", sampled_faces_list, face_frames_list, orientation_breaks_list);
-        if (!helper_args) {
-            Py_DECREF(fishnet_module);
-            Py_DECREF(atlas_builder);
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        PyObject *native_atlas = PyObject_CallObject(atlas_builder, helper_args);
-        Py_DECREF(helper_args);
-        Py_DECREF(atlas_builder);
-        Py_DECREF(fishnet_module);
-        if (!native_atlas) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        Py_DECREF(atlas_charts_list);
-        atlas_charts_list = native_atlas;
-
-        Py_DECREF(atlas_breaks_list);
-        atlas_breaks_list = PySequence_List(orientation_breaks_list);
-        if (!atlas_breaks_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(atlas_reasons_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        Py_DECREF(atlas_reasons_list);
-        atlas_reasons_list = PyList_New(PyList_Size(atlas_breaks_list));
-        if (!atlas_reasons_list) {
-            Py_DECREF(face_frames_list);
-            Py_DECREF(orientation_breaks_list);
-            Py_DECREF(sampled_faces_list);
-            Py_DECREF(atlas_charts_list);
-            Py_DECREF(atlas_seams_list);
-            Py_DECREF(atlas_breaks_list);
-            Py_DECREF(atlas_face_frames_list);
-            Py_DECREF(params_copy);
-            return nullptr;
-        }
-        for (Py_ssize_t i = 0; i < PyList_Size(atlas_breaks_list); ++i) {
-            PyObject *item = PyList_GetItem(atlas_breaks_list, i);
-            PyObject *reason = item ? PyDict_GetItemString(item, "reason") : nullptr;
+    }
+    auto [edge_violations, max_rel_error] = edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+    if (edge_violations > 0) {
+        PyObject *break_item = PyDict_New();
+        if (break_item) {
+            PyObject *from_face = PyLong_FromLong(-1);
+            PyObject *to_face = PyLong_FromLong(-1);
+            if (from_face && to_face) {
+                PyDict_SetItemString(break_item, "from_face", from_face);
+                PyDict_SetItemString(break_item, "to_face", to_face);
+            }
+            Py_XDECREF(from_face);
+            Py_XDECREF(to_face);
+            char reason_buf[256];
+            std::snprintf(
+                reason_buf,
+                sizeof(reason_buf),
+                "edge length constraint violated: %d edges (max relative error %.6g, tolerance %.6g)",
+                edge_violations,
+                max_rel_error,
+                rel_tol
+            );
+            PyObject *reason = PyUnicode_FromString(reason_buf);
             if (reason) {
-                Py_INCREF(reason);
-                PyList_SET_ITEM(atlas_reasons_list, i, reason);
-            } else {
-                PyList_SET_ITEM(atlas_reasons_list, i, PyUnicode_FromString(""));
+                PyDict_SetItemString(break_item, "reason", reason);
+                Py_DECREF(reason);
+            }
+            PyList_Append(orientation_breaks_list, break_item);
+            Py_DECREF(break_item);
+        }
+    }
+
+    if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && experimental_stats.calls > 0) {
+        PyObject *diag_item = PyDict_New();
+        if (diag_item) {
+            PyObject *from_face = PyLong_FromLong(-1);
+            PyObject *to_face = PyLong_FromLong(-1);
+            if (from_face && to_face) {
+                PyDict_SetItemString(diag_item, "from_face", from_face);
+                PyDict_SetItemString(diag_item, "to_face", to_face);
+            }
+            Py_XDECREF(from_face);
+            Py_XDECREF(to_face);
+            double mean_improvement = experimental_stats.better_candidate_hits > 0
+                ? (experimental_stats.improvement_sum / static_cast<double>(experimental_stats.better_candidate_hits))
+                : 0.0;
+            double local_seed_ratio = experimental_stats.seed_attempts > 0
+                ? (static_cast<double>(experimental_stats.seed_local) / static_cast<double>(experimental_stats.seed_attempts))
+                : 0.0;
+            double mean_best_shift = experimental_stats.better_candidate_hits > 0
+                ? (experimental_stats.best_shift_norm_sum / static_cast<double>(experimental_stats.better_candidate_hits))
+                : 0.0;
+            char reason_buf[512];
+            std::snprintf(
+                reason_buf,
+                sizeof(reason_buf),
+                "experimental spheresurface diagnostics: calls=%d base_failures=%d seed_attempts=%d seed_solved=%d seed_local=%d local_seed_ratio=%.6g better_candidate_hits=%d mean_improvement=%.6g mean_best_shift=%.6g max_best_shift=%.6g fallbacks=%d (baseline retained)",
+                experimental_stats.calls,
+                experimental_stats.base_failures,
+                experimental_stats.seed_attempts,
+                experimental_stats.seed_solved,
+                experimental_stats.seed_local,
+                local_seed_ratio,
+                experimental_stats.better_candidate_hits,
+                mean_improvement,
+                mean_best_shift,
+                experimental_stats.best_shift_norm_max,
+                experimental_stats.fallback_count
+            );
+            PyObject *reason = PyUnicode_FromString(reason_buf);
+            if (reason) {
+                PyDict_SetItemString(diag_item, "reason", reason);
+                Py_DECREF(reason);
+            }
+            PyList_Append(orientation_breaks_list, diag_item);
+            Py_DECREF(diag_item);
+        }
+    }
+
+    if (!samples.empty()) {
+        double seam_tol_3d = 1.0e-6;
+        SeamContinuityStats seam_stats = seam_layout_continuity_summary(points, fabric_points, seam_tol_3d);
+        if (seam_stats.group_count > 0) {
+            double seam_limit = nominal_edge_length > kVectorZeroEpsilon ? nominal_edge_length * 3.0 : 5.0;
+            if (seam_stats.max_min_distance > seam_limit) {
+                PyObject *break_item = PyDict_New();
+                if (break_item) {
+                    PyObject *from_face = PyLong_FromLong(-1);
+                    PyObject *to_face = PyLong_FromLong(-1);
+                    if (from_face && to_face) {
+                        PyDict_SetItemString(break_item, "from_face", from_face);
+                        PyDict_SetItemString(break_item, "to_face", to_face);
+                    }
+                    Py_XDECREF(from_face);
+                    Py_XDECREF(to_face);
+                    char reason_buf[256];
+                    std::snprintf(
+                        reason_buf,
+                        sizeof(reason_buf),
+                        "seam continuity degraded: %d groups (mean min distance %.6g, max min distance %.6g, limit %.6g)",
+                        seam_stats.group_count,
+                        seam_stats.mean_min_distance,
+                        seam_stats.max_min_distance,
+                        seam_limit
+                    );
+                    PyObject *reason = PyUnicode_FromString(reason_buf);
+                    if (reason) {
+                        PyDict_SetItemString(break_item, "reason", reason);
+                        Py_DECREF(reason);
+                    }
+                    PyList_Append(orientation_breaks_list, break_item);
+                    Py_DECREF(break_item);
+                }
             }
         }
     }
 
-    Py_ssize_t chart_count = PyList_Size(atlas_charts_list);
-    for (Py_ssize_t chart_index = 0; chart_index < chart_count; ++chart_index) {
-        PyObject *chart = PyList_GetItem(atlas_charts_list, chart_index);
-        if (!chart) {
-            continue;
+    if (!samples.empty()) {
+        PyObject *frame = build_face_frame_dict(samples.front(), face_indices.front(), true);
+        if (!frame) {
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(fabric_points_list);
+            Py_DECREF(fabric_quads_list);
+            Py_DECREF(boundary_loops_list);
+            Py_DECREF(strains_list);
+            Py_DECREF(mesh_points_list);
+            Py_DECREF(mesh_faces_list);
+            Py_DECREF(params_copy);
+            return nullptr;
         }
-        PyObject *chart_seams = PyDict_GetItemString(chart, "seams");
-        if (chart_seams && PyList_Check(chart_seams)) {
-            for (Py_ssize_t i = 0; i < PyList_Size(chart_seams); ++i) {
-                PyObject *item = PyList_GetItem(chart_seams, i);
-                if (item) {
-                    PyList_Append(atlas_seams_list, item);
-                }
+        if (PyList_Append(face_frames_list, frame) != 0) {
+            Py_DECREF(frame);
+            Py_DECREF(face_frames_list);
+            Py_DECREF(orientation_breaks_list);
+            Py_DECREF(atlas_charts_list);
+            Py_DECREF(fabric_points_list);
+            Py_DECREF(fabric_quads_list);
+            Py_DECREF(boundary_loops_list);
+            Py_DECREF(strains_list);
+            Py_DECREF(mesh_points_list);
+            Py_DECREF(mesh_faces_list);
+            Py_DECREF(params_copy);
+            return nullptr;
+        }
+        Py_DECREF(frame);
+
+        std::vector<std::vector<int>> chart_quads_vec = quads;
+        if (chart_quads_vec.empty()) {
+            chart_quads_vec = mesh_face_vec;
+        }
+
+        int overlap_rejections = 0;
+        std::vector<AtlasChartBuild> charts = split_into_non_overlapping_charts(fabric_points, chart_quads_vec, overlap_rejections);
+        double x_offset = 0.0;
+        for (size_t chart_i = 0; chart_i < charts.size(); ++chart_i) {
+            PyObject *chart = PyDict_New();
+            if (!chart) {
+                Py_DECREF(face_frames_list);
+                Py_DECREF(orientation_breaks_list);
+                Py_DECREF(atlas_charts_list);
+                Py_DECREF(fabric_points_list);
+                Py_DECREF(fabric_quads_list);
+                Py_DECREF(boundary_loops_list);
+                Py_DECREF(strains_list);
+                Py_DECREF(mesh_points_list);
+                Py_DECREF(mesh_faces_list);
+                Py_DECREF(params_copy);
+                return nullptr;
             }
+
+            std::vector<Vec3> shifted_points = charts[chart_i].points;
+            for (auto &p : shifted_points) {
+                p.x += x_offset;
+            }
+
+            PyObject *chart_index_obj = PyLong_FromLong(static_cast<long>(chart_i));
+            PyObject *chart_points = build_vec3_list(shifted_points);
+            PyObject *chart_quads = build_quad_list(charts[chart_i].quads);
+            PyObject *bounds_list = PyList_New(4);
+            if (!chart_index_obj || !chart_points || !chart_quads || !bounds_list) {
+                Py_XDECREF(chart_index_obj);
+                Py_XDECREF(chart_points);
+                Py_XDECREF(chart_quads);
+                Py_XDECREF(bounds_list);
+                Py_DECREF(chart);
+                Py_DECREF(face_frames_list);
+                Py_DECREF(orientation_breaks_list);
+                Py_DECREF(atlas_charts_list);
+                Py_DECREF(fabric_points_list);
+                Py_DECREF(fabric_quads_list);
+                Py_DECREF(boundary_loops_list);
+                Py_DECREF(strains_list);
+                Py_DECREF(mesh_points_list);
+                Py_DECREF(mesh_faces_list);
+                Py_DECREF(params_copy);
+                return nullptr;
+            }
+
+            double min_x = shifted_points.empty() ? 0.0 : shifted_points.front().x;
+            double max_x = shifted_points.empty() ? 0.0 : shifted_points.front().x;
+            double min_y = shifted_points.empty() ? 0.0 : shifted_points.front().y;
+            double max_y = shifted_points.empty() ? 0.0 : shifted_points.front().y;
+            for (const auto &p : shifted_points) {
+                min_x = std::min(min_x, p.x);
+                max_x = std::max(max_x, p.x);
+                min_y = std::min(min_y, p.y);
+                max_y = std::max(max_y, p.y);
+            }
+            PyList_SET_ITEM(bounds_list, 0, PyFloat_FromDouble(min_x));
+            PyList_SET_ITEM(bounds_list, 1, PyFloat_FromDouble(max_x));
+            PyList_SET_ITEM(bounds_list, 2, PyFloat_FromDouble(min_y));
+            PyList_SET_ITEM(bounds_list, 3, PyFloat_FromDouble(max_y));
+            PyDict_SetItemString(chart, "chart_index", chart_index_obj);
+            PyDict_SetItemString(chart, "points", chart_points);
+            PyDict_SetItemString(chart, "quads", chart_quads);
+            PyDict_SetItemString(chart, "bounds", bounds_list);
+            PyList_Append(atlas_charts_list, chart);
+            Py_DECREF(chart_index_obj);
+            Py_DECREF(chart_points);
+            Py_DECREF(chart_quads);
+            Py_DECREF(bounds_list);
+            Py_DECREF(chart);
+
+            x_offset += (max_x - min_x) + kAtlasChartGap;
         }
-        PyObject *chart_face_frames = PyDict_GetItemString(chart, "face_frames");
-        if (chart_face_frames && PyList_Check(chart_face_frames)) {
-            for (Py_ssize_t i = 0; i < PyList_Size(chart_face_frames); ++i) {
-                PyObject *item = PyList_GetItem(chart_face_frames, i);
-                if (item) {
-                    PyList_Append(atlas_face_frames_list, item);
+
+        if (overlap_rejections > 0) {
+            PyObject *break_item = PyDict_New();
+            if (break_item) {
+                PyObject *from_face = PyLong_FromLong(-1);
+                PyObject *to_face = PyLong_FromLong(-1);
+                if (from_face && to_face) {
+                    PyDict_SetItemString(break_item, "from_face", from_face);
+                    PyDict_SetItemString(break_item, "to_face", to_face);
                 }
+                Py_XDECREF(from_face);
+                Py_XDECREF(to_face);
+                PyObject *reason = PyUnicode_FromFormat("atlas overlap split: %d overlapping placements moved to new charts", overlap_rejections);
+                if (reason) {
+                    PyDict_SetItemString(break_item, "reason", reason);
+                    Py_DECREF(reason);
+                }
+                PyList_Append(orientation_breaks_list, break_item);
+                Py_DECREF(break_item);
             }
         }
     }
@@ -1378,12 +2677,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     if (!result) {
         Py_DECREF(face_frames_list);
         Py_DECREF(orientation_breaks_list);
-        Py_DECREF(sampled_faces_list);
         Py_DECREF(atlas_charts_list);
-        Py_DECREF(atlas_seams_list);
-        Py_DECREF(atlas_breaks_list);
-        Py_DECREF(atlas_face_frames_list);
-        Py_DECREF(atlas_reasons_list);
         Py_DECREF(params_copy);
         return nullptr;
     }
@@ -1399,10 +2693,6 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     PyDict_SetItemString(result, "face_frames", face_frames_list);
     PyDict_SetItemString(result, "orientation_breaks", orientation_breaks_list);
     PyDict_SetItemString(result, "atlas_charts", atlas_charts_list);
-    PyDict_SetItemString(result, "atlas_seams", atlas_seams_list);
-    PyDict_SetItemString(result, "atlas_breaks", atlas_breaks_list);
-    PyDict_SetItemString(result, "atlas_face_frames", atlas_face_frames_list);
-    PyDict_SetItemString(result, "atlas_reasons", atlas_reasons_list);
     PyDict_SetItemString(result, "origin", build_vec3_tuple(origin));
     PyDict_SetItemString(result, "normal", build_vec3_tuple(normal));
     PyDict_SetItemString(result, "x_axis", build_vec3_tuple(x_axis));
@@ -1417,12 +2707,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     Py_DECREF(mesh_faces_list);
     Py_DECREF(face_frames_list);
     Py_DECREF(orientation_breaks_list);
-    Py_DECREF(sampled_faces_list);
     Py_DECREF(atlas_charts_list);
-    Py_DECREF(atlas_seams_list);
-    Py_DECREF(atlas_breaks_list);
-    Py_DECREF(atlas_face_frames_list);
-    Py_DECREF(atlas_reasons_list);
     Py_DECREF(params_copy);
     return result;
 }
@@ -1509,10 +2794,6 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "face_frames", PyList_New(0));
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_seams", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_breaks", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_face_frames", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_reasons", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -1530,10 +2811,6 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "face_frames", PyList_New(0));
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_seams", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_breaks", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_face_frames", PyList_New(0));
-        PyDict_SetItemString(res, "atlas_reasons", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
         Py_DECREF(params_copy);
         return res;
@@ -1553,14 +2830,26 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         fabric_points.push_back({local.x, local.y, 0.0});
     }
 
+    std::vector<std::vector<int>> fabric_quads = extract_quads(faces, points);
     std::vector<std::vector<int>> loops_idx = boundary_loops(faces);
+    std::vector<std::pair<int, int>> constrained_edges = !fabric_quads.empty()
+        ? perimeter_edges_from_quads(fabric_quads)
+        : edges_from_triangles(faces);
+    double nominal_edge_length = 0.0;
+    if (PyObject *spacing_obj = PyDict_GetItemString(params_copy, "fabric_spacing")) {
+        nominal_edge_length = PyFloat_AsDouble(spacing_obj);
+        if (PyErr_Occurred()) {
+            PyErr_Clear();
+            nominal_edge_length = 0.0;
+        }
+    }
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length);
+
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
     for (const auto &loop : loops_idx) {
         loops_pts.push_back(loop_to_points(loop, fabric_points));
     }
-
-    std::vector<std::vector<int>> fabric_quads = extract_quads(faces, points);
     std::vector<std::array<double, 3>> strains = face_strains(faces, local_points, normal);
 
     PyObject *fabric_points_list = build_vec3_list(fabric_points);
@@ -1576,6 +2865,47 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
     PyObject *face_frames_list = PyList_New(1);
     PyObject *orientation_breaks_list = PyList_New(0);
+
+    double rel_tol = kDefaultEdgeLengthTolerance;
+    if (PyObject *tol_obj = PyDict_GetItemString(params_copy, "edge_length_tolerance")) {
+        double parsed_tol = PyFloat_AsDouble(tol_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol > 0.0) {
+            rel_tol = parsed_tol;
+        } else {
+            PyErr_Clear();
+        }
+    }
+    auto [edge_violations, max_rel_error] = edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+    if (orientation_breaks_list && edge_violations > 0) {
+        PyObject *break_item = PyDict_New();
+        if (break_item) {
+            PyObject *from_face = PyLong_FromLong(-1);
+            PyObject *to_face = PyLong_FromLong(-1);
+            if (from_face && to_face) {
+                PyDict_SetItemString(break_item, "from_face", from_face);
+                PyDict_SetItemString(break_item, "to_face", to_face);
+            }
+            Py_XDECREF(from_face);
+            Py_XDECREF(to_face);
+            char reason_buf[256];
+            std::snprintf(
+                reason_buf,
+                sizeof(reason_buf),
+                "edge length constraint violated: %d edges (max relative error %.6g, tolerance %.6g)",
+                edge_violations,
+                max_rel_error,
+                rel_tol
+            );
+            PyObject *reason = PyUnicode_FromString(reason_buf);
+            if (reason) {
+                PyDict_SetItemString(break_item, "reason", reason);
+                Py_DECREF(reason);
+            }
+            PyList_Append(orientation_breaks_list, break_item);
+            Py_DECREF(break_item);
+        }
+    }
+
     if (face_frames_list) {
         PyObject *frame = PyDict_New();
         if (frame) {
@@ -1645,10 +2975,6 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "face_frames", face_frames_list);
     PyDict_SetItemString(result, "orientation_breaks", orientation_breaks_list);
     PyDict_SetItemString(result, "atlas_charts", PyList_New(0));
-    PyDict_SetItemString(result, "atlas_seams", PyList_New(0));
-    PyDict_SetItemString(result, "atlas_breaks", PyList_New(0));
-    PyDict_SetItemString(result, "atlas_face_frames", PyList_New(0));
-    PyDict_SetItemString(result, "atlas_reasons", PyList_New(0));
     PyDict_SetItemString(result, "origin", build_vec3_tuple(origin));
     PyDict_SetItemString(result, "normal", build_vec3_tuple(normal));
     PyDict_SetItemString(result, "x_axis", build_vec3_tuple(x_axis));

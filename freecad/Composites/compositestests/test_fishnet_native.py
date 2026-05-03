@@ -8,6 +8,7 @@ import os
 import sys
 import types
 import unittest
+from collections import defaultdict
 
 
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -35,15 +36,18 @@ save_single_face_comparison_plot = _plotting.save_single_face_comparison_plot
 
 
 def _load_fishnet_module():
-    compiled_candidates = []
-    for pattern in (
-        os.path.join(_REPO_ROOT, "**", "_fishnet*.so"),
-        os.path.join(_REPO_ROOT, "**", "_fishnet*.pyd"),
-        os.path.join(_REPO_ROOT, "**", "_fishnet*.dll"),
-    ):
-        compiled_candidates.extend(glob.glob(pattern, recursive=True))
-    if compiled_candidates:
-        path = sorted(compiled_candidates)[0]
+    abi_tag = f"cpython-{sys.version_info.major}{sys.version_info.minor}"
+    preferred = []
+    package_dir = os.path.join(_REPO_ROOT, "freecad", "Composites")
+    for ext in ("so", "pyd", "dll"):
+        preferred.extend(glob.glob(os.path.join(package_dir, f"_fishnet*.{ext}")))
+    preferred = sorted(preferred)
+    matching = [path for path in preferred if abi_tag in os.path.basename(path)]
+    if matching:
+        path = matching[0]
+        spec = importlib.util.spec_from_file_location("_fishnet", path)
+    elif preferred:
+        path = preferred[0]
         spec = importlib.util.spec_from_file_location("_fishnet", path)
     else:
         path = os.path.join(_REPO_ROOT, "freecad", "Composites", "_fishnet.py")
@@ -52,6 +56,8 @@ def _load_fishnet_module():
     spec.loader.exec_module(mod)
     return mod
 
+
+import Part  # ensure native Part types are initialized before loading extension
 
 _fishnet = _load_fishnet_module()
 
@@ -152,6 +158,82 @@ def _make_axially_sliced_cone_mesh():
     return mesh_points, mesh_faces
 
 
+def _orient2(a, b, c):
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _strict_segment_intersect(a, b, c, d, eps=1.0e-9):
+    o1 = _orient2(a, b, c)
+    o2 = _orient2(a, b, d)
+    o3 = _orient2(c, d, a)
+    o4 = _orient2(c, d, b)
+    return (o1 * o2 < -eps) and (o3 * o4 < -eps)
+
+
+def _point_in_triangle_strict(p, a, b, c, eps=1.0e-9):
+    d1 = _orient2(a, b, p)
+    d2 = _orient2(b, c, p)
+    d3 = _orient2(c, a, p)
+    has_pos = d1 > eps or d2 > eps or d3 > eps
+    has_neg = d1 < -eps or d2 < -eps or d3 < -eps
+    if has_pos and has_neg:
+        return False
+    return abs(d1) > eps and abs(d2) > eps and abs(d3) > eps
+
+
+def _triangles_overlap_strict(t1, t2):
+    for a0, a1 in ((t1[0], t1[1]), (t1[1], t1[2]), (t1[2], t1[0])):
+        for b0, b1 in ((t2[0], t2[1]), (t2[1], t2[2]), (t2[2], t2[0])):
+            if _strict_segment_intersect(a0, a1, b0, b1):
+                return True
+    if _point_in_triangle_strict(t1[0], t2[0], t2[1], t2[2]):
+        return True
+    if _point_in_triangle_strict(t2[0], t1[0], t1[1], t1[2]):
+        return True
+    return False
+
+
+def _quads_overlap_strict(points, qa, qb):
+    pa = [points[idx] for idx in qa]
+    pb = [points[idx] for idx in qb]
+    ax = [p[0] for p in pa]
+    ay = [p[1] for p in pa]
+    bx = [p[0] for p in pb]
+    by = [p[1] for p in pb]
+    if max(ax) <= min(bx) + 1.0e-9 or max(bx) <= min(ax) + 1.0e-9:
+        return False
+    if max(ay) <= min(by) + 1.0e-9 or max(by) <= min(ay) + 1.0e-9:
+        return False
+    tris_a = ((pa[0], pa[1], pa[2]), (pa[0], pa[2], pa[3]))
+    tris_b = ((pb[0], pb[1], pb[2]), (pb[0], pb[2], pb[3]))
+    return any(_triangles_overlap_strict(ta, tb) for ta in tris_a for tb in tris_b)
+
+
+def _seam_min_dist_stats(result):
+    groups = defaultdict(list)
+    for idx, p in enumerate(result.get("mesh_points", [])):
+        key = (round(float(p[0]), 6), round(float(p[1]), 6), round(float(p[2]), 6))
+        groups[key].append(idx)
+
+    seam_groups = [idxs for idxs in groups.values() if len(idxs) > 1]
+    fabric = result.get("fabric_points", [])
+    min_dists = []
+    for idxs in seam_groups:
+        best = None
+        for i in range(len(idxs)):
+            for j in range(i + 1, len(idxs)):
+                a = fabric[idxs[i]]
+                b = fabric[idxs[j]]
+                d = math.hypot(float(b[0]) - float(a[0]), float(b[1]) - float(a[1]))
+                best = d if best is None else min(best, d)
+        if best is not None:
+            min_dists.append(best)
+
+    if not min_dists:
+        return 0, 0.0, 0.0
+    return len(min_dists), sum(min_dists) / len(min_dists), max(min_dists)
+
+
 class TestFishnetSolver(unittest.TestCase):
     def test_simple_square_mesh_solves(self):
         points = [
@@ -176,6 +258,9 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["boundary_loops"][0][0], result["boundary_loops"][0][-1])
         self.assertEqual(len(result["fabric_quads"]), 1)
         self.assertEqual(len(result["strains"]), 2)
+        self.assertIn("atlas_charts", result)
+        for key in ("atlas_seams", "atlas_breaks", "atlas_face_frames", "atlas_reasons"):
+            self.assertNotIn(key, result)
         self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
         save_native_fishnet_plot("native_simple_square", points, faces, result)
 
@@ -289,6 +374,143 @@ class TestFishnetSolver(unittest.TestCase):
         if plot_path is not None:
             self.assertTrue(plot_path.exists())
 
+    def test_cone_face_spheresurface_mode_is_accepted(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                5,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+        result = _fishnet.solve(
+            face,
+            parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"},
+        )
+        self.assertTrue(result["valid"])
+        self.assertGreater(len(result.get("fabric_points", [])), 0)
+        diagnostics = [
+            str(item.get("reason", ""))
+            for item in result.get("orientation_breaks", [])
+            if isinstance(item, dict) and "experimental spheresurface diagnostics" in str(item.get("reason", ""))
+        ]
+        self.assertGreater(len(diagnostics), 0)
+        self.assertTrue(any("calls=" in reason for reason in diagnostics))
+        self.assertTrue(any("fallbacks=" in reason for reason in diagnostics))
+
+    def test_cone_face_spheresurface_mode_preserves_seam_quality(self):
+        import FreeCAD
+        import Part
+
+        shape = Part.makeCone(
+            12,
+            0,
+            24,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+
+        base = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "uv_newton"})
+        exp = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"})
+
+        self.assertTrue(base["valid"])
+        self.assertTrue(exp["valid"])
+
+        n_base, mean_base, max_base = _seam_min_dist_stats(base)
+        n_exp, mean_exp, max_exp = _seam_min_dist_stats(exp)
+        self.assertGreater(n_base, 0)
+        self.assertGreater(n_exp, 0)
+
+        # Experimental mode must remain in the same quality regime as baseline.
+        self.assertLessEqual(mean_exp, mean_base * 1.25 + 1.0e-6)
+        self.assertLessEqual(max_exp, max_base * 1.25 + 1.0e-6)
+
+    def test_cone_face_structural_edges_follow_fabric_spacing(self):
+        import FreeCAD
+        import Part
+
+        spacing = 2.0
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                5,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+        result = _fishnet.solve(face, parameters={"fabric_spacing": spacing})
+        self.assertTrue(result["valid"])
+
+        edges = set()
+        for quad in result.get("fabric_quads", []):
+            if len(quad) < 4:
+                continue
+            a, b, c, d = [int(i) for i in quad[:4]]
+            edges.add(tuple(sorted((a, b))))
+            edges.add(tuple(sorted((b, c))))
+            edges.add(tuple(sorted((c, d))))
+            edges.add(tuple(sorted((d, a))))
+
+        lengths = []
+        points = result.get("fabric_points", [])
+        for a, b in edges:
+            pa = points[a]
+            pb = points[b]
+            lengths.append(math.hypot(float(pb[0]) - float(pa[0]), float(pb[1]) - float(pa[1])))
+
+        self.assertGreater(len(lengths), 0)
+        mean = sum(lengths) / len(lengths)
+        self.assertAlmostEqual(mean, spacing, delta=0.3)
+        self.assertLess(max(lengths) - min(lengths), 0.8)
+
+    def test_atlas_charts_do_not_contain_overlapping_quads(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                5,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+        result = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
+        self.assertTrue(result["valid"])
+        for chart in result.get("atlas_charts", []):
+            points = [tuple(p[:2]) for p in chart.get("points", [])]
+            quads = chart.get("quads", [])
+            for i in range(len(quads)):
+                for j in range(i + 1, len(quads)):
+                    self.assertFalse(_quads_overlap_strict(points, quads[i], quads[j]))
+
+    def test_trivial_atlas_chart_is_skipped_for_plotting(self):
+        plt = _plotting._import_pyplot()
+        fig, ax = plt.subplots()
+        try:
+            trivial_chart = {
+                "points": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
+                "quads": [[0, 1, 2, 3]],
+            }
+            self.assertFalse(_plotting._plot_atlas_charts(ax, [trivial_chart]))
+        finally:
+            plt.close(fig)
+
     def test_axially_sliced_cone_mesh_solves(self):
         points, faces = _make_axially_sliced_cone_mesh()
 
@@ -303,6 +525,54 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(len(result["boundary_loops"]), 0)
         self.assertGreater(len(result["strains"]), 0)
         save_native_fishnet_plot("native_axially_sliced_cone", points, faces, result)
+
+    def test_axially_sliced_cone_shape_keeps_seam_layout_continuity(self):
+        import FreeCAD
+        import Part
+
+        shape = Part.makeCone(
+            12,
+            0,
+            24,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+
+        spacing = 2.0
+        result = _fishnet.solve(shape, parameters={"fabric_spacing": spacing})
+        self.assertTrue(result["valid"])
+
+        groups = defaultdict(list)
+        for idx, p in enumerate(result.get("mesh_points", [])):
+            key = (round(float(p[0]), 6), round(float(p[1]), 6), round(float(p[2]), 6))
+            groups[key].append(idx)
+
+        seam_groups = [idxs for idxs in groups.values() if len(idxs) > 1]
+        self.assertGreater(len(seam_groups), 0)
+
+        fabric = result.get("fabric_points", [])
+        min_dists = []
+        for idxs in seam_groups:
+            best = None
+            for i in range(len(idxs)):
+                for j in range(i + 1, len(idxs)):
+                    a = fabric[idxs[i]]
+                    b = fabric[idxs[j]]
+                    d = math.hypot(float(b[0]) - float(a[0]), float(b[1]) - float(a[1]))
+                    best = d if best is None else min(best, d)
+            if best is not None:
+                min_dists.append(best)
+
+        self.assertGreater(len(min_dists), 0)
+        self.assertLess(sum(min_dists) / len(min_dists), spacing * 2.0)
+        self.assertLess(max(min_dists), spacing * 3.0)
+        self.assertFalse(
+            any(
+                "seam continuity degraded" in str(item.get("reason", ""))
+                for item in result.get("orientation_breaks", [])
+                if isinstance(item, dict)
+            )
+        )
 
     def test_concave_l_shape_mesh_solves(self):
         points = [
@@ -354,6 +624,25 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(len(result["strains"]), len(faces))
         self.assertGreater(max(abs(v) for row in result["strains"] for v in row), 0.0)
         save_native_fishnet_plot("native_step_mesh", points, faces, result)
+
+    def test_edge_length_constraint_reported_for_curved_mesh(self):
+        xs = [0.0, 0.5, 1.0, 1.5, 2.0]
+        ys = [0.0, 0.5, 1.0, 1.5]
+        curved, faces = _make_grid_mesh(
+            xs,
+            ys,
+            lambda u, v: 0.35 * math.sin(1.7 * u) * math.cos(1.3 * v),
+        )
+
+        result = _fishnet.solve(mesh_points=curved, mesh_faces=faces, parameters={"steps": 6})
+        self.assertTrue(result["valid"])
+        self.assertFalse(
+            any(
+                "edge length constraint violated" in str(item.get("reason", ""))
+                for item in result.get("orientation_breaks", [])
+                if isinstance(item, dict)
+            )
+        )
 
     def test_invalid_mesh_returns_error(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters=None)
