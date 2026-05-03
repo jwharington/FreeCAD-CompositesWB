@@ -234,6 +234,14 @@ def _seam_min_dist_stats(result):
     return len(min_dists), sum(min_dists) / len(min_dists), max(min_dists)
 
 
+def _duplicate_mesh_point_groups(result):
+    groups = defaultdict(list)
+    for idx, p in enumerate(result.get("mesh_points", [])):
+        key = (round(float(p[0]), 6), round(float(p[1]), 6), round(float(p[2]), 6))
+        groups[key].append(idx)
+    return [idxs for idxs in groups.values() if len(idxs) > 1]
+
+
 class TestFishnetSolver(unittest.TestCase):
     def test_simple_square_mesh_solves(self):
         points = [
@@ -404,6 +412,27 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertGreater(len(diagnostics), 0)
         self.assertTrue(any("calls=" in reason for reason in diagnostics))
         self.assertTrue(any("fallbacks=" in reason for reason in diagnostics))
+
+    def test_cone_face_default_normal_angle_fold_guard_avoids_collapsed_mesh_nodes(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                5,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        result = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
+        self.assertTrue(result["valid"])
+        self.assertEqual(len(_duplicate_mesh_point_groups(result)), 0)
 
     def test_cone_face_spheresurface_mode_preserves_seam_quality(self):
         import FreeCAD
