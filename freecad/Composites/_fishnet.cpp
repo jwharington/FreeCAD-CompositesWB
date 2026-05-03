@@ -1599,6 +1599,7 @@ static FaceSample sample_face(
     const TopoDS_Face &face,
     double max_length,
     CurrentNodeSolverMode solver_mode,
+    double max_adjacent_normal_angle,
     ExperimentalSolveStats *experimental_stats
 ) {
     FaceSample sample;
@@ -1778,9 +1779,38 @@ static FaceSample sample_face(
             if (norm(new_point - seed_points[static_cast<size_t>(idx)]) > max_seed_shift) {
                 return false;
             }
-            sample.points[static_cast<size_t>(idx)] = new_point;
+
             Vec3 n{0.0, 0.0, 1.0};
             native_face_normal_at(face, surface, u, v, n);
+            Vec3 n_candidate = normalize(n);
+            if (norm(n_candidate) > kVectorZeroEpsilon &&
+                std::isfinite(max_adjacent_normal_angle) &&
+                max_adjacent_normal_angle > 0.0) {
+                double angle = std::min(max_adjacent_normal_angle, 3.14159265358979323846);
+                double cos_limit = std::cos(angle);
+                auto normal_compatible = [&](int ni, int nj) {
+                    if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
+                        return true;
+                    }
+                    int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                    if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                        return true;
+                    }
+                    Vec3 nn = normalize(grid_normals[static_cast<size_t>(ni)][static_cast<size_t>(nj)]);
+                    if (norm(nn) <= kVectorZeroEpsilon) {
+                        return true;
+                    }
+                    return dot(n_candidate, nn) >= cos_limit;
+                };
+                if (!normal_compatible(i - 1, j) ||
+                    !normal_compatible(i + 1, j) ||
+                    !normal_compatible(i, j - 1) ||
+                    !normal_compatible(i, j + 1)) {
+                    return false;
+                }
+            }
+
+            sample.points[static_cast<size_t>(idx)] = new_point;
             if (norm(n) > kVectorZeroEpsilon) {
                 grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = n;
             }
@@ -2283,6 +2313,15 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
+    double max_adjacent_normal_angle = 1.5707963267948966;  // pi/2 default fold guard
+    if (PyObject *angle_obj = PyDict_GetItemString(params_copy, "max_adjacent_normal_angle")) {
+        double parsed_angle = PyFloat_AsDouble(angle_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_angle) && parsed_angle > 0.0) {
+            max_adjacent_normal_angle = parsed_angle;
+        } else {
+            PyErr_Clear();
+        }
+    }
     ExperimentalSolveStats experimental_stats;
 
     double sample_max_length = 0.0;
@@ -2320,6 +2359,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             native_faces[i],
             sample_max_length,
             solver_mode,
+            max_adjacent_normal_angle,
             (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) ? &experimental_stats : nullptr
         );
         if (sample.points.empty() || sample.triangles.empty()) {
