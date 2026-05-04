@@ -991,7 +991,17 @@ def _attach_solver_metadata(result, params, termination_reason, converged, diagn
     result["converged"] = bool(converged)
     result["iterations"] = _solver_iterations(params)
     result["solver_status"] = "ok" if converged else "error"
-    result["diagnostics"] = dict(diagnostics or {})
+    diag = dict(diagnostics or {})
+    if "stop_reason_detail" not in diag:
+        if str(termination_reason) == "converged":
+            diag["stop_reason_detail"] = "residual_within_threshold" if converged else "inconsistent_state"
+        elif str(termination_reason) == "max_iterations":
+            diag["stop_reason_detail"] = "edge_length_violation_after_max_iterations"
+        elif str(termination_reason) == "infeasible":
+            diag["stop_reason_detail"] = "input_or_geometry_infeasible"
+        else:
+            diag["stop_reason_detail"] = "unspecified"
+    result["diagnostics"] = diag
     return result
 
 

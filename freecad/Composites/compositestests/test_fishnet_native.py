@@ -494,6 +494,7 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertTrue(result.get("converged"))
         self.assertEqual(result.get("iterations"), 7)
         self.assertEqual(result.get("solver_status"), "ok")
+        self.assertEqual(result.get("diagnostics", {}).get("stop_reason_detail"), "residual_within_threshold")
         self.assertIn("diagnostics", result)
         self.assertIn("point_count", result["diagnostics"])
         self.assertIn("final_residual", result["diagnostics"])
@@ -516,6 +517,7 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertFalse(result.get("converged"))
         self.assertEqual(result.get("solver_status"), "error")
         self.assertIn("diagnostics", result)
+        self.assertEqual(result.get("diagnostics", {}).get("stop_reason_detail"), "input_or_geometry_infeasible")
 
     def test_residual_history_is_finite_and_non_divergent(self):
         points = [

@@ -3576,6 +3576,21 @@ static void attach_solver_metadata(PyObject *result, PyObject *params_copy, cons
         Py_INCREF(diagnostics_obj);
     }
     if (diagnostics_obj) {
+        if (PyDict_Check(diagnostics_obj) && !PyDict_GetItemString(diagnostics_obj, "stop_reason_detail")) {
+            const char *detail = "unspecified";
+            if (termination_reason && std::strcmp(termination_reason, "converged") == 0) {
+                detail = converged ? "residual_within_threshold" : "inconsistent_state";
+            } else if (termination_reason && std::strcmp(termination_reason, "max_iterations") == 0) {
+                detail = "edge_length_violation_after_max_iterations";
+            } else if (termination_reason && std::strcmp(termination_reason, "infeasible") == 0) {
+                detail = "input_or_geometry_infeasible";
+            }
+            PyObject *detail_obj = PyUnicode_FromString(detail);
+            if (detail_obj) {
+                PyDict_SetItemString(diagnostics_obj, "stop_reason_detail", detail_obj);
+                Py_DECREF(detail_obj);
+            }
+        }
         PyDict_SetItemString(result, "diagnostics", diagnostics_obj);
         Py_DECREF(diagnostics_obj);
     }
