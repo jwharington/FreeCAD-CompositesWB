@@ -1108,6 +1108,37 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertLess(max(abs(v) for row in result["strains"] for v in row), 1.0e-9)
         save_native_fishnet_plot("native_concave_l_shape", points, faces, result)
 
+    def test_residual_history_last_quartile_non_increasing_concave_l_shape(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (3.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (1.0, 3.0, 0.0),
+            (0.0, 3.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+            (0, 3, 5),
+            (3, 4, 5),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "acp_energy_v1", "steps": 20, "fabric_spacing": 1.0},
+        )
+
+        self.assertTrue(result["valid"])
+        history = [float(v) for v in result.get("diagnostics", {}).get("residual_history", [])]
+        self.assertGreaterEqual(len(history), 4)
+        tail_start = max(0, len(history) - max(2, len(history) // 4))
+        tail = history[tail_start:]
+        self.assertGreaterEqual(len(tail), 2)
+        for i in range(len(tail) - 1):
+            self.assertLessEqual(tail[i + 1], tail[i] + 1.0e-9)
+
     def test_step_mesh_solves(self):
         xs = [0.0, 1.0, 2.0]
         ys = [0.0, 1.0, 2.0]
