@@ -1196,6 +1196,27 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
     def test_init_adds_rosette_property(self):
         self.assertIn("Rosette", object.__getattribute__(self.obj, "_props"))
 
+    def test_init_adds_acp_draping_properties(self):
+        props = object.__getattribute__(self.obj, "_props")
+        for name in (
+            "DrapingAlgorithm",
+            "SeedPoint",
+            "AutoDrapingDirection",
+            "DrapingDirection",
+            "MeshSize",
+            "MaterialModel",
+            "UDCoefficient",
+            "ThicknessCorrection",
+        ):
+            self.assertIn(name, props)
+
+    def test_init_sets_acp_draping_property_defaults(self):
+        self.assertEqual(self.obj.DrapingAlgorithm, "legacy_fishnet")
+        self.assertTrue(self.obj.AutoDrapingDirection)
+        self.assertEqual(self.obj.MaterialModel, "woven")
+        self.assertAlmostEqual(float(self.obj.UDCoefficient), 0.0)
+        self.assertFalse(self.obj.ThicknessCorrection)
+
     def test_init_default_rosette_is_none(self):
         self.assertIsNone(self.obj.Rosette)
 
@@ -1256,6 +1277,61 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         # onChanged("Rosette") should trigger fp.recompute() which calls execute()
         # With no support/laminate, execute() returns early without error.
         self.fp.onChanged(self.obj, "Rosette")  # should not raise
+
+    def test_execute_passes_acp_parameters_to_draper(self):
+        shell_obj = _FakeFCObj("CompositeShellExec")
+        shell_obj.Document = MagicMock()
+        shell_obj.ViewObject = None
+        fp = CompositeShellFP(shell_obj)
+        shell_obj.Support = MagicMock(Shape=MagicMock())
+        shell_obj.Laminate = MagicMock()
+        shell_obj.LocalCoordinateSystem = MagicMock()
+
+        shell_obj.FabricSpacing = 6.5
+        shell_obj.MaxLength = 12.0
+        shell_obj.RelaxWeight = 0.8
+        shell_obj.SolveSteps = 9
+        shell_obj.DrapingAlgorithm = "acp_energy_v1"
+        shell_obj.SeedPoint = (1.0, 2.0, 3.0)
+        shell_obj.AutoDrapingDirection = False
+        shell_obj.DrapingDirection = (0.0, 1.0, 0.0)
+        shell_obj.MeshSize = 4.0
+        shell_obj.MaterialModel = "ud"
+        shell_obj.UDCoefficient = 0.3
+        shell_obj.ThicknessCorrection = True
+
+        captured = {}
+
+        class _FakeDraper:
+            def __init__(self, *args, **kwargs):
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                self.mesh = MagicMock()
+
+            def isValid(self):
+                return True
+
+        original_draper = _composite_shell_feature_mod.Draper
+        try:
+            _composite_shell_feature_mod.Draper = _FakeDraper
+            fp.fibre_analysis = lambda _fp: None
+            fp.execute(shell_obj)
+        finally:
+            _composite_shell_feature_mod.Draper = original_draper
+
+        kwargs = captured["kwargs"]
+        self.assertEqual(kwargs["fabric_spacing"], 6.5)
+        self.assertEqual(kwargs["max_length"], 12.0)
+        self.assertEqual(kwargs["relax_weight"], 0.8)
+        self.assertEqual(kwargs["steps"], 9)
+        self.assertEqual(kwargs["algorithm"], "acp_energy_v1")
+        self.assertEqual(kwargs["seed_point"], (1.0, 2.0, 3.0))
+        self.assertFalse(kwargs["auto_draping_direction"])
+        self.assertEqual(kwargs["draping_direction"], (0.0, 1.0, 0.0))
+        self.assertEqual(kwargs["mesh_size"], 4.0)
+        self.assertEqual(kwargs["material_model"], "ud")
+        self.assertEqual(kwargs["ud_coefficient"], 0.3)
+        self.assertTrue(kwargs["thickness_correction"])
 
     def test_type_attribute(self):
         self.assertEqual(CompositeShellFP.Type, "Composite::Shell")

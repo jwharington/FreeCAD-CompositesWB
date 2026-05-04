@@ -230,10 +230,11 @@ def _sample_face(face, max_length: float):
     v_values = [v0 + (v1 - v0) * j / divisions for j in range(divisions + 1)]
 
     points = []
+    layout_points = []
     grid_indices = []
-    for u in u_values:
+    for i, u in enumerate(u_values):
         row = []
-        for v in v_values:
+        for j, v in enumerate(v_values):
             try:
                 point = _face_value_at(face, u, v)
             except Exception:
@@ -244,6 +245,7 @@ def _sample_face(face, max_length: float):
                 continue
             row.append(len(points))
             points.append(point)
+            layout_points.append((float(i), float(j), 0.0))
         grid_indices.append(row)
 
     triangles = []
@@ -294,6 +296,7 @@ def _sample_face(face, max_length: float):
 
     return {
         "points": points,
+        "layout_points": layout_points,
         "triangles": triangles,
         "quads": quads,
         "frame": {
@@ -380,7 +383,7 @@ def _project_points(points, origin, x_axis, y_axis, normal):
     return local
 
 
-def _boundary_loops(faces, fabric_points):
+def _boundary_loop_indices(faces):
     edge_counts = defaultdict(int)
     adjacency = defaultdict(set)
 
@@ -427,12 +430,20 @@ def _boundary_loops(faces, fabric_points):
             if cur == path[0]:
                 break
 
+        if path and path[0] != path[-1]:
+            path.append(path[0])
+        if len(path) >= 2:
+            loops.append(path)
+
+    return loops
+
+
+def _boundary_loops(faces, fabric_points):
+    loops = []
+    for path in _boundary_loop_indices(faces):
         coords = [fabric_points[idx] for idx in path]
-        if coords and coords[0] != coords[-1]:
-            coords.append(coords[0])
         if len(coords) >= 2:
             loops.append(coords)
-
     return loops
 
 
@@ -516,6 +527,88 @@ def _face_local_vertices(face, sampled):
 
 def _face_edge_sign(edge, centroid):
     return _cross2(_sub2(edge[1], edge[0]), _sub2(centroid, edge[0]))
+
+
+def _orient2(a, b, c):
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _strict_segment_intersect(a, b, c, d, eps=1.0e-9):
+    o1 = _orient2(a, b, c)
+    o2 = _orient2(a, b, d)
+    o3 = _orient2(c, d, a)
+    o4 = _orient2(c, d, b)
+    return (o1 * o2 < -eps) and (o3 * o4 < -eps)
+
+
+def _point_in_triangle_strict(p, a, b, c, eps=1.0e-9):
+    d1 = _orient2(a, b, p)
+    d2 = _orient2(b, c, p)
+    d3 = _orient2(c, a, p)
+    has_pos = d1 > eps or d2 > eps or d3 > eps
+    has_neg = d1 < -eps or d2 < -eps or d3 < -eps
+    if has_pos and has_neg:
+        return False
+    return abs(d1) > eps and abs(d2) > eps and abs(d3) > eps
+
+
+def _triangles_overlap_strict(t1, t2, eps=1.0e-9):
+    t1_edges = ((t1[0], t1[1]), (t1[1], t1[2]), (t1[2], t1[0]))
+    t2_edges = ((t2[0], t2[1]), (t2[1], t2[2]), (t2[2], t2[0]))
+    for e1 in t1_edges:
+        for e2 in t2_edges:
+            if _strict_segment_intersect(e1[0], e1[1], e2[0], e2[1], eps=eps):
+                return True
+    if _point_in_triangle_strict(t1[0], t2[0], t2[1], t2[2], eps=eps):
+        return True
+    if _point_in_triangle_strict(t2[0], t1[0], t1[1], t1[2], eps=eps):
+        return True
+    return False
+
+
+def _quad_to_triangles_2d(quad_points):
+    if len(quad_points) < 4:
+        return []
+    return [
+        (quad_points[0], quad_points[1], quad_points[2]),
+        (quad_points[0], quad_points[2], quad_points[3]),
+    ]
+
+
+def _quads_overlap_strict(a_points, b_points, eps=1.0e-9):
+    if len(a_points) < 4 or len(b_points) < 4:
+        return False
+    ax = [p[0] for p in a_points]
+    ay = [p[1] for p in a_points]
+    bx = [p[0] for p in b_points]
+    by = [p[1] for p in b_points]
+    if max(ax) <= min(bx) + eps or max(bx) <= min(ax) + eps:
+        return False
+    if max(ay) <= min(by) + eps or max(by) <= min(ay) + eps:
+        return False
+    for ta in _quad_to_triangles_2d(a_points):
+        for tb in _quad_to_triangles_2d(b_points):
+            if _triangles_overlap_strict(ta, tb, eps=eps):
+                return True
+    return False
+
+
+def _face_quads_in_chart_space(face, sampled, transform):
+    local_points = _face_local_points(face, sampled)
+    placed = [_apply_2d_transform(point, transform) for point in local_points]
+    out = []
+    for a, b, c, d in sampled.get("quads", []):
+        out.append([placed[a], placed[b], placed[c], placed[d]])
+    return out
+
+
+def _has_chart_overlap(candidate_quads, placed_quads_by_face):
+    for quad in candidate_quads:
+        for existing_quads in placed_quads_by_face.values():
+            for existing in existing_quads:
+                if _quads_overlap_strict(quad, existing):
+                    return True
+    return False
 
 
 def _build_chart_from_faces(chart_index, faces, sampled_faces, face_order, placements, graph, face_vertices, orientation_breaks):
@@ -607,6 +700,9 @@ def _build_atlas_charts(faces, sampled_faces, graph, face_frames, orientation_br
         current_order = []
         _place_root(root)
         visited.add(root)
+        placed_quads_by_face = {
+            root: _face_quads_in_chart_space(face_by_index[root], face_data[root], placements[root])
+        }
 
         while queue:
             idx = queue.popleft()
@@ -649,7 +745,9 @@ def _build_atlas_charts(faces, sampled_faces, graph, face_frames, orientation_br
                     child_centroid = _centroid2(child_points_chart)
                     parent_sign = _face_edge_sign(parent_edge, parent_centroid)
                     child_sign = _face_edge_sign(parent_edge, child_centroid)
-                    candidates.append((parent_sign, child_sign, transform))
+                    child_quads = _face_quads_in_chart_space(face_by_index[nbr], face_data[nbr], transform)
+                    overlaps = _has_chart_overlap(child_quads, placed_quads_by_face)
+                    candidates.append((parent_sign, child_sign, transform, overlaps, child_quads))
                 if not candidates:
                     orientation_breaks.append({
                         "from_face": idx,
@@ -657,10 +755,19 @@ def _build_atlas_charts(faces, sampled_faces, graph, face_frames, orientation_br
                         "reason": "degenerate transfer",
                     })
                     continue
-                parent_sign = candidates[0][0]
-                preferred = [item for item in candidates if parent_sign == 0.0 or item[1] * parent_sign < 0.0]
-                chosen = preferred[0] if preferred else max(candidates, key=lambda item: abs(item[1]))
+                non_overlapping = [item for item in candidates if not item[3]]
+                if not non_overlapping:
+                    orientation_breaks.append({
+                        "from_face": idx,
+                        "to_face": nbr,
+                        "reason": "overlap with placed chart elements",
+                    })
+                    continue
+                parent_sign = non_overlapping[0][0]
+                preferred = [item for item in non_overlapping if parent_sign == 0.0 or item[1] * parent_sign < 0.0]
+                chosen = preferred[0] if preferred else max(non_overlapping, key=lambda item: abs(item[1]))
                 placements[nbr] = chosen[2]
+                placed_quads_by_face[nbr] = chosen[4]
                 visited.add(nbr)
                 queue.append(nbr)
 
@@ -703,6 +810,191 @@ def _centroid2(points):
     )
 
 
+def _constrained_edges(quads, triangles):
+    edges = set()
+    if quads:
+        for a, b, c, d in quads:
+            edges.add(tuple(sorted((int(a), int(b)))))
+            edges.add(tuple(sorted((int(b), int(c)))))
+            edges.add(tuple(sorted((int(c), int(d)))))
+            edges.add(tuple(sorted((int(d), int(a)))))
+    else:
+        for a, b, c in triangles:
+            edges.add(tuple(sorted((int(a), int(b)))))
+            edges.add(tuple(sorted((int(b), int(c)))))
+            edges.add(tuple(sorted((int(c), int(a)))))
+    return sorted(edges)
+
+
+def _mean_planar_edge_length(points, edges):
+    values = []
+    for a, b in edges:
+        if a < 0 or b < 0 or a >= len(points) or b >= len(points):
+            continue
+        pa = points[a]
+        pb = points[b]
+        values.append(math.hypot(float(pb[0]) - float(pa[0]), float(pb[1]) - float(pa[1])))
+    return (sum(values) / len(values)) if values else 0.0
+
+
+def _infer_nominal_edge_length(requested, fallback_points, edges):
+    if requested and requested > 1.0e-12 and math.isfinite(requested):
+        return float(requested)
+    fallback = _mean_planar_edge_length(fallback_points or [], edges or [])
+    if fallback > 1.0e-12 and math.isfinite(fallback):
+        return float(fallback)
+    return 1.0
+
+
+def _relax_fabric_points_with_edge_constraints(
+    mesh_points,
+    fabric_points,
+    edges,
+    nominal_edge_length,
+    boundary_loops=None,
+    iterations=120,
+    return_history=False,
+):
+    if not fabric_points or not edges:
+        return (fabric_points, []) if return_history else fabric_points
+    points = [list(map(float, p)) for p in fabric_points]
+    nominal_edge_length = _infer_nominal_edge_length(nominal_edge_length, points, edges)
+    edge_set = {tuple(sorted((int(a), int(b)))) for a, b in edges}
+
+    def relax_edge(a, b, target):
+        ta = points[a]
+        tb = points[b]
+        dx = tb[0] - ta[0]
+        dy = tb[1] - ta[1]
+        current = math.sqrt(dx * dx + dy * dy)
+        if target <= 1.0e-12 or current <= 1.0e-12:
+            return
+        scale = (current - target) / current
+        corr_x = 0.5 * scale * dx
+        corr_y = 0.5 * scale * dy
+        ta[0] += corr_x
+        ta[1] += corr_y
+        tb[0] -= corr_x
+        tb[1] -= corr_y
+
+    def mean_edge_length():
+        if not edges:
+            return 0.0
+        values = []
+        for a, b in edges:
+            if a < 0 or b < 0 or a >= len(points) or b >= len(points):
+                continue
+            ta = points[a]
+            tb = points[b]
+            values.append(math.hypot(tb[0] - ta[0], tb[1] - ta[1]))
+        return (sum(values) / len(values)) if values else 0.0
+
+    def max_edge_rel_error():
+        if nominal_edge_length <= 1.0e-12:
+            return 0.0
+        max_rel = 0.0
+        for a, b in edges:
+            if a < 0 or b < 0 or a >= len(points) or b >= len(points):
+                continue
+            ta = points[a]
+            tb = points[b]
+            mapped = math.hypot(tb[0] - ta[0], tb[1] - ta[1])
+            rel = abs(mapped - nominal_edge_length) / nominal_edge_length
+            if math.isfinite(rel):
+                max_rel = max(max_rel, rel)
+        return float(max_rel)
+
+    residual_history = []
+    anchor = points[0][:]
+    for _ in range(iterations):
+        for a, b in edges:
+            relax_edge(a, b, nominal_edge_length)
+
+        for loop in boundary_loops or []:
+            if len(loop) < 2:
+                continue
+            carry = 0.0
+            for i in range(len(loop) - 1):
+                a = int(loop[i])
+                b = int(loop[i + 1])
+                key = tuple(sorted((a, b)))
+                if key not in edge_set:
+                    continue
+                target = nominal_edge_length + carry
+                ta = points[a]
+                tb = points[b]
+                current = math.sqrt((tb[0] - ta[0]) ** 2 + (tb[1] - ta[1]) ** 2)
+                if current + 1.0e-12 < target:
+                    carry = target - current
+                    continue
+                relax_edge(a, b, target)
+                carry = 0.0
+
+        shift_x = points[0][0] - anchor[0]
+        shift_y = points[0][1] - anchor[1]
+        for p in points:
+            p[0] -= shift_x
+            p[1] -= shift_y
+            p[2] = 0.0
+
+        if return_history:
+            residual_history.append(max_edge_rel_error())
+
+    current_mean = mean_edge_length()
+    if current_mean > 1.0e-12 and nominal_edge_length > 1.0e-12:
+        global_scale = nominal_edge_length / current_mean
+        fixed = points[0][:]
+        for p in points:
+            p[0] = fixed[0] + (p[0] - fixed[0]) * global_scale
+            p[1] = fixed[1] + (p[1] - fixed[1]) * global_scale
+            p[2] = 0.0
+
+    if return_history:
+        residual_history.append(max_edge_rel_error())
+        return points, residual_history
+    return points
+
+
+def _edge_length_violation_summary(mesh_points, fabric_points, edges, nominal_edge_length, rel_tol=1.0e-6):
+    nominal_edge_length = _infer_nominal_edge_length(nominal_edge_length, fabric_points, edges)
+    if nominal_edge_length <= 1.0e-12:
+        return 0, 0.0
+    violations = 0
+    max_rel = 0.0
+    for a, b in edges:
+        if a < 0 or b < 0 or a >= len(fabric_points) or b >= len(fabric_points):
+            continue
+        fa = _xyz(fabric_points[a])
+        fb = _xyz(fabric_points[b])
+        mapped = math.sqrt((fa[0] - fb[0]) ** 2 + (fa[1] - fb[1]) ** 2)
+        rel = abs(mapped - nominal_edge_length) / nominal_edge_length
+        if rel > rel_tol:
+            violations += 1
+            max_rel = max(max_rel, rel)
+    return violations, max_rel
+
+
+def _solver_algorithm(params):
+    return str((params or {}).get("algorithm", "legacy_fishnet") or "legacy_fishnet")
+
+
+def _solver_iterations(params):
+    try:
+        return max(0, int((params or {}).get("steps", 0) or 0))
+    except Exception:
+        return 0
+
+
+def _attach_solver_metadata(result, params, termination_reason, converged, diagnostics=None):
+    result["algorithm"] = _solver_algorithm(params)
+    result["termination_reason"] = str(termination_reason)
+    result["converged"] = bool(converged)
+    result["iterations"] = _solver_iterations(params)
+    result["solver_status"] = "ok" if converged else "error"
+    result["diagnostics"] = dict(diagnostics or {})
+    return result
+
+
 def _pack_result(
     points,
     triangles,
@@ -711,79 +1003,124 @@ def _pack_result(
     orientation_breaks,
     params,
     atlas_charts=None,
-    atlas_seams=None,
-    atlas_breaks=None,
-    atlas_face_frames=None,
-    atlas_reasons=None,
+    layout_points=None,
 ):
     if not points:
-        return {
+        return _attach_solver_metadata({
             "valid": False,
             "error": "fishnet solver needs at least one point",
             "fabric_points": [],
+            "warp_weft_points": [],
             "fabric_quads": [],
             "boundary_loops": [],
+            "warp_weft_boundary_loops": [],
             "strains": [],
             "mesh_points": [],
             "mesh_faces": [],
             "face_frames": [],
             "orientation_breaks": [],
             "atlas_charts": [],
-            "atlas_seams": [],
-            "atlas_breaks": [],
-            "atlas_face_frames": [],
-            "atlas_reasons": [],
             "parameters": params,
-        }
+        }, params, "infeasible", False)
     if not triangles:
-        return {
+        return _attach_solver_metadata({
             "valid": False,
             "error": "fishnet solver needs at least one face",
             "fabric_points": [],
+            "warp_weft_points": [],
             "fabric_quads": [],
             "boundary_loops": [],
+            "warp_weft_boundary_loops": [],
             "strains": [],
             "mesh_points": [],
             "mesh_faces": [],
             "face_frames": [],
             "orientation_breaks": [],
             "atlas_charts": [],
-            "atlas_seams": [],
-            "atlas_breaks": [],
-            "atlas_face_frames": [],
-            "atlas_reasons": [],
             "parameters": params,
-        }
+        }, params, "infeasible", False)
 
     origin = _centroid(points)
     normal, x_axis, y_axis = _basis_from_points(points, triangles)
     local_points = _project_points(points, origin, x_axis, y_axis, normal)
     fabric_points = [[u, v, 0.0] for u, v, _ in local_points]
+    spacing = float(params.get("fabric_spacing", params.get("max_length", 0.0)) or 0.0)
+    if layout_points and len(layout_points) == len(points) and spacing > 0.0:
+        fabric_points = [[float(i) * spacing, float(j) * spacing, 0.0] for i, j, _ in layout_points]
+    constrained_edges = _constrained_edges(quads, triangles)
+    boundary_loops_idx = _boundary_loop_indices(triangles)
+    nominal_edge_length = float(params.get("fabric_spacing", 0.0) or 0.0)
+    fabric_points, residual_history = _relax_fabric_points_with_edge_constraints(
+        points,
+        fabric_points,
+        constrained_edges,
+        nominal_edge_length,
+        boundary_loops=boundary_loops_idx,
+        return_history=True,
+    )
     boundary_loops = _boundary_loops(triangles, fabric_points)
     strains = [_face_strain(face, local_points, normal) for face in triangles]
 
-    return {
+    warp_weft_points = [list(map(float, p)) for p in fabric_points]
+    if layout_points and len(layout_points) == len(points):
+        if spacing > 0.0:
+            warp_weft_points = [[float(i) * spacing, float(j) * spacing, 0.0] for i, j, _ in layout_points]
+        else:
+            warp_weft_points = [[float(i), float(j), 0.0] for i, j, _ in layout_points]
+    warp_weft_boundary_loops = _boundary_loops(triangles, warp_weft_points)
+
+    rel_tol = float(params.get("edge_length_tolerance", 1.0e-6) or 1.0e-6)
+    violations, max_rel = _edge_length_violation_summary(
+        points,
+        fabric_points,
+        constrained_edges,
+        nominal_edge_length,
+        rel_tol=rel_tol,
+    )
+    if violations:
+        orientation_breaks = list(orientation_breaks or [])
+        orientation_breaks.append({
+            "from_face": -1,
+            "to_face": -1,
+            "reason": f"edge length constraint violated: {violations} edges (max relative error {max_rel:.6g}, tolerance {rel_tol:.6g})",
+        })
+
+    acp_energy_mode = _solver_algorithm(params) == "acp_energy_v1"
+    converged = not (acp_energy_mode and violations > 0)
+    termination_reason = "converged" if converged else "max_iterations"
+    diagnostics = {
+        "point_count": len(points),
+        "triangle_count": len(triangles),
+        "quad_count": len(quads),
+        "orientation_break_count": len(orientation_breaks or []),
+        "edge_violations": int(violations),
+        "max_edge_rel_error": float(max_rel),
+        "final_residual": float(max_rel),
+        "residual_threshold": float(rel_tol),
+        "max_iterations": _solver_iterations(params),
+        "residual_history": [float(v) for v in residual_history] if residual_history else [float(max_rel)],
+        "residual_metric": "max_edge_rel_error",
+    }
+    return _attach_solver_metadata({
         "valid": True,
         "error": "",
         "fabric_points": fabric_points,
+        "warp_weft_points": warp_weft_points,
         "fabric_quads": [list(map(int, quad)) for quad in quads],
         "boundary_loops": boundary_loops,
+        "warp_weft_boundary_loops": warp_weft_boundary_loops,
         "strains": strains,
         "mesh_points": [list(map(float, p)) for p in points],
         "mesh_faces": [list(map(int, face)) for face in triangles],
         "face_frames": face_frames,
         "orientation_breaks": orientation_breaks,
         "atlas_charts": list(atlas_charts or []),
-        "atlas_seams": list(atlas_seams or []),
-        "atlas_breaks": list(atlas_breaks or []),
-        "atlas_face_frames": list(atlas_face_frames or []),
-        "atlas_reasons": list(atlas_reasons or []),
         "origin": list(origin),
         "normal": list(normal),
         "x_axis": list(x_axis),
         "y_axis": list(y_axis),
         "parameters": params,
-    }
+    }, params, termination_reason, converged, diagnostics)
 
 
 def _solve_mesh(points, faces, params):
@@ -812,6 +1149,7 @@ def _extract_quads_from_triangles(faces):
 def _solve_face(face, params, face_index=0):
     sampled = _sample_face(face, params.get("max_length", params.get("fabric_spacing", 0.0)))
     points = sampled["points"]
+    layout_points = sampled.get("layout_points", [])
     triangles = sampled["triangles"]
     quads = sampled["quads"]
     frame = sampled["frame"]
@@ -825,14 +1163,7 @@ def _solve_face(face, params, face_index=0):
     }]
     sampled_faces = [(0, face, sampled)]
     atlas_charts = _build_atlas_charts([face], sampled_faces, {0: set()}, face_frames, [])
-    atlas_face_frames = [
-        {
-            "face_index": face_index,
-            "chart_index": 0,
-            "continuous": True,
-        }
-    ]
-    return points, triangles, quads, face_frames, [], atlas_charts, [], [], atlas_face_frames, []
+    return points, triangles, quads, face_frames, [], atlas_charts, layout_points
 
 
 def _solve_shell(shape, params):
@@ -902,12 +1233,14 @@ def _solve_shell(shape, params):
                 })
 
     points = []
+    layout_points = []
     triangles = []
     quads = []
     point_offset = 0
     for idx, _, sampled in sampled_faces:
         face_points = sampled["points"]
         points.extend(face_points)
+        layout_points.extend(sampled.get("layout_points", []))
         triangles.extend([(a + point_offset, b + point_offset, c + point_offset) for a, b, c in sampled["triangles"]])
         quads.extend([(a + point_offset, b + point_offset, c + point_offset, d + point_offset) for a, b, c, d in sampled["quads"]])
         point_offset += len(face_points)
@@ -922,19 +1255,35 @@ def _solve_shell(shape, params):
             "continuous": idx == 0 or not any(break_item["to_face"] == idx for break_item in orientation_breaks),
         })
 
-    atlas_charts = _build_atlas_charts(faces, sampled_faces, graph, face_frames, orientation_breaks)
-    atlas_breaks = list(orientation_breaks)
-    atlas_seams = []
-    atlas_face_frames = []
-    atlas_reasons = [item.get("reason", "") for item in orientation_breaks]
-    for chart in atlas_charts:
-        atlas_seams.extend(chart.get("seams", []))
-        atlas_face_frames.extend(chart.get("face_frames", []))
-    return _pack_result(points, triangles, quads, face_frames, orientation_breaks, params, atlas_charts, atlas_seams, atlas_breaks, atlas_face_frames, atlas_reasons)
+    if len(faces) == 1:
+        chart_points = [list(map(float, p)) for p in points]
+        chart_quads = [list(map(int, q)) for q in (quads or triangles)]
+        if chart_points:
+            xs = [p[0] for p in chart_points]
+            ys = [p[1] for p in chart_points]
+            bounds = [min(xs), min(ys), max(xs), max(ys)]
+        else:
+            bounds = [0.0, 0.0, 0.0, 0.0]
+        atlas_charts = [{
+            "chart_index": 0,
+            "points": chart_points,
+            "quads": chart_quads,
+            "face_indices": [0],
+            "face_frames": [dict(face_frames[0])] if face_frames else [],
+            "breaks": [],
+            "seams": [],
+            "bounds": bounds,
+        }]
+    else:
+        atlas_charts = _build_atlas_charts(faces, sampled_faces, graph, face_frames, orientation_breaks)
+    return _pack_result(points, triangles, quads, face_frames, orientation_breaks, params, atlas_charts, layout_points=layout_points)
 
 
 def solve(mesh_points: Iterable[Iterable[float]], mesh_faces=None, parameters=None):
     params = dict(parameters or {})
+    if _solver_algorithm(params) == "acp_energy_v1":
+        params.setdefault("current_node_solver", "spheresurface")
+        params.setdefault("incremental_growth", True)
 
     if _is_point_cloud(mesh_points):
         points = [tuple(map(float, p)) for p in mesh_points]
@@ -953,7 +1302,7 @@ def solve(mesh_points: Iterable[Iterable[float]], mesh_faces=None, parameters=No
         return _solve_shell(mesh_points, params)
 
     if hasattr(mesh_points, "ParameterRange"):
-        points, triangles, quads, face_frames, orientation_breaks, atlas_charts, atlas_seams, atlas_breaks, atlas_face_frames, atlas_reasons = _solve_face(mesh_points, params)
-        return _pack_result(points, triangles, quads, face_frames, orientation_breaks, params, atlas_charts, atlas_seams, atlas_breaks, atlas_face_frames, atlas_reasons)
+        points, triangles, quads, face_frames, orientation_breaks, atlas_charts, layout_points = _solve_face(mesh_points, params)
+        return _pack_result(points, triangles, quads, face_frames, orientation_breaks, params, atlas_charts, layout_points=layout_points)
 
     return _pack_result([], [], [], [], [], params)

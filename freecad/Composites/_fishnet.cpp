@@ -6,8 +6,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <queue>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -22,6 +24,7 @@
 #include <Bnd_Box.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <Precision.hxx>
+#include <gp_Vec.hxx>
 #include <TopAbs_State.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -206,6 +209,156 @@ static bool quads_overlap_strict(
     return false;
 }
 
+static bool segment_triangle_intersect_strict_3d(
+    const Vec3 &p0,
+    const Vec3 &p1,
+    const std::array<Vec3, 3> &tri,
+    double eps = kOverlapEpsilon
+) {
+    Vec3 d = p1 - p0;
+    Vec3 e1 = tri[1] - tri[0];
+    Vec3 e2 = tri[2] - tri[0];
+    Vec3 pvec = cross(d, e2);
+    double det = dot(e1, pvec);
+    if (std::abs(det) <= eps) {
+        return false;
+    }
+    double inv_det = 1.0 / det;
+    Vec3 tvec = p0 - tri[0];
+    double u = dot(tvec, pvec) * inv_det;
+    if (u <= eps || u >= 1.0 - eps) {
+        return false;
+    }
+    Vec3 qvec = cross(tvec, e1);
+    double v = dot(d, qvec) * inv_det;
+    if (v <= eps || (u + v) >= 1.0 - eps) {
+        return false;
+    }
+    double t = dot(e2, qvec) * inv_det;
+    if (t <= eps || t >= 1.0 - eps) {
+        return false;
+    }
+    return true;
+}
+
+static bool triangles_overlap_strict_3d(
+    const std::array<Vec3, 3> &t1,
+    const std::array<Vec3, 3> &t2,
+    double eps = kOverlapEpsilon
+) {
+    auto bbox_overlap = [&](const std::array<Vec3, 3> &a, const std::array<Vec3, 3> &b) {
+        double amin_x = std::min({a[0].x, a[1].x, a[2].x});
+        double amax_x = std::max({a[0].x, a[1].x, a[2].x});
+        double amin_y = std::min({a[0].y, a[1].y, a[2].y});
+        double amax_y = std::max({a[0].y, a[1].y, a[2].y});
+        double amin_z = std::min({a[0].z, a[1].z, a[2].z});
+        double amax_z = std::max({a[0].z, a[1].z, a[2].z});
+        double bmin_x = std::min({b[0].x, b[1].x, b[2].x});
+        double bmax_x = std::max({b[0].x, b[1].x, b[2].x});
+        double bmin_y = std::min({b[0].y, b[1].y, b[2].y});
+        double bmax_y = std::max({b[0].y, b[1].y, b[2].y});
+        double bmin_z = std::min({b[0].z, b[1].z, b[2].z});
+        double bmax_z = std::max({b[0].z, b[1].z, b[2].z});
+        return !(amax_x <= bmin_x + eps || bmax_x <= amin_x + eps ||
+                 amax_y <= bmin_y + eps || bmax_y <= amin_y + eps ||
+                 amax_z <= bmin_z + eps || bmax_z <= amin_z + eps);
+    };
+
+    if (!bbox_overlap(t1, t2)) {
+        return false;
+    }
+
+    std::array<std::pair<Vec3, Vec3>, 3> e1 = {
+        std::make_pair(t1[0], t1[1]),
+        std::make_pair(t1[1], t1[2]),
+        std::make_pair(t1[2], t1[0]),
+    };
+    std::array<std::pair<Vec3, Vec3>, 3> e2 = {
+        std::make_pair(t2[0], t2[1]),
+        std::make_pair(t2[1], t2[2]),
+        std::make_pair(t2[2], t2[0]),
+    };
+
+    for (const auto &e : e1) {
+        if (segment_triangle_intersect_strict_3d(e.first, e.second, t2, eps)) {
+            return true;
+        }
+    }
+    for (const auto &e : e2) {
+        if (segment_triangle_intersect_strict_3d(e.first, e.second, t1, eps)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool quads_overlap_strict_3d(
+    const std::vector<Vec3> &points,
+    const std::array<int, 4> &qa,
+    const std::array<int, 4> &qb,
+    double eps = kOverlapEpsilon
+) {
+    auto valid_idx = [&](int idx) { return idx >= 0 && idx < static_cast<int>(points.size()); };
+    for (int idx : qa) {
+        if (!valid_idx(idx)) return false;
+    }
+    for (int idx : qb) {
+        if (!valid_idx(idx)) return false;
+    }
+
+    std::array<Vec3, 4> pa = {
+        points[static_cast<size_t>(qa[0])],
+        points[static_cast<size_t>(qa[1])],
+        points[static_cast<size_t>(qa[2])],
+        points[static_cast<size_t>(qa[3])],
+    };
+    std::array<Vec3, 4> pb = {
+        points[static_cast<size_t>(qb[0])],
+        points[static_cast<size_t>(qb[1])],
+        points[static_cast<size_t>(qb[2])],
+        points[static_cast<size_t>(qb[3])],
+    };
+
+    auto bbox_overlap = [&](const std::array<Vec3, 4> &a, const std::array<Vec3, 4> &b) {
+        double amin_x = std::min({a[0].x, a[1].x, a[2].x, a[3].x});
+        double amax_x = std::max({a[0].x, a[1].x, a[2].x, a[3].x});
+        double amin_y = std::min({a[0].y, a[1].y, a[2].y, a[3].y});
+        double amax_y = std::max({a[0].y, a[1].y, a[2].y, a[3].y});
+        double amin_z = std::min({a[0].z, a[1].z, a[2].z, a[3].z});
+        double amax_z = std::max({a[0].z, a[1].z, a[2].z, a[3].z});
+        double bmin_x = std::min({b[0].x, b[1].x, b[2].x, b[3].x});
+        double bmax_x = std::max({b[0].x, b[1].x, b[2].x, b[3].x});
+        double bmin_y = std::min({b[0].y, b[1].y, b[2].y, b[3].y});
+        double bmax_y = std::max({b[0].y, b[1].y, b[2].y, b[3].y});
+        double bmin_z = std::min({b[0].z, b[1].z, b[2].z, b[3].z});
+        double bmax_z = std::max({b[0].z, b[1].z, b[2].z, b[3].z});
+        return !(amax_x <= bmin_x + eps || bmax_x <= amin_x + eps ||
+                 amax_y <= bmin_y + eps || bmax_y <= amin_y + eps ||
+                 amax_z <= bmin_z + eps || bmax_z <= amin_z + eps);
+    };
+
+    if (!bbox_overlap(pa, pb)) {
+        return false;
+    }
+
+    std::array<std::array<Vec3, 3>, 2> ta = {
+        std::array<Vec3, 3>{pa[0], pa[1], pa[2]},
+        std::array<Vec3, 3>{pa[0], pa[2], pa[3]},
+    };
+    std::array<std::array<Vec3, 3>, 2> tb = {
+        std::array<Vec3, 3>{pb[0], pb[1], pb[2]},
+        std::array<Vec3, 3>{pb[0], pb[2], pb[3]},
+    };
+    for (const auto &x : ta) {
+        for (const auto &y : tb) {
+            if (triangles_overlap_strict_3d(x, y, eps)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 static std::vector<std::pair<int, int>> perimeter_edges_from_quads(const std::vector<std::vector<int>> &quads) {
     std::unordered_set<uint64_t> seen;
     std::vector<std::pair<int, int>> edges;
@@ -287,13 +440,41 @@ static double infer_nominal_edge_length(
     return 1.0;
 }
 
+static double max_edge_relative_error_for_edges(
+    const std::vector<Vec3> &fabric_points,
+    const std::vector<std::pair<int, int>> &edges,
+    double requested_nominal_edge_length
+) {
+    const double nominal_edge_length = infer_nominal_edge_length(requested_nominal_edge_length, fabric_points, edges);
+    if (!(std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)) {
+        return 0.0;
+    }
+    double max_rel = 0.0;
+    for (const auto &e : edges) {
+        int a = e.first;
+        int b = e.second;
+        if (a < 0 || b < 0 ||
+            a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+            continue;
+        }
+        Vec3 fd = fabric_points[static_cast<size_t>(a)] - fabric_points[static_cast<size_t>(b)];
+        double mapped = std::sqrt(fd.x * fd.x + fd.y * fd.y);
+        double rel = std::abs(mapped - nominal_edge_length) / nominal_edge_length;
+        if (std::isfinite(rel)) {
+            max_rel = std::max(max_rel, rel);
+        }
+    }
+    return max_rel;
+}
+
 static void relax_fabric_points_with_edge_constraints(
     const std::vector<Vec3> &mesh_points,
     std::vector<Vec3> &fabric_points,
     const std::vector<std::pair<int, int>> &edges,
     const std::vector<std::vector<int>> &boundary_loops,
     double requested_nominal_edge_length,
-    int iterations = 120
+    int iterations = 120,
+    std::vector<double> *residual_history = nullptr
 ) {
     if (fabric_points.empty() || edges.empty()) {
         return;
@@ -342,6 +523,11 @@ static void relax_fabric_points_with_edge_constraints(
         return count > 0 ? (total / static_cast<double>(count)) : 0.0;
     };
 
+    if (residual_history) {
+        residual_history->clear();
+        residual_history->reserve(static_cast<size_t>(std::max(iterations, 0) + 1));
+    }
+
     for (int iter = 0; iter < iterations; ++iter) {
         for (const auto &edge : edges) {
             relax_edge_to_target(edge.first, edge.second, nominal_edge_length);
@@ -377,6 +563,10 @@ static void relax_fabric_points_with_edge_constraints(
             p.y -= shift.y;
             p.z = 0.0;
         }
+
+        if (residual_history) {
+            residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
+        }
     }
 
     double current_mean = mean_edge_length();
@@ -388,6 +578,9 @@ static void relax_fabric_points_with_edge_constraints(
             p.y = fixed.y + (p.y - fixed.y) * global_scale;
             p.z = 0.0;
         }
+    }
+    if (residual_history) {
+        residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
     }
 }
 
@@ -642,6 +835,22 @@ static PyObject *build_strain_list(const std::vector<std::array<double, 3>> &str
         PyList_SET_ITEM(outer, i, item);
     }
     return outer;
+}
+
+static PyObject *build_double_list(const std::vector<double> &values) {
+    PyObject *list = PyList_New(static_cast<Py_ssize_t>(values.size()));
+    if (!list) {
+        return nullptr;
+    }
+    for (size_t i = 0; i < values.size(); ++i) {
+        PyObject *v = PyFloat_FromDouble(values[i]);
+        if (!v) {
+            Py_DECREF(list);
+            return nullptr;
+        }
+        PyList_SET_ITEM(list, static_cast<Py_ssize_t>(i), v);
+    }
+    return list;
 }
 
 static Vec3 centroid(const std::vector<Vec3> &points) {
@@ -1330,6 +1539,36 @@ static bool native_face_is_strictly_inside(const TopoDS_Face &face, const gp_Pnt
     return native_face_point_state(face, point, tolerance) == TopAbs_IN;
 }
 
+static double approx_surface_distance_uv(
+    const BRepAdaptor_Surface &surface,
+    double u0,
+    double v0,
+    double u1,
+    double v1
+) {
+    if (!(std::isfinite(u0) && std::isfinite(v0) && std::isfinite(u1) && std::isfinite(v1))) {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+    const int steps = 4;
+    double len = 0.0;
+    for (int s = 0; s < steps; ++s) {
+        double t0 = static_cast<double>(s) / static_cast<double>(steps);
+        double t1 = static_cast<double>(s + 1) / static_cast<double>(steps);
+        double tm = 0.5 * (t0 + t1);
+        double um = u0 + (u1 - u0) * tm;
+        double vm = v0 + (v1 - v0) * tm;
+        gp_Pnt p;
+        gp_Vec du;
+        gp_Vec dv;
+        surface.D1(um, vm, p, du, dv);
+        double d_u = (u1 - u0) * (t1 - t0);
+        double d_v = (v1 - v0) * (t1 - t0);
+        gp_Vec tangent = du.Multiplied(d_u).Added(dv.Multiplied(d_v));
+        len += tangent.Magnitude();
+    }
+    return len;
+}
+
 static bool solve_uv_two_distance_constraints(
     const TopoDS_Face &face,
     const BRepAdaptor_Surface &surface,
@@ -1403,6 +1642,41 @@ static bool solve_uv_two_distance_constraints(
 
     gp_Pnt p = surface.Value(u, v);
     return native_face_is_inside(face, p, kFaceInsideTolerance);
+}
+
+static bool constraints_satisfied_asymmetric_rel(
+    const BRepAdaptor_Surface &surface,
+    double u,
+    double v,
+    const Vec3 &pb,
+    double rb,
+    const Vec3 &pc,
+    double rc,
+    double max_extension_rel,
+    double max_shortening_rel
+) {
+    if (!(rb > kVectorZeroEpsilon && rc > kVectorZeroEpsilon) ||
+        !(std::isfinite(max_extension_rel) && max_extension_rel >= 0.0) ||
+        !(std::isfinite(max_shortening_rel) && max_shortening_rel >= 0.0)) {
+        return false;
+    }
+    gp_Pnt p = surface.Value(u, v);
+    Vec3 pv{p.X(), p.Y(), p.Z()};
+    double db = norm(pv - pb);
+    double dc = norm(pv - pc);
+    if (!(std::isfinite(db) && std::isfinite(dc))) {
+        return false;
+    }
+    auto ok_len = [&](double d, double r) {
+        if (d > r * (1.0 + max_extension_rel)) {
+            return false;
+        }
+        if (d < r * (1.0 - max_shortening_rel)) {
+            return false;
+        }
+        return true;
+    };
+    return ok_len(db, rb) && ok_len(dc, rc);
 }
 
 static bool solve_uv_two_distance_constraints_spheresurface_experimental(
@@ -1530,21 +1804,18 @@ static bool solve_uv_two_distance_constraints_spheresurface_experimental(
     if (stats) {
         stats->seed_solved += solved_seed_count;
         stats->seed_local += local_seed_count;
-        ++stats->fallback_count;
         if (best_score + 1.0e-12 < base_score) {
             ++stats->better_candidate_hits;
             stats->improvement_sum += (base_score - best_score);
             stats->best_shift_norm_sum += best_shift_norm;
             stats->best_shift_norm_max = std::max(stats->best_shift_norm_max, best_shift_norm);
+        } else {
+            ++stats->fallback_count;
         }
     }
 
-    // Keep experimental branch numerically aligned with baseline for now.
-    // Candidate search is retained for instrumentation/iteration hooks.
-    (void)best_u;
-    (void)best_v;
-    u = base_u;
-    v = base_v;
+    u = best_u;
+    v = best_v;
     return true;
 }
 
@@ -1602,6 +1873,13 @@ static FaceSample sample_face(
     double max_adjacent_normal_angle,
     bool strict_inside_updates,
     double max_local_fold_ratio,
+    double max_shear_angle,
+    double max_inextensible_rel_error,
+    bool enforce_local_strain_optimization,
+    double max_local_edge_rel_error,
+    bool incremental_growth,
+    bool paper_strict_inextensible,
+    double paper_strict_rel_tol,
     ExperimentalSolveStats *experimental_stats
 ) {
     FaceSample sample;
@@ -1617,28 +1895,49 @@ static FaceSample sample_face(
     std::vector<std::vector<double>> grid_v(static_cast<size_t>(divisions + 1), std::vector<double>(static_cast<size_t>(divisions + 1), std::numeric_limits<double>::quiet_NaN()));
     std::vector<std::vector<Vec3>> grid_normals(static_cast<size_t>(divisions + 1), std::vector<Vec3>(static_cast<size_t>(divisions + 1), Vec3{0.0, 0.0, 1.0}));
 
-    for (int i = 0; i <= divisions; ++i) {
+    auto uv_at = [&](int i, int j) {
         double u = u0 + (u1 - u0) * static_cast<double>(i) / static_cast<double>(divisions);
-        for (int j = 0; j <= divisions; ++j) {
-            double v = v0 + (v1 - v0) * static_cast<double>(j) / static_cast<double>(divisions);
-            Vec3 point{};
-            gp_Pnt raw_point{};
-            if (!native_face_value_at(face, surface, u, v, point, &raw_point)) {
-                continue;
+        double v = v0 + (v1 - v0) * static_cast<double>(j) / static_cast<double>(divisions);
+        return std::pair<double, double>{u, v};
+    };
+
+    std::vector<Vec3> seed_points;
+    auto ensure_grid_node = [&](int i, int j) {
+        if (i < 0 || j < 0 || i > divisions || j > divisions) {
+            return -1;
+        }
+        int &slot = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+        if (slot >= 0) {
+            return slot;
+        }
+        auto uv = uv_at(i, j);
+        Vec3 point{};
+        gp_Pnt raw_point{};
+        if (!native_face_value_at(face, surface, uv.first, uv.second, point, &raw_point)) {
+            return -1;
+        }
+        if (!native_face_is_inside(face, raw_point, kFaceInsideTolerance)) {
+            return -1;
+        }
+        slot = static_cast<int>(sample.points.size());
+        grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = uv.first;
+        grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = uv.second;
+        sample.points.push_back(point);
+        seed_points.push_back(point);
+        Vec3 point_normal{0.0, 0.0, 1.0};
+        native_face_normal_at(face, surface, uv.first, uv.second, point_normal);
+        if (norm(point_normal) <= kVectorZeroEpsilon) {
+            point_normal = {0.0, 0.0, 1.0};
+        }
+        grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = point_normal;
+        return slot;
+    };
+
+    if (!paper_strict_inextensible) {
+        for (int i = 0; i <= divisions; ++i) {
+            for (int j = 0; j <= divisions; ++j) {
+                ensure_grid_node(i, j);
             }
-            if (!native_face_is_inside(face, raw_point, kFaceInsideTolerance)) {
-                continue;
-            }
-            grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] = static_cast<int>(sample.points.size());
-            grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
-            grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
-            sample.points.push_back(point);
-            Vec3 point_normal{0.0, 0.0, 1.0};
-            native_face_normal_at(face, surface, u, v, point_normal);
-            if (norm(point_normal) <= kVectorZeroEpsilon) {
-                point_normal = {0.0, 0.0, 1.0};
-            }
-            grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = point_normal;
         }
     }
 
@@ -1691,27 +1990,108 @@ static FaceSample sample_face(
         return chord;
     };
 
-    std::vector<Vec3> seed_points = sample.points;
+    if (seed_points.empty() && !sample.points.empty()) {
+        seed_points = sample.points;
+    }
+    const double target_spacing_len = std::max(max_length, 1.0e-6);
+    const double strict_rel_tol = std::max(0.0, paper_strict_rel_tol);
+    const double strict_extension_rel_tol = 1.0e-6;  // hard no-extension (numerical epsilon only)
 
     int seed_i_uv = -1;
     int seed_j_uv = -1;
-    for (int i = 0; i <= divisions && seed_i_uv < 0; ++i) {
-        for (int j = 0; j <= divisions; ++j) {
-            if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0) {
-                seed_i_uv = i;
-                seed_j_uv = j;
-                break;
+    if (paper_strict_inextensible) {
+        seed_i_uv = divisions / 2;
+        seed_j_uv = divisions / 2;
+        if (ensure_grid_node(seed_i_uv, seed_j_uv) < 0) {
+            // Search nearest valid seed around center.
+            const double mid = 0.5 * static_cast<double>(divisions);
+            double best_d2 = std::numeric_limits<double>::infinity();
+            for (int i = 0; i <= divisions; ++i) {
+                for (int j = 0; j <= divisions; ++j) {
+                    if (ensure_grid_node(i, j) < 0) {
+                        continue;
+                    }
+                    double di = static_cast<double>(i) - mid;
+                    double dj = static_cast<double>(j) - mid;
+                    double d2 = di * di + dj * dj;
+                    if (d2 < best_d2) {
+                        best_d2 = d2;
+                        seed_i_uv = i;
+                        seed_j_uv = j;
+                    }
+                }
+            }
+            if (!std::isfinite(best_d2)) {
+                seed_i_uv = -1;
+                seed_j_uv = -1;
+            }
+        }
+    } else {
+        const double mid = 0.5 * static_cast<double>(divisions);
+        double best_d2 = std::numeric_limits<double>::infinity();
+        for (int i = 0; i <= divisions; ++i) {
+            for (int j = 0; j <= divisions; ++j) {
+                if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] < 0) {
+                    continue;
+                }
+                double di = static_cast<double>(i) - mid;
+                double dj = static_cast<double>(j) - mid;
+                double d2 = di * di + dj * dj;
+                if (d2 < best_d2) {
+                    best_d2 = d2;
+                    seed_i_uv = i;
+                    seed_j_uv = j;
+                }
+            }
+        }
+    }
+
+    std::vector<std::vector<unsigned char>> strict_active(
+        static_cast<size_t>(divisions + 1),
+        std::vector<unsigned char>(static_cast<size_t>(divisions + 1), paper_strict_inextensible ? 0 : 1));
+
+    if (paper_strict_inextensible && seed_i_uv >= 0 && seed_j_uv >= 0) {
+        // Seed a compact local patch so strict frontier has initial valid cells.
+        for (int di = -1; di <= 1; ++di) {
+            for (int dj = -1; dj <= 1; ++dj) {
+                int ii = seed_i_uv + di;
+                int jj = seed_j_uv + dj;
+                if (ii < 0 || jj < 0 || ii > divisions || jj > divisions) {
+                    continue;
+                }
+                int idx = ensure_grid_node(ii, jj);
+                if (idx < 0 || idx >= static_cast<int>(sample.points.size())) {
+                    continue;
+                }
+                strict_active[static_cast<size_t>(ii)][static_cast<size_t>(jj)] = 1;
             }
         }
     }
 
     if (seed_i_uv >= 0) {
         auto attempt_uv_update = [&](int i, int j, int ib, int jb, int ic, int jc, double rb, double rc) {
-            int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
-            int idx_b = grid_indices[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
-            int idx_c = grid_indices[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
+            int idx = paper_strict_inextensible
+                ? ensure_grid_node(i, j)
+                : grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+            int idx_b = paper_strict_inextensible
+                ? ensure_grid_node(ib, jb)
+                : grid_indices[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
+            int idx_c = paper_strict_inextensible
+                ? ensure_grid_node(ic, jc)
+                : grid_indices[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
             if (idx < 0 || idx_b < 0 || idx_c < 0) {
                 return false;
+            }
+            if (paper_strict_inextensible) {
+                bool b_active = strict_active[static_cast<size_t>(ib)][static_cast<size_t>(jb)] != 0;
+                bool c_active = strict_active[static_cast<size_t>(ic)][static_cast<size_t>(jc)] != 0;
+                if (!b_active && !c_active) {
+                    return false;
+                }
+            }
+            if (paper_strict_inextensible) {
+                rb = target_spacing_len;
+                rc = target_spacing_len;
             }
             if (!(rb > kVectorZeroEpsilon && rc > kVectorZeroEpsilon)) {
                 return false;
@@ -1725,89 +2105,296 @@ static FaceSample sample_face(
             double old_u = u;
             double old_v = v;
             Vec3 old_point = sample.points[static_cast<size_t>(idx)];
-            bool solved = false;
-            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
-                solved = solve_uv_two_distance_constraints_spheresurface_experimental(
-                    face,
-                    surface,
-                    u,
-                    v,
-                    sample.points[static_cast<size_t>(idx_b)],
-                    rb,
-                    sample.points[static_cast<size_t>(idx_c)],
-                    rc,
-                    u0,
-                    u1,
-                    v0,
-                    v1,
-                    experimental_stats);
-            }
-            if (!solved) {
-                solved = solve_uv_two_distance_constraints(
-                    face,
-                    surface,
-                    u,
-                    v,
-                    sample.points[static_cast<size_t>(idx_b)],
-                    rb,
-                    sample.points[static_cast<size_t>(idx_c)],
-                    rc,
-                    u0,
-                    u1,
-                    v0,
-                    v1);
-            }
-            if (!solved) {
-                return false;
-            }
-            gp_Pnt p = surface.Value(u, v);
-            if (strict_inside_updates || solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental) {
-                if (!native_face_is_strictly_inside(face, p, kFaceInsideTolerance)) {
-                    return false;
-                }
-            } else {
-                if (!native_face_is_inside(face, p, kFaceInsideTolerance)) {
-                    return false;
+
+            auto clamp_uv = [&](double &uu, double &vv) {
+                uu = std::max(u0, std::min(u1, uu));
+                vv = std::max(v0, std::min(v1, vv));
+            };
+            const bool use_candidate_search =
+                (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental &&
+                 (enforce_local_strain_optimization || paper_strict_inextensible));
+            std::vector<std::pair<double, double>> start_seeds;
+            start_seeds.emplace_back(u, v);
+            double ub = grid_u[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
+            double vb = grid_v[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
+            double uc = grid_u[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
+            double vc = grid_v[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
+            if (use_candidate_search) {
+                if (std::isfinite(ub) && std::isfinite(vb) && std::isfinite(uc) && std::isfinite(vc)) {
+                    double um = 0.5 * (ub + uc);
+                    double vm = 0.5 * (vb + vc);
+                    clamp_uv(um, vm);
+                    start_seeds.emplace_back(um, vm);
+                    double ue1 = 2.0 * ub - uc;
+                    double ve1 = 2.0 * vb - vc;
+                    clamp_uv(ue1, ve1);
+                    start_seeds.emplace_back(ue1, ve1);
+                    double ue2 = 2.0 * uc - ub;
+                    double ve2 = 2.0 * vc - vb;
+                    clamp_uv(ue2, ve2);
+                    start_seeds.emplace_back(ue2, ve2);
+
+                    double du = 0.25 * std::max(std::abs(ub - uc), std::abs(u1 - u0) / std::max(1, divisions));
+                    double dv = 0.25 * std::max(std::abs(vb - vc), std::abs(v1 - v0) / std::max(1, divisions));
+                    std::array<std::pair<double, double>, 4> jitter = {
+                        std::pair<double, double>{u + du, v + dv},
+                        std::pair<double, double>{u + du, v - dv},
+                        std::pair<double, double>{u - du, v + dv},
+                        std::pair<double, double>{u - du, v - dv},
+                    };
+                    for (auto uv : jitter) {
+                        clamp_uv(uv.first, uv.second);
+                        start_seeds.emplace_back(uv);
+                    }
                 }
             }
-            Vec3 new_point{p.X(), p.Y(), p.Z()};
-            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
-                double max_branch_shift = std::max(4.0 * std::max(rb, rc), 1.0);
-                if (norm(new_point - old_point) > max_branch_shift) {
-                    return false;
-                }
-            }
+
+            struct CandidateState {
+                double u = 0.0;
+                double v = 0.0;
+                Vec3 point{0.0, 0.0, 0.0};
+                Vec3 normal{0.0, 0.0, 1.0};
+                double objective = std::numeric_limits<double>::infinity();
+            };
+            CandidateState best{};
+            bool have_candidate = false;
             double max_seed_shift = std::max(12.0 * std::max(rb, rc), 1.0);
-            if (norm(new_point - seed_points[static_cast<size_t>(idx)]) > max_seed_shift) {
+
+            auto edge_rel_error_for = [&](const Vec3 &p0, int nidx) {
+                if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                    return 0.0;
+                }
+                double d_ref = target_spacing_len;
+                if (d_ref <= kVectorZeroEpsilon) {
+                    return 0.0;
+                }
+                double d_now = norm(p0 - sample.points[static_cast<size_t>(nidx)]);
+                return std::abs(d_now - d_ref) / d_ref;
+            };
+            std::array<int, 4> neigh_ids = {
+                grid_indices[static_cast<size_t>(std::max(i - 1, 0))][static_cast<size_t>(j)],
+                grid_indices[static_cast<size_t>(std::min(i + 1, divisions))][static_cast<size_t>(j)],
+                grid_indices[static_cast<size_t>(i)][static_cast<size_t>(std::max(j - 1, 0))],
+                grid_indices[static_cast<size_t>(i)][static_cast<size_t>(std::min(j + 1, divisions))],
+            };
+
+            for (const auto &seed : start_seeds) {
+                double su = seed.first;
+                double sv = seed.second;
+                bool solved = false;
+                if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && use_candidate_search) {
+                    solved = solve_uv_two_distance_constraints_spheresurface_experimental(
+                        face,
+                        surface,
+                        su,
+                        sv,
+                        sample.points[static_cast<size_t>(idx_b)],
+                        rb,
+                        sample.points[static_cast<size_t>(idx_c)],
+                        rc,
+                        u0,
+                        u1,
+                        v0,
+                        v1,
+                        experimental_stats);
+                }
+                if (!solved) {
+                    solved = solve_uv_two_distance_constraints(
+                        face,
+                        surface,
+                        su,
+                        sv,
+                        sample.points[static_cast<size_t>(idx_b)],
+                        rb,
+                        sample.points[static_cast<size_t>(idx_c)],
+                        rc,
+                        u0,
+                        u1,
+                        v0,
+                        v1);
+                }
+                if (!solved) {
+                    continue;
+                }
+                if (paper_strict_inextensible &&
+                    !constraints_satisfied_asymmetric_rel(
+                        surface,
+                        su,
+                        sv,
+                        sample.points[static_cast<size_t>(idx_b)],
+                        rb,
+                        sample.points[static_cast<size_t>(idx_c)],
+                        rc,
+                        strict_extension_rel_tol,
+                        strict_rel_tol)) {
+                    continue;
+                }
+                gp_Pnt p = surface.Value(su, sv);
+                if (strict_inside_updates || solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                    if (!native_face_is_strictly_inside(face, p, kFaceInsideTolerance)) {
+                        continue;
+                    }
+                } else {
+                    if (!native_face_is_inside(face, p, kFaceInsideTolerance)) {
+                        continue;
+                    }
+                }
+                Vec3 cand_point{p.X(), p.Y(), p.Z()};
+                if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                    double max_branch_shift = std::max(4.0 * std::max(rb, rc), 1.0);
+                    if (paper_strict_inextensible) {
+                        max_branch_shift = std::max(3.0 * target_spacing_len, 0.75);
+                    }
+                    if (norm(cand_point - old_point) > max_branch_shift) {
+                        continue;
+                    }
+                }
+                if (norm(cand_point - seed_points[static_cast<size_t>(idx)]) > max_seed_shift) {
+                    continue;
+                }
+
+                if (paper_strict_inextensible) {
+                    auto strict_neighbor_ok = [&](int ni, int nj) {
+                        if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
+                            return true;
+                        }
+                        if (!strict_active[static_cast<size_t>(ni)][static_cast<size_t>(nj)]) {
+                            return true;
+                        }
+                        int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                        if (nidx < 0 || nidx >= static_cast<int>(sample.points.size()) || nidx == idx) {
+                            return true;
+                        }
+                        double d = norm(cand_point - sample.points[static_cast<size_t>(nidx)]);
+                        if (!(d > kVectorZeroEpsilon && std::isfinite(d))) {
+                            return false;
+                        }
+                        if (d > target_spacing_len * (1.0 + strict_extension_rel_tol)) {
+                            return false;
+                        }
+                        if (d < target_spacing_len * (1.0 - strict_rel_tol)) {
+                            return false;
+                        }
+                        return true;
+                    };
+                    if (!strict_neighbor_ok(i - 1, j) ||
+                        !strict_neighbor_ok(i + 1, j) ||
+                        !strict_neighbor_ok(i, j - 1) ||
+                        !strict_neighbor_ok(i, j + 1)) {
+                        continue;
+                    }
+                }
+
+                double db = norm(cand_point - sample.points[static_cast<size_t>(idx_b)]);
+                double dc = norm(cand_point - sample.points[static_cast<size_t>(idx_c)]);
+                if (std::isfinite(ub) && std::isfinite(vb)) {
+                    double g = approx_surface_distance_uv(surface, su, sv, ub, vb);
+                    if (std::isfinite(g) && g > kVectorZeroEpsilon) {
+                        db = g;
+                    }
+                }
+                if (std::isfinite(uc) && std::isfinite(vc)) {
+                    double g = approx_surface_distance_uv(surface, su, sv, uc, vc);
+                    if (std::isfinite(g) && g > kVectorZeroEpsilon) {
+                        dc = g;
+                    }
+                }
+                double rel_b = (rb > kVectorZeroEpsilon) ? std::abs(db - rb) / rb : 0.0;
+                double rel_c = (rc > kVectorZeroEpsilon) ? std::abs(dc - rc) / rc : 0.0;
+                double residual_score = rel_b * rel_b + rel_c * rel_c;
+                double strain_score = 0.0;
+                for (int nidx : neigh_ids) {
+                    if (nidx < 0 || nidx == idx || nidx >= static_cast<int>(sample.points.size())) {
+                        continue;
+                    }
+                    strain_score += edge_rel_error_for(cand_point, nidx);
+                }
+                double objective = use_candidate_search
+                    ? (10.0 * residual_score + strain_score)
+                    : residual_score;
+
+                if (!have_candidate || objective < best.objective) {
+                    Vec3 cand_n{0.0, 0.0, 1.0};
+                    native_face_normal_at(face, surface, su, sv, cand_n);
+                    best.u = su;
+                    best.v = sv;
+                    best.point = cand_point;
+                    best.normal = cand_n;
+                    best.objective = objective;
+                    have_candidate = true;
+                }
+            }
+
+            if (!have_candidate) {
                 return false;
             }
 
-            Vec3 n{0.0, 0.0, 1.0};
-            native_face_normal_at(face, surface, u, v, n);
+            u = best.u;
+            v = best.v;
+            Vec3 new_point = best.point;
+            Vec3 n = best.normal;
             Vec3 n_candidate = normalize(n);
-            if (norm(n_candidate) > kVectorZeroEpsilon &&
+            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental &&
                 std::isfinite(max_adjacent_normal_angle) &&
                 max_adjacent_normal_angle > 0.0) {
                 double angle = std::min(max_adjacent_normal_angle, 3.14159265358979323846);
                 double cos_limit = std::cos(angle);
-                auto normal_compatible = [&](int ni, int nj) {
-                    if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
-                        return true;
+
+                if (norm(n_candidate) > kVectorZeroEpsilon) {
+                    auto normal_compatible = [&](int ni, int nj) {
+                        if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
+                            return true;
+                        }
+                        int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                        if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                            return true;
+                        }
+                        Vec3 nn = normalize(grid_normals[static_cast<size_t>(ni)][static_cast<size_t>(nj)]);
+                        if (norm(nn) <= kVectorZeroEpsilon) {
+                            return true;
+                        }
+                        return dot(n_candidate, nn) >= cos_limit;
+                    };
+                    if (!normal_compatible(i - 1, j) ||
+                        !normal_compatible(i + 1, j) ||
+                        !normal_compatible(i, j - 1) ||
+                        !normal_compatible(i, j + 1)) {
+                        return false;
                     }
-                    int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
-                    if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
-                        return true;
+                }
+
+                auto idx_at = [&](int ii, int jj) {
+                    if (ii < 0 || jj < 0 || ii > divisions || jj > divisions) {
+                        return -1;
                     }
-                    Vec3 nn = normalize(grid_normals[static_cast<size_t>(ni)][static_cast<size_t>(nj)]);
-                    if (norm(nn) <= kVectorZeroEpsilon) {
-                        return true;
-                    }
-                    return dot(n_candidate, nn) >= cos_limit;
+                    return grid_indices[static_cast<size_t>(ii)][static_cast<size_t>(jj)];
                 };
-                if (!normal_compatible(i - 1, j) ||
-                    !normal_compatible(i + 1, j) ||
-                    !normal_compatible(i, j - 1) ||
-                    !normal_compatible(i, j + 1)) {
+                auto triangle_normals_compatible = [&](int i1, int j1, int i2, int j2) {
+                    int n1 = idx_at(i1, j1);
+                    int n2 = idx_at(i2, j2);
+                    if (n1 < 0 || n2 < 0 ||
+                        n1 >= static_cast<int>(sample.points.size()) ||
+                        n2 >= static_cast<int>(sample.points.size())) {
+                        return true;
+                    }
+                    Vec3 v1_new = sample.points[static_cast<size_t>(n1)] - new_point;
+                    Vec3 v2_new = sample.points[static_cast<size_t>(n2)] - new_point;
+                    Vec3 tri_n_new = normalize(cross(v1_new, v2_new));
+                    if (norm(tri_n_new) <= kVectorZeroEpsilon) {
+                        return true;
+                    }
+                    Vec3 v1_seed = seed_points[static_cast<size_t>(n1)] - seed_points[static_cast<size_t>(idx)];
+                    Vec3 v2_seed = seed_points[static_cast<size_t>(n2)] - seed_points[static_cast<size_t>(idx)];
+                    Vec3 tri_n_seed = normalize(cross(v1_seed, v2_seed));
+                    if (norm(tri_n_seed) <= kVectorZeroEpsilon) {
+                        return true;
+                    }
+                    return dot(tri_n_new, tri_n_seed) >= cos_limit;
+                };
+                if (!triangle_normals_compatible(i - 1, j, i, j - 1) ||
+                    !triangle_normals_compatible(i, j - 1, i + 1, j) ||
+                    !triangle_normals_compatible(i + 1, j, i, j + 1) ||
+                    !triangle_normals_compatible(i, j + 1, i - 1, j)) {
                     return false;
                 }
             }
@@ -1821,17 +2408,121 @@ static FaceSample sample_face(
                     if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
                         return true;
                     }
-                    double d_seed = norm(seed_points[static_cast<size_t>(idx)] - seed_points[static_cast<size_t>(nidx)]);
-                    if (d_seed <= kVectorZeroEpsilon) {
+                    double d_ref = target_spacing_len;
+                    if (d_ref <= kVectorZeroEpsilon) {
                         return true;
                     }
                     double d_new = norm(new_point - sample.points[static_cast<size_t>(nidx)]);
-                    return d_new <= d_seed * max_local_fold_ratio && d_new >= d_seed / max_local_fold_ratio;
+                    return d_new <= d_ref * max_local_fold_ratio && d_new >= d_ref / max_local_fold_ratio;
                 };
                 if (!local_fold_ok(i - 1, j) ||
                     !local_fold_ok(i + 1, j) ||
                     !local_fold_ok(i, j - 1) ||
                     !local_fold_ok(i, j + 1)) {
+                    return false;
+                }
+            }
+
+            if (std::isfinite(max_inextensible_rel_error) && max_inextensible_rel_error > 0.0 &&
+                idx_b >= 0 && idx_c >= 0 &&
+                idx_b < static_cast<int>(sample.points.size()) &&
+                idx_c < static_cast<int>(sample.points.size())) {
+                double db_new = norm(new_point - sample.points[static_cast<size_t>(idx_b)]);
+                double dc_new = norm(new_point - sample.points[static_cast<size_t>(idx_c)]);
+                if (std::isfinite(ub) && std::isfinite(vb)) {
+                    double g = approx_surface_distance_uv(surface, u, v, ub, vb);
+                    if (std::isfinite(g) && g > kVectorZeroEpsilon) {
+                        db_new = g;
+                    }
+                }
+                if (std::isfinite(uc) && std::isfinite(vc)) {
+                    double g = approx_surface_distance_uv(surface, u, v, uc, vc);
+                    if (std::isfinite(g) && g > kVectorZeroEpsilon) {
+                        dc_new = g;
+                    }
+                }
+                if (rb > kVectorZeroEpsilon) {
+                    double rel_b = std::abs(db_new - rb) / rb;
+                    if (rel_b > max_inextensible_rel_error) {
+                        return false;
+                    }
+                }
+                if (rc > kVectorZeroEpsilon) {
+                    double rel_c = std::abs(dc_new - rc) / rc;
+                    if (rel_c > max_inextensible_rel_error) {
+                        return false;
+                    }
+                }
+            }
+
+            if (enforce_local_strain_optimization && std::isfinite(max_local_edge_rel_error) && max_local_edge_rel_error > 0.0) {
+                std::array<int, 4> neigh = {
+                    grid_indices[static_cast<size_t>(std::max(i - 1, 0))][static_cast<size_t>(j)],
+                    grid_indices[static_cast<size_t>(std::min(i + 1, divisions))][static_cast<size_t>(j)],
+                    grid_indices[static_cast<size_t>(i)][static_cast<size_t>(std::max(j - 1, 0))],
+                    grid_indices[static_cast<size_t>(i)][static_cast<size_t>(std::min(j + 1, divisions))],
+                };
+                double old_score = 0.0;
+                double new_score = 0.0;
+                double max_rel_new = 0.0;
+                for (int nidx : neigh) {
+                    if (nidx < 0 || nidx == idx || nidx >= static_cast<int>(sample.points.size())) {
+                        continue;
+                    }
+                    double rel_old = edge_rel_error_for(old_point, nidx);
+                    double rel_new = edge_rel_error_for(new_point, nidx);
+                    old_score += rel_old;
+                    new_score += rel_new;
+                    max_rel_new = std::max(max_rel_new, rel_new);
+                }
+                if (max_rel_new > max_local_edge_rel_error) {
+                    return false;
+                }
+                if (new_score > old_score + 1.0e-12) {
+                    return false;
+                }
+            }
+
+            if (!paper_strict_inextensible && std::isfinite(max_shear_angle) && max_shear_angle >= 0.0) {
+                double shear_limit = std::min(max_shear_angle, 1.5533430342749532);  // < pi/2
+                double cos_limit = std::sin(shear_limit);
+
+                auto shear_idx_at = [&](int ii, int jj) {
+                    if (ii < 0 || jj < 0 || ii > divisions || jj > divisions) {
+                        return -1;
+                    }
+                    if (paper_strict_inextensible && !strict_active[static_cast<size_t>(ii)][static_cast<size_t>(jj)]) {
+                        return -1;
+                    }
+                    int nidx = grid_indices[static_cast<size_t>(ii)][static_cast<size_t>(jj)];
+                    if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                        return -1;
+                    }
+                    return nidx;
+                };
+
+                auto shear_pair_ok = [&](int i1, int j1, int i2, int j2) {
+                    int n1 = shear_idx_at(i1, j1);
+                    int n2 = shear_idx_at(i2, j2);
+                    if (n1 < 0 || n2 < 0 || n1 == idx || n2 == idx || n1 == n2) {
+                        return true;
+                    }
+                    Vec3 v1 = sample.points[static_cast<size_t>(n1)] - new_point;
+                    Vec3 v2 = sample.points[static_cast<size_t>(n2)] - new_point;
+                    double n1_len = norm(v1);
+                    double n2_len = norm(v2);
+                    if (n1_len <= kVectorZeroEpsilon || n2_len <= kVectorZeroEpsilon) {
+                        return false;
+                    }
+                    double cos_angle = dot(v1, v2) / (n1_len * n2_len);
+                    cos_angle = std::max(-1.0, std::min(1.0, cos_angle));
+                    return std::abs(cos_angle) <= cos_limit;
+                };
+
+                if (!shear_pair_ok(i - 1, j, i, j - 1) ||
+                    !shear_pair_ok(i, j - 1, i + 1, j) ||
+                    !shear_pair_ok(i + 1, j, i, j + 1) ||
+                    !shear_pair_ok(i, j + 1, i - 1, j)) {
                     return false;
                 }
             }
@@ -1842,21 +2533,175 @@ static FaceSample sample_face(
             }
             grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
             grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
-            return (std::abs(u - old_u) > 1.0e-9 || std::abs(v - old_v) > 1.0e-9);
+            bool was_active = strict_active[static_cast<size_t>(i)][static_cast<size_t>(j)] != 0;
+            strict_active[static_cast<size_t>(i)][static_cast<size_t>(j)] = 1;
+            return (!was_active) || (std::abs(u - old_u) > 1.0e-9 || std::abs(v - old_v) > 1.0e-9);
         };
 
-        for (int pass = 0; pass < (divisions + 1) * 3; ++pass) {
-            bool changed = false;
-            for (int i = 0; i <= divisions; ++i) {
-                for (int j = 0; j <= divisions; ++j) {
-                    if (i == seed_i_uv && j == seed_j_uv) {
+        std::vector<std::pair<int, int>> update_order;
+        update_order.reserve(static_cast<size_t>((divisions - 1) * (divisions - 1)));
+        for (int i = 1; i < divisions; ++i) {
+            for (int j = 1; j < divisions; ++j) {
+                if (i == seed_i_uv && j == seed_j_uv) {
+                    continue;
+                }
+                update_order.emplace_back(i, j);
+            }
+        }
+
+        if (paper_strict_inextensible) {
+            // Priority-queue wavefront growth from the seed region.
+            struct WaveItem {
+                double priority;
+                int depth;
+                int seq;
+                int i;
+                int j;
+            };
+            struct WaveCmp {
+                bool operator()(const WaveItem &a, const WaveItem &b) const {
+                    if (std::abs(a.priority - b.priority) > 1.0e-12) {
+                        return a.priority < b.priority;  // max-heap by priority
+                    }
+                    return a.seq > b.seq;  // FIFO tie-break
+                }
+            };
+
+            std::priority_queue<WaveItem, std::vector<WaveItem>, WaveCmp> frontier;
+            std::vector<std::vector<unsigned char>> queued(
+                static_cast<size_t>(divisions + 1),
+                std::vector<unsigned char>(static_cast<size_t>(divisions + 1), 0));
+            std::vector<std::vector<int>> queued_depth(
+                static_cast<size_t>(divisions + 1),
+                std::vector<int>(static_cast<size_t>(divisions + 1), std::numeric_limits<int>::max()));
+            int wave_seq = 0;
+
+            auto enqueue_cell = [&](int ci, int cj, int depth) {
+                if (ci <= 0 || cj <= 0 || ci >= divisions || cj >= divisions) {
+                    return;
+                }
+                if (strict_active[static_cast<size_t>(ci)][static_cast<size_t>(cj)]) {
+                    return;
+                }
+                if (queued[static_cast<size_t>(ci)][static_cast<size_t>(cj)] &&
+                    queued_depth[static_cast<size_t>(ci)][static_cast<size_t>(cj)] <= depth) {
+                    return;
+                }
+                queued[static_cast<size_t>(ci)][static_cast<size_t>(cj)] = 1;
+                queued_depth[static_cast<size_t>(ci)][static_cast<size_t>(cj)] = depth;
+                double distance_to_seed = std::hypot(
+                    static_cast<double>(ci - seed_i_uv),
+                    static_cast<double>(cj - seed_j_uv));
+                double priority = -distance_to_seed;
+                frontier.push(WaveItem{priority, depth, wave_seq++, ci, cj});
+            };
+
+            for (int i = 1; i < divisions; ++i) {
+                for (int j = 1; j < divisions; ++j) {
+                    if (!strict_active[static_cast<size_t>(i)][static_cast<size_t>(j)]) {
                         continue;
                     }
-                    // Keep boundary samples fixed to avoid collapsing whole rows/columns
-                    // onto parametric borders during iterative UV refinement.
-                    if (i == 0 || j == 0 || i == divisions || j == divisions) {
-                        continue;
+                    enqueue_cell(i - 1, j, 1);
+                    enqueue_cell(i + 1, j, 1);
+                    enqueue_cell(i, j - 1, 1);
+                    enqueue_cell(i, j + 1, 1);
+                    enqueue_cell(i - 1, j - 1, 1);
+                    enqueue_cell(i - 1, j + 1, 1);
+                    enqueue_cell(i + 1, j - 1, 1);
+                    enqueue_cell(i + 1, j + 1, 1);
+                }
+            }
+
+            const bool debug_queue = (std::getenv("FISHNET_DEBUG_QUEUE") != nullptr);
+            int pq_pop_count = 0;
+            int pq_accept_count = 0;
+            int pq_priority_order_violations = 0;
+            double pq_prev_pop_dist = -1.0;
+            std::vector<double> pq_first_pop_dist;
+            pq_first_pop_dist.reserve(16);
+
+            while (!frontier.empty()) {
+                WaveItem cur = frontier.top();
+                frontier.pop();
+                ++pq_pop_count;
+                if (debug_queue) {
+                    double pop_dist = std::hypot(
+                        static_cast<double>(cur.i - seed_i_uv),
+                        static_cast<double>(cur.j - seed_j_uv));
+                    if (pq_first_pop_dist.size() < 16) {
+                        pq_first_pop_dist.push_back(pop_dist);
                     }
+                    if (pq_prev_pop_dist >= 0.0 && pop_dist + 1.0e-9 < pq_prev_pop_dist) {
+                        ++pq_priority_order_violations;
+                    }
+                    pq_prev_pop_dist = pop_dist;
+                }
+                queued[static_cast<size_t>(cur.i)][static_cast<size_t>(cur.j)] = 0;
+                queued_depth[static_cast<size_t>(cur.i)][static_cast<size_t>(cur.j)] = std::numeric_limits<int>::max();
+                if (strict_active[static_cast<size_t>(cur.i)][static_cast<size_t>(cur.j)]) {
+                    continue;
+                }
+
+                auto try_pair = [&](int ib, int jb, int ic, int jc) {
+                    if (ib < 0 || jb < 0 || ib > divisions || jb > divisions ||
+                        ic < 0 || jc < 0 || ic > divisions || jc > divisions) {
+                        return false;
+                    }
+                    bool b_active = strict_active[static_cast<size_t>(ib)][static_cast<size_t>(jb)] != 0;
+                    bool c_active = strict_active[static_cast<size_t>(ic)][static_cast<size_t>(jc)] != 0;
+                    if (!b_active || !c_active) {
+                        return false;
+                    }
+                    return attempt_uv_update(cur.i, cur.j, ib, jb, ic, jc, target_spacing_len, target_spacing_len);
+                };
+
+                bool accepted = false;
+                // L-shaped parents.
+                accepted = try_pair(cur.i - 1, cur.j, cur.i, cur.j - 1) || accepted;
+                accepted = try_pair(cur.i + 1, cur.j, cur.i, cur.j + 1) || accepted;
+                accepted = try_pair(cur.i - 1, cur.j, cur.i, cur.j + 1) || accepted;
+                accepted = try_pair(cur.i + 1, cur.j, cur.i, cur.j - 1) || accepted;
+                // Side-front parents (enable coherent front advancement without one-parent jumps).
+                accepted = try_pair(cur.i - 1, cur.j, cur.i - 1, cur.j - 1) || accepted;
+                accepted = try_pair(cur.i - 1, cur.j, cur.i - 1, cur.j + 1) || accepted;
+                accepted = try_pair(cur.i + 1, cur.j, cur.i + 1, cur.j - 1) || accepted;
+                accepted = try_pair(cur.i + 1, cur.j, cur.i + 1, cur.j + 1) || accepted;
+                accepted = try_pair(cur.i, cur.j - 1, cur.i - 1, cur.j - 1) || accepted;
+                accepted = try_pair(cur.i, cur.j - 1, cur.i + 1, cur.j - 1) || accepted;
+                accepted = try_pair(cur.i, cur.j + 1, cur.i - 1, cur.j + 1) || accepted;
+                accepted = try_pair(cur.i, cur.j + 1, cur.i + 1, cur.j + 1) || accepted;
+
+                if (accepted) {
+                    ++pq_accept_count;
+                    // Propagate as a compact 4-neighbor wavefront (no diagonal branching).
+                    enqueue_cell(cur.i - 1, cur.j, cur.depth + 1);
+                    enqueue_cell(cur.i + 1, cur.j, cur.depth + 1);
+                    enqueue_cell(cur.i, cur.j - 1, cur.depth + 1);
+                    enqueue_cell(cur.i, cur.j + 1, cur.depth + 1);
+                }
+            }
+
+            if (debug_queue) {
+                std::printf("[fishnet pq] pops=%d accepts=%d order_violations=%d first_pop_dist=", pq_pop_count, pq_accept_count, pq_priority_order_violations);
+                for (size_t k = 0; k < pq_first_pop_dist.size(); ++k) {
+                    std::printf(k == 0 ? "%.3f" : ",%.3f", pq_first_pop_dist[k]);
+                }
+                std::printf("\n");
+            }
+        } else {
+            if (incremental_growth) {
+                std::stable_sort(update_order.begin(), update_order.end(), [&](const auto &a, const auto &b) {
+                    int da = std::abs(a.first - seed_i_uv) + std::abs(a.second - seed_j_uv);
+                    int db = std::abs(b.first - seed_i_uv) + std::abs(b.second - seed_j_uv);
+                    return da < db;
+                });
+            }
+
+            for (int pass = 0; pass < (divisions + 1) * 3; ++pass) {
+                bool changed = false;
+                for (const auto &ij : update_order) {
+                    int i = ij.first;
+                    int j = ij.second;
                     if (i > 0 && j > 0) {
                         changed = attempt_uv_update(i, j, i - 1, j, i, j - 1,
                             gib_curvature_step(i - 1, j, true),
@@ -1878,26 +2723,438 @@ static FaceSample sample_face(
                             gib_curvature_step(i, j - 1, false)) || changed;
                     }
                 }
+                if (!changed) {
+                    break;
+                }
             }
-            if (!changed) {
-                break;
+        }
+
+        if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental &&
+            enforce_local_strain_optimization) {
+            const double target_len = std::max(max_length, 1.0e-6);
+
+            auto local_objective = [&](int i, int j, double cu, double cv, const Vec3 &p0) {
+                double score = 0.0;
+                auto add_neighbor = [&](int ni, int nj) {
+                    if (ni < 0 || nj < 0 || ni > divisions || nj > divisions) {
+                        return;
+                    }
+                    int nidx = grid_indices[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                    if (nidx < 0 || nidx >= static_cast<int>(sample.points.size())) {
+                        return;
+                    }
+                    double d = norm(sample.points[static_cast<size_t>(nidx)] - p0);
+                    double nu = grid_u[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                    double nv = grid_v[static_cast<size_t>(ni)][static_cast<size_t>(nj)];
+                    if (std::isfinite(cu) && std::isfinite(cv) && std::isfinite(nu) && std::isfinite(nv)) {
+                        double g = approx_surface_distance_uv(surface, cu, cv, nu, nv);
+                        if (std::isfinite(g) && g > kVectorZeroEpsilon) {
+                            d = g;
+                        }
+                    }
+                    double rel = std::abs(d - target_len) / target_len;
+                    score += rel * rel;
+                };
+                add_neighbor(i - 1, j);
+                add_neighbor(i + 1, j);
+                add_neighbor(i, j - 1);
+                add_neighbor(i, j + 1);
+                return score;
+            };
+
+            for (int relax_iter = 0; relax_iter < 3; ++relax_iter) {
+                bool changed = false;
+                for (int i = 1; i < divisions; ++i) {
+                    for (int j = 1; j < divisions; ++j) {
+                        int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                        if (idx < 0 || idx >= static_cast<int>(sample.points.size())) {
+                            continue;
+                        }
+                        double u = grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                        double v = grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                        if (!std::isfinite(u) || !std::isfinite(v)) {
+                            continue;
+                        }
+
+                        Vec3 best_point = sample.points[static_cast<size_t>(idx)];
+                        double best_u = u;
+                        double best_v = v;
+                        double best_score = local_objective(i, j, u, v, best_point);
+
+                        auto try_pair = [&](int ib, int jb, int ic, int jc) {
+                            int idx_b = grid_indices[static_cast<size_t>(ib)][static_cast<size_t>(jb)];
+                            int idx_c = grid_indices[static_cast<size_t>(ic)][static_cast<size_t>(jc)];
+                            if (idx_b < 0 || idx_c < 0 ||
+                                idx_b >= static_cast<int>(sample.points.size()) ||
+                                idx_c >= static_cast<int>(sample.points.size())) {
+                                return;
+                            }
+                            double su = u;
+                            double sv = v;
+                            bool solved = solve_uv_two_distance_constraints_spheresurface_experimental(
+                                face,
+                                surface,
+                                su,
+                                sv,
+                                sample.points[static_cast<size_t>(idx_b)],
+                                target_len,
+                                sample.points[static_cast<size_t>(idx_c)],
+                                target_len,
+                                u0,
+                                u1,
+                                v0,
+                                v1,
+                                experimental_stats);
+                            if (!solved) {
+                                solved = solve_uv_two_distance_constraints(
+                                    face,
+                                    surface,
+                                    su,
+                                    sv,
+                                    sample.points[static_cast<size_t>(idx_b)],
+                                    target_len,
+                                    sample.points[static_cast<size_t>(idx_c)],
+                                    target_len,
+                                    u0,
+                                    u1,
+                                    v0,
+                                    v1);
+                            }
+                            if (!solved) {
+                                return;
+                            }
+                            gp_Pnt p = surface.Value(su, sv);
+                            bool inside_ok = strict_inside_updates
+                                ? native_face_is_strictly_inside(face, p, kFaceInsideTolerance)
+                                : native_face_is_inside(face, p, kFaceInsideTolerance);
+                            if (!inside_ok) {
+                                return;
+                            }
+                            Vec3 cand{p.X(), p.Y(), p.Z()};
+                            if (norm(cand - sample.points[static_cast<size_t>(idx)]) > 2.5 * target_len) {
+                                return;
+                            }
+                            double score = local_objective(i, j, su, sv, cand);
+                            if (score + 1.0e-12 < best_score) {
+                                best_score = score;
+                                best_u = su;
+                                best_v = sv;
+                                best_point = cand;
+                            }
+                        };
+
+                        try_pair(i - 1, j, i, j - 1);
+                        try_pair(i + 1, j, i, j + 1);
+                        try_pair(i - 1, j, i, j + 1);
+                        try_pair(i + 1, j, i, j - 1);
+
+                        if (std::abs(best_u - u) > 1.0e-12 || std::abs(best_v - v) > 1.0e-12) {
+                            sample.points[static_cast<size_t>(idx)] = best_point;
+                            grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = best_u;
+                            grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = best_v;
+                            Vec3 n{0.0, 0.0, 1.0};
+                            native_face_normal_at(face, surface, best_u, best_v, n);
+                            if (norm(n) > kVectorZeroEpsilon) {
+                                grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = n;
+                            }
+                            changed = true;
+                        }
+                    }
+                }
+                if (!changed) {
+                    break;
+                }
             }
         }
 
     }
 
-    for (int i = 0; i < divisions; ++i) {
-        for (int j = 0; j < divisions; ++j) {
-            int a = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
-            int b = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j)];
-            int c = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j + 1)];
-            int d = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j + 1)];
-            if (std::min({a, b, c, d}) < 0) {
-                continue;
+    auto strict_edge_ok = [&](int p0, int p1) {
+        if (!paper_strict_inextensible) {
+            return true;
+        }
+        if (p0 < 0 || p1 < 0 ||
+            p0 >= static_cast<int>(sample.points.size()) ||
+            p1 >= static_cast<int>(sample.points.size())) {
+            return false;
+        }
+        double d = norm(sample.points[static_cast<size_t>(p1)] - sample.points[static_cast<size_t>(p0)]);
+        if (!(d > kVectorZeroEpsilon && std::isfinite(d))) {
+            return false;
+        }
+        if (d > target_spacing_len * (1.0 + strict_extension_rel_tol)) {
+            return false;
+        }
+        if (d < target_spacing_len * (1.0 - strict_rel_tol)) {
+            return false;
+        }
+        return true;
+    };
+
+    if (paper_strict_inextensible) {
+        std::vector<std::array<int, 4>> candidate_quads;
+        candidate_quads.reserve(static_cast<size_t>(divisions * divisions));
+        std::vector<std::pair<int, int>> candidate_cells;
+        candidate_cells.reserve(static_cast<size_t>(divisions * divisions));
+
+        auto candidate_shear_ok = [&](const std::array<int, 4> &cand) {
+            if (!(std::isfinite(max_shear_angle) && max_shear_angle >= 0.0)) {
+                return true;
             }
-            sample.triangles.push_back({a, b, c});
-            sample.triangles.push_back({a, c, d});
-            sample.quads.push_back({a, b, c, d});
+            double shear_limit = std::min(max_shear_angle, 1.5533430342749532);  // < pi/2
+            double cos_limit = std::sin(shear_limit);
+
+            auto corner_ok = [&](int prev_i, int cur_i, int next_i) {
+                if (prev_i < 0 || cur_i < 0 || next_i < 0 ||
+                    prev_i >= static_cast<int>(sample.points.size()) ||
+                    cur_i >= static_cast<int>(sample.points.size()) ||
+                    next_i >= static_cast<int>(sample.points.size())) {
+                    return false;
+                }
+                Vec3 v1 = sample.points[static_cast<size_t>(prev_i)] - sample.points[static_cast<size_t>(cur_i)];
+                Vec3 v2 = sample.points[static_cast<size_t>(next_i)] - sample.points[static_cast<size_t>(cur_i)];
+                double n1 = norm(v1);
+                double n2 = norm(v2);
+                if (n1 <= kVectorZeroEpsilon || n2 <= kVectorZeroEpsilon) {
+                    return false;
+                }
+                double cos_angle = dot(v1, v2) / (n1 * n2);
+                cos_angle = std::max(-1.0, std::min(1.0, cos_angle));
+                return std::abs(cos_angle) <= cos_limit;
+            };
+
+            int a = cand[0];
+            int b = cand[1];
+            int c = cand[2];
+            int d = cand[3];
+            return corner_ok(d, a, b) &&
+                   corner_ok(a, b, c) &&
+                   corner_ok(b, c, d) &&
+                   corner_ok(c, d, a);
+        };
+
+        auto candidate_foldback_ok = [&](int i, int j, const std::array<int, 4> &cand) {
+            int a = cand[0];
+            int b = cand[1];
+            int c = cand[2];
+            int d = cand[3];
+            if (std::min({a, b, c, d}) < 0 ||
+                std::max({a, b, c, d}) >= static_cast<int>(sample.points.size())) {
+                return false;
+            }
+            const Vec3 &pa = sample.points[static_cast<size_t>(a)];
+            const Vec3 &pb = sample.points[static_cast<size_t>(b)];
+            const Vec3 &pc = sample.points[static_cast<size_t>(c)];
+            const Vec3 &pd = sample.points[static_cast<size_t>(d)];
+
+            Vec3 tri1 = cross(pb - pa, pc - pa);
+            Vec3 tri2 = cross(pc - pa, pd - pa);
+            double n1 = norm(tri1);
+            double n2 = norm(tri2);
+            if (n1 <= kVectorZeroEpsilon || n2 <= kVectorZeroEpsilon) {
+                return false;
+            }
+            Vec3 tri1n = tri1 * (1.0 / n1);
+            Vec3 tri2n = tri2 * (1.0 / n2);
+            if (dot(tri1n, tri2n) <= 1.0e-6) {
+                return false;
+            }
+
+            Vec3 qn = normalize(tri1n + tri2n);
+            if (norm(qn) <= kVectorZeroEpsilon) {
+                return false;
+            }
+
+            if (std::max({a, b, c, d}) < static_cast<int>(seed_points.size())) {
+                const Vec3 &sa = seed_points[static_cast<size_t>(a)];
+                const Vec3 &sb = seed_points[static_cast<size_t>(b)];
+                const Vec3 &sc = seed_points[static_cast<size_t>(c)];
+                const Vec3 &sd = seed_points[static_cast<size_t>(d)];
+                Vec3 seed_t1 = cross(sb - sa, sc - sa);
+                Vec3 seed_t2 = cross(sc - sa, sd - sa);
+                if (norm(seed_t1) > kVectorZeroEpsilon && norm(seed_t2) > kVectorZeroEpsilon) {
+                    Vec3 seed_qn = normalize(seed_t1 + seed_t2);
+                    if (norm(seed_qn) > kVectorZeroEpsilon && dot(qn, seed_qn) <= 1.0e-6) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        };
+
+        for (int i = 0; i < divisions; ++i) {
+            for (int j = 0; j < divisions; ++j) {
+                int a = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                int b = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j)];
+                int c = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j + 1)];
+                int d = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j + 1)];
+                if (std::min({a, b, c, d}) < 0) {
+                    continue;
+                }
+                if (!strict_active[static_cast<size_t>(i)][static_cast<size_t>(j)] ||
+                    !strict_active[static_cast<size_t>(i + 1)][static_cast<size_t>(j)] ||
+                    !strict_active[static_cast<size_t>(i + 1)][static_cast<size_t>(j + 1)] ||
+                    !strict_active[static_cast<size_t>(i)][static_cast<size_t>(j + 1)]) {
+                    continue;
+                }
+                if (!(strict_edge_ok(a, b) && strict_edge_ok(b, c) && strict_edge_ok(c, d) && strict_edge_ok(d, a))) {
+                    continue;
+                }
+
+                std::array<int, 4> cand = {a, b, c, d};
+                if (!candidate_foldback_ok(i, j, cand)) {
+                    continue;
+                }
+                if (!candidate_shear_ok(cand)) {
+                    continue;
+                }
+
+                candidate_quads.push_back(cand);
+                candidate_cells.emplace_back(i, j);
+            }
+        }
+
+        if (!candidate_quads.empty()) {
+            std::vector<int> comp(candidate_quads.size(), -1);
+            std::vector<int> comp_sizes;
+            std::vector<double> comp_seed_dist;
+            int comp_count = 0;
+
+            for (size_t qi = 0; qi < candidate_quads.size(); ++qi) {
+                if (comp[qi] >= 0) {
+                    continue;
+                }
+                comp_sizes.push_back(0);
+                comp_seed_dist.push_back(std::numeric_limits<double>::infinity());
+                int cid = comp_count++;
+                std::vector<size_t> stack;
+                stack.push_back(qi);
+                comp[qi] = cid;
+
+                while (!stack.empty()) {
+                    size_t cur = stack.back();
+                    stack.pop_back();
+                    ++comp_sizes[static_cast<size_t>(cid)];
+
+                    double d_seed = 0.0;
+                    if (seed_i_uv >= 0 && seed_j_uv >= 0) {
+                        d_seed = std::hypot(
+                            (static_cast<double>(candidate_cells[cur].first) + 0.5) - static_cast<double>(seed_i_uv),
+                            (static_cast<double>(candidate_cells[cur].second) + 0.5) - static_cast<double>(seed_j_uv));
+                    }
+                    comp_seed_dist[static_cast<size_t>(cid)] = std::min(comp_seed_dist[static_cast<size_t>(cid)], d_seed);
+
+                    for (size_t other = 0; other < candidate_quads.size(); ++other) {
+                        if (comp[other] >= 0) {
+                            continue;
+                        }
+                        int shared = 0;
+                        for (int a : candidate_quads[cur]) {
+                            for (int b : candidate_quads[other]) {
+                                if (a == b) {
+                                    ++shared;
+                                }
+                            }
+                        }
+                        if (shared >= 2) {
+                            comp[other] = cid;
+                            stack.push_back(other);
+                        }
+                    }
+                }
+            }
+
+            int best_comp = 0;
+            for (int cid = 1; cid < comp_count; ++cid) {
+                if (comp_sizes[static_cast<size_t>(cid)] > comp_sizes[static_cast<size_t>(best_comp)]) {
+                    best_comp = cid;
+                    continue;
+                }
+                if (comp_sizes[static_cast<size_t>(cid)] == comp_sizes[static_cast<size_t>(best_comp)] &&
+                    comp_seed_dist[static_cast<size_t>(cid)] + 1.0e-12 < comp_seed_dist[static_cast<size_t>(best_comp)]) {
+                    best_comp = cid;
+                }
+            }
+
+            std::vector<size_t> order;
+            order.reserve(candidate_quads.size());
+            for (size_t qi = 0; qi < candidate_quads.size(); ++qi) {
+                if (comp[qi] == best_comp) {
+                    order.push_back(qi);
+                }
+            }
+
+            std::stable_sort(order.begin(), order.end(), [&](size_t lhs, size_t rhs) {
+                double dl = 0.0;
+                double dr = 0.0;
+                if (seed_i_uv >= 0 && seed_j_uv >= 0) {
+                    dl = std::hypot(
+                        (static_cast<double>(candidate_cells[lhs].first) + 0.5) - static_cast<double>(seed_i_uv),
+                        (static_cast<double>(candidate_cells[lhs].second) + 0.5) - static_cast<double>(seed_j_uv));
+                    dr = std::hypot(
+                        (static_cast<double>(candidate_cells[rhs].first) + 0.5) - static_cast<double>(seed_i_uv),
+                        (static_cast<double>(candidate_cells[rhs].second) + 0.5) - static_cast<double>(seed_j_uv));
+                }
+                if (std::abs(dl - dr) > 1.0e-12) {
+                    return dl < dr;
+                }
+                if (candidate_cells[lhs].first != candidate_cells[rhs].first) {
+                    return candidate_cells[lhs].first < candidate_cells[rhs].first;
+                }
+                return candidate_cells[lhs].second < candidate_cells[rhs].second;
+            });
+
+            std::vector<std::array<int, 4>> selected_quads;
+            selected_quads.reserve(order.size());
+
+            auto overlaps_selected = [&](const std::array<int, 4> &cand) {
+                for (const auto &existing : selected_quads) {
+                    int shared = 0;
+                    for (int ci : cand) {
+                        for (int ei : existing) {
+                            if (ci == ei) {
+                                ++shared;
+                            }
+                        }
+                    }
+                    if (shared >= 2) {
+                        continue;
+                    }
+                    if (quads_overlap_strict_3d(sample.points, cand, existing)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            for (size_t ord_i : order) {
+                const auto &cand = candidate_quads[ord_i];
+                if (overlaps_selected(cand)) {
+                    continue;
+                }
+                selected_quads.push_back(cand);
+            }
+
+            for (const auto &q : selected_quads) {
+                sample.triangles.push_back({q[0], q[1], q[2]});
+                sample.triangles.push_back({q[0], q[2], q[3]});
+                sample.quads.push_back({q[0], q[1], q[2], q[3]});
+            }
+        }
+    } else {
+        for (int i = 0; i < divisions; ++i) {
+            for (int j = 0; j < divisions; ++j) {
+                int a = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                int b = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j)];
+                int c = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j + 1)];
+                int d = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j + 1)];
+                if (std::min({a, b, c, d}) < 0) {
+                    continue;
+                }
+                sample.triangles.push_back({a, b, c});
+                sample.triangles.push_back({a, c, d});
+                sample.quads.push_back({a, b, c, d});
+            }
         }
     }
 
@@ -2247,6 +3504,83 @@ static PyObject *build_face_frame_dict(const FaceSample &sample, int face_index,
     return frame;
 }
 
+static std::string solver_algorithm_from_params(PyObject *params_copy) {
+    if (!params_copy || !PyDict_Check(params_copy)) {
+        return "legacy_fishnet";
+    }
+    PyObject *alg_obj = PyDict_GetItemString(params_copy, "algorithm");
+    if (!alg_obj || !PyUnicode_Check(alg_obj)) {
+        return "legacy_fishnet";
+    }
+    const char *alg_name = PyUnicode_AsUTF8(alg_obj);
+    if (!alg_name || !*alg_name) {
+        PyErr_Clear();
+        return "legacy_fishnet";
+    }
+    return std::string(alg_name);
+}
+
+static int solver_iterations_from_params(PyObject *params_copy) {
+    if (!params_copy || !PyDict_Check(params_copy)) {
+        return 0;
+    }
+    PyObject *steps_obj = PyDict_GetItemString(params_copy, "steps");
+    if (!steps_obj) {
+        return 0;
+    }
+    long parsed = PyLong_AsLong(steps_obj);
+    if (PyErr_Occurred()) {
+        PyErr_Clear();
+        return 0;
+    }
+    if (parsed < 0) {
+        return 0;
+    }
+    return static_cast<int>(parsed);
+}
+
+static void attach_solver_metadata(PyObject *result, PyObject *params_copy, const char *termination_reason, bool converged, PyObject *diagnostics=nullptr) {
+    if (!result || !PyDict_Check(result)) {
+        return;
+    }
+    std::string algorithm = solver_algorithm_from_params(params_copy);
+    int iterations = solver_iterations_from_params(params_copy);
+
+    PyObject *algorithm_obj = PyUnicode_FromString(algorithm.c_str());
+    PyObject *termination_obj = PyUnicode_FromString(termination_reason ? termination_reason : "unknown");
+    PyObject *converged_obj = converged ? Py_True : Py_False;
+    PyObject *iterations_obj = PyLong_FromLong(iterations);
+    PyObject *status_obj = PyUnicode_FromString(converged ? "ok" : "error");
+    if (algorithm_obj) {
+        PyDict_SetItemString(result, "algorithm", algorithm_obj);
+        Py_DECREF(algorithm_obj);
+    }
+    if (termination_obj) {
+        PyDict_SetItemString(result, "termination_reason", termination_obj);
+        Py_DECREF(termination_obj);
+    }
+    PyDict_SetItemString(result, "converged", converged_obj);
+    if (iterations_obj) {
+        PyDict_SetItemString(result, "iterations", iterations_obj);
+        Py_DECREF(iterations_obj);
+    }
+    if (status_obj) {
+        PyDict_SetItemString(result, "solver_status", status_obj);
+        Py_DECREF(status_obj);
+    }
+
+    PyObject *diagnostics_obj = diagnostics;
+    if (!diagnostics_obj) {
+        diagnostics_obj = PyDict_New();
+    } else {
+        Py_INCREF(diagnostics_obj);
+    }
+    if (diagnostics_obj) {
+        PyDict_SetItemString(result, "diagnostics", diagnostics_obj);
+        Py_DECREF(diagnostics_obj);
+    }
+}
+
 static PyObject *build_empty_geometry_result(const char *error, PyObject *params_copy) {
     PyObject *res = PyDict_New();
     if (!res) {
@@ -2257,8 +3591,10 @@ static PyObject *build_empty_geometry_result(const char *error, PyObject *params
     PyDict_SetItemString(res, "valid", Py_False);
     PyDict_SetItemString(res, "error", PyUnicode_FromString(error));
     PyDict_SetItemString(res, "fabric_points", PyList_New(0));
+    PyDict_SetItemString(res, "warp_weft_points", PyList_New(0));
     PyDict_SetItemString(res, "fabric_quads", PyList_New(0));
     PyDict_SetItemString(res, "boundary_loops", PyList_New(0));
+    PyDict_SetItemString(res, "warp_weft_boundary_loops", PyList_New(0));
     PyDict_SetItemString(res, "strains", PyList_New(0));
     PyDict_SetItemString(res, "mesh_points", PyList_New(0));
     PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
@@ -2266,6 +3602,7 @@ static PyObject *build_empty_geometry_result(const char *error, PyObject *params
     PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
     PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
     PyDict_SetItemString(res, "parameters", params_copy);
+    attach_solver_metadata(res, params_copy, "infeasible", false);
     Py_DECREF(params_copy);
     return res;
 }
@@ -2328,7 +3665,12 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         native_faces.push_back(native_face);
     }
 
-    CurrentNodeSolverMode solver_mode = CurrentNodeSolverMode::UvNewton;
+    const std::string algorithm = solver_algorithm_from_params(params_copy);
+    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
+
+    CurrentNodeSolverMode solver_mode = acp_energy_mode
+        ? CurrentNodeSolverMode::SphereSurfaceExperimental
+        : CurrentNodeSolverMode::UvNewton;
     if (PyObject *solver_obj = PyDict_GetItemString(params_copy, "current_node_solver")) {
         const char *solver_name = PyUnicode_Check(solver_obj) ? PyUnicode_AsUTF8(solver_obj) : nullptr;
         if (solver_name) {
@@ -2339,7 +3681,11 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
-    double max_adjacent_normal_angle = 1.5707963267948966;  // pi/2 default fold guard
+    bool single_face_run = (native_faces.size() == 1);
+    double max_adjacent_normal_angle =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental)
+            ? (single_face_run ? 1.5707963267948966 : 0.0)
+            : 1.5707963267948966;
     if (PyObject *angle_obj = PyDict_GetItemString(params_copy, "max_adjacent_normal_angle")) {
         double parsed_angle = PyFloat_AsDouble(angle_obj);
         if (!PyErr_Occurred() && std::isfinite(parsed_angle) && parsed_angle > 0.0) {
@@ -2348,7 +3694,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
-    bool strict_inside_updates = (solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental);
+    bool strict_inside_updates =
+        (solver_mode != CurrentNodeSolverMode::SphereSurfaceExperimental) || single_face_run;
     if (PyObject *strict_obj = PyDict_GetItemString(params_copy, "strict_inside_updates")) {
         int parsed_bool = PyObject_IsTrue(strict_obj);
         if (parsed_bool >= 0) {
@@ -2357,7 +3704,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
-    double max_local_fold_ratio = 0.0;
+    double max_local_fold_ratio =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run) ? 1.7 : 0.0;
     if (PyObject *ratio_obj = PyDict_GetItemString(params_copy, "max_local_fold_ratio")) {
         double parsed_ratio = PyFloat_AsDouble(ratio_obj);
         if (!PyErr_Occurred() && std::isfinite(parsed_ratio) && parsed_ratio > 1.0) {
@@ -2366,6 +3714,85 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
+    double max_shear_angle =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run)
+            ? 0.5235987755982988  // 30 deg
+            : -1.0;
+    if (PyObject *shear_obj = PyDict_GetItemString(params_copy, "max_shear_angle_deg")) {
+        double parsed_deg = PyFloat_AsDouble(shear_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_deg) && parsed_deg >= 0.0) {
+            max_shear_angle = parsed_deg * 0.017453292519943295;
+        } else {
+            PyErr_Clear();
+        }
+    }
+    double max_inextensible_rel_error =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run) ? 0.05 : 0.0;
+    if (PyObject *inext_obj = PyDict_GetItemString(params_copy, "max_inextensible_rel_error")) {
+        double parsed_rel = PyFloat_AsDouble(inext_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_rel) && parsed_rel > 0.0) {
+            max_inextensible_rel_error = parsed_rel;
+        } else {
+            PyErr_Clear();
+        }
+    }
+    bool enforce_local_strain_optimization =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run);
+    if (PyObject *strain_obj = PyDict_GetItemString(params_copy, "enforce_local_strain_optimization")) {
+        int parsed_bool = PyObject_IsTrue(strain_obj);
+        if (parsed_bool >= 0) {
+            enforce_local_strain_optimization = (parsed_bool != 0);
+        } else {
+            PyErr_Clear();
+        }
+    }
+    double max_local_edge_rel_error =
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run) ? 0.12 : 0.0;
+    if (PyObject *edge_obj = PyDict_GetItemString(params_copy, "max_local_edge_rel_error")) {
+        double parsed_rel = PyFloat_AsDouble(edge_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_rel) && parsed_rel > 0.0) {
+            max_local_edge_rel_error = parsed_rel;
+        } else {
+            PyErr_Clear();
+        }
+    }
+    bool incremental_growth = acp_energy_mode;
+    if (PyObject *grow_obj = PyDict_GetItemString(params_copy, "incremental_growth")) {
+        int parsed_bool = PyObject_IsTrue(grow_obj);
+        if (parsed_bool >= 0) {
+            incremental_growth = (parsed_bool != 0);
+        } else {
+            PyErr_Clear();
+        }
+    }
+
+    bool paper_strict_inextensible = false;
+    if (PyObject *strict_obj = PyDict_GetItemString(params_copy, "paper_strict_inextensible")) {
+        int parsed_bool = PyObject_IsTrue(strict_obj);
+        if (parsed_bool >= 0) {
+            paper_strict_inextensible = (parsed_bool != 0);
+        } else {
+            PyErr_Clear();
+        }
+    }
+    double paper_strict_rel_tol = 1.0e-3;
+    if (PyObject *strict_tol_obj = PyDict_GetItemString(params_copy, "paper_strict_rel_tol")) {
+        double parsed_tol = PyFloat_AsDouble(strict_tol_obj);
+        if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol >= 0.0) {
+            paper_strict_rel_tol = parsed_tol;
+        } else {
+            PyErr_Clear();
+        }
+    }
+
+    if (paper_strict_inextensible) {
+        // Keep strict geometric constraints, but DO NOT disable fold/shear guards.
+        max_inextensible_rel_error = 0.0;
+        enforce_local_strain_optimization = false;
+        max_local_edge_rel_error = 0.0;
+        strict_inside_updates = true;
+    }
+
     ExperimentalSolveStats experimental_stats;
 
     double sample_max_length = 0.0;
@@ -2406,6 +3833,13 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             max_adjacent_normal_angle,
             strict_inside_updates,
             max_local_fold_ratio,
+            max_shear_angle,
+            max_inextensible_rel_error,
+            enforce_local_strain_optimization,
+            max_local_edge_rel_error,
+            incremental_growth,
+            paper_strict_inextensible,
+            paper_strict_rel_tol,
             (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) ? &experimental_stats : nullptr
         );
         if (sample.points.empty() || sample.triangles.empty()) {
@@ -2462,7 +3896,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         ? perimeter_edges_from_quads(quads)
         : edges_from_triangles(triangles);
     double nominal_edge_length = nominal_spacing;
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length);
+    std::vector<double> residual_history;
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, 120, &residual_history);
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -2565,7 +4000,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             std::snprintf(
                 reason_buf,
                 sizeof(reason_buf),
-                "experimental spheresurface diagnostics: calls=%d base_failures=%d seed_attempts=%d seed_solved=%d seed_local=%d local_seed_ratio=%.6g better_candidate_hits=%d mean_improvement=%.6g mean_best_shift=%.6g max_best_shift=%.6g fallbacks=%d (baseline retained)",
+                "experimental spheresurface diagnostics: calls=%d base_failures=%d seed_attempts=%d seed_solved=%d seed_local=%d local_seed_ratio=%.6g better_candidate_hits=%d mean_improvement=%.6g mean_best_shift=%.6g max_best_shift=%.6g fallbacks=%d",
                 experimental_stats.calls,
                 experimental_stats.base_failures,
                 experimental_stats.seed_attempts,
@@ -2768,11 +4203,49 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         return nullptr;
     }
 
+    std::vector<Vec3> warp_weft_points;
+    warp_weft_points.reserve(points.size());
+    for (size_t pi = 0; pi < points.size(); ++pi) {
+        Vec3 seed = local_points[pi];
+        seed.z = 0.0;
+        if (nominal_spacing > kVectorZeroEpsilon && pi < layout_points.size()) {
+            seed = {layout_points[pi].x * nominal_spacing, layout_points[pi].y * nominal_spacing, 0.0};
+        } else if (pi < layout_points.size()) {
+            seed = {layout_points[pi].x, layout_points[pi].y, 0.0};
+        }
+        warp_weft_points.push_back(seed);
+    }
+    PyObject *warp_weft_points_list = build_vec3_list(warp_weft_points);
+    std::vector<std::vector<Vec3>> warp_weft_loops_pts;
+    warp_weft_loops_pts.reserve(loops_idx.size());
+    for (const auto &loop : loops_idx) {
+        warp_weft_loops_pts.push_back(loop_to_points(loop, warp_weft_points));
+    }
+    PyObject *warp_weft_boundary_loops_list = build_loop_list(warp_weft_loops_pts);
+    if (!warp_weft_points_list || !warp_weft_boundary_loops_list) {
+        Py_XDECREF(warp_weft_points_list);
+        Py_XDECREF(warp_weft_boundary_loops_list);
+        Py_DECREF(result);
+        Py_DECREF(fabric_points_list);
+        Py_DECREF(fabric_quads_list);
+        Py_DECREF(boundary_loops_list);
+        Py_DECREF(strains_list);
+        Py_DECREF(mesh_points_list);
+        Py_DECREF(mesh_faces_list);
+        Py_DECREF(face_frames_list);
+        Py_DECREF(orientation_breaks_list);
+        Py_DECREF(atlas_charts_list);
+        Py_DECREF(params_copy);
+        return nullptr;
+    }
+
     PyDict_SetItemString(result, "valid", Py_True);
     PyDict_SetItemString(result, "error", PyUnicode_FromString(""));
     PyDict_SetItemString(result, "fabric_points", fabric_points_list);
+    PyDict_SetItemString(result, "warp_weft_points", warp_weft_points_list);
     PyDict_SetItemString(result, "fabric_quads", fabric_quads_list);
     PyDict_SetItemString(result, "boundary_loops", boundary_loops_list);
+    PyDict_SetItemString(result, "warp_weft_boundary_loops", warp_weft_boundary_loops_list);
     PyDict_SetItemString(result, "strains", strains_list);
     PyDict_SetItemString(result, "mesh_points", mesh_points_list);
     PyDict_SetItemString(result, "mesh_faces", mesh_faces_list);
@@ -2785,9 +4258,79 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     PyDict_SetItemString(result, "y_axis", build_vec3_tuple(y_axis));
     PyDict_SetItemString(result, "parameters", params_copy);
 
+    const bool converged = !(acp_energy_mode && edge_violations > 0);
+    const char *termination_reason = converged ? "converged" : "max_iterations";
+    const int max_iterations = solver_iterations_from_params(params_copy);
+
+    PyObject *diagnostics = PyDict_New();
+    if (diagnostics) {
+        PyObject *face_count_obj = PyLong_FromLong(static_cast<long>(samples.size()));
+        PyObject *point_count_obj = PyLong_FromLong(static_cast<long>(points.size()));
+        PyObject *triangle_count_obj = PyLong_FromLong(static_cast<long>(triangles.size()));
+        PyObject *quad_count_obj = PyLong_FromLong(static_cast<long>(quads.size()));
+        PyObject *orientation_break_count_obj = PyLong_FromLong(PyList_Size(orientation_breaks_list));
+        PyObject *edge_violations_obj = PyLong_FromLong(edge_violations);
+        PyObject *max_rel_error_obj = PyFloat_FromDouble(max_rel_error);
+        PyObject *residual_threshold_obj = PyFloat_FromDouble(rel_tol);
+        PyObject *max_iterations_obj = PyLong_FromLong(max_iterations);
+        PyObject *residual_history_obj = build_double_list(residual_history);
+        if (face_count_obj) {
+            PyDict_SetItemString(diagnostics, "face_count", face_count_obj);
+            Py_DECREF(face_count_obj);
+        }
+        if (point_count_obj) {
+            PyDict_SetItemString(diagnostics, "point_count", point_count_obj);
+            Py_DECREF(point_count_obj);
+        }
+        if (triangle_count_obj) {
+            PyDict_SetItemString(diagnostics, "triangle_count", triangle_count_obj);
+            Py_DECREF(triangle_count_obj);
+        }
+        if (quad_count_obj) {
+            PyDict_SetItemString(diagnostics, "quad_count", quad_count_obj);
+            Py_DECREF(quad_count_obj);
+        }
+        if (orientation_break_count_obj) {
+            PyDict_SetItemString(diagnostics, "orientation_break_count", orientation_break_count_obj);
+            Py_DECREF(orientation_break_count_obj);
+        }
+        if (edge_violations_obj) {
+            PyDict_SetItemString(diagnostics, "edge_violations", edge_violations_obj);
+            Py_DECREF(edge_violations_obj);
+        }
+        if (max_rel_error_obj) {
+            PyDict_SetItemString(diagnostics, "max_edge_rel_error", max_rel_error_obj);
+            PyDict_SetItemString(diagnostics, "final_residual", max_rel_error_obj);
+            Py_DECREF(max_rel_error_obj);
+        }
+        if (residual_threshold_obj) {
+            PyDict_SetItemString(diagnostics, "residual_threshold", residual_threshold_obj);
+            Py_DECREF(residual_threshold_obj);
+        }
+        if (max_iterations_obj) {
+            PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
+            Py_DECREF(max_iterations_obj);
+        }
+        if (residual_history_obj) {
+            PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
+            Py_DECREF(residual_history_obj);
+        }
+        PyObject *residual_metric_obj = PyUnicode_FromString("max_edge_rel_error");
+        if (residual_metric_obj) {
+            PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
+            Py_DECREF(residual_metric_obj);
+        }
+        attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
+        Py_DECREF(diagnostics);
+    } else {
+        attach_solver_metadata(result, params_copy, termination_reason, converged);
+    }
+
     Py_DECREF(fabric_points_list);
+    Py_DECREF(warp_weft_points_list);
     Py_DECREF(fabric_quads_list);
     Py_DECREF(boundary_loops_list);
+    Py_DECREF(warp_weft_boundary_loops_list);
     Py_DECREF(strains_list);
     Py_DECREF(mesh_points_list);
     Py_DECREF(mesh_faces_list);
@@ -2881,6 +4424,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
+        attach_solver_metadata(res, params_copy, "infeasible", false);
         Py_DECREF(params_copy);
         return res;
     }
@@ -2898,6 +4442,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
+        attach_solver_metadata(res, params_copy, "infeasible", false);
         Py_DECREF(params_copy);
         return res;
     }
@@ -2929,7 +4474,8 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
             nominal_edge_length = 0.0;
         }
     }
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length);
+    std::vector<double> residual_history;
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, 120, &residual_history);
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -3053,8 +4599,10 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "valid", Py_True);
     PyDict_SetItemString(result, "error", PyUnicode_FromString(""));
     PyDict_SetItemString(result, "fabric_points", fabric_points_list);
+    PyDict_SetItemString(result, "warp_weft_points", fabric_points_list);
     PyDict_SetItemString(result, "fabric_quads", fabric_quads_list);
     PyDict_SetItemString(result, "boundary_loops", boundary_loops_list);
+    PyDict_SetItemString(result, "warp_weft_boundary_loops", boundary_loops_list);
     PyDict_SetItemString(result, "strains", strains_list);
     PyDict_SetItemString(result, "mesh_points", mesh_points_list);
     PyDict_SetItemString(result, "mesh_faces", mesh_faces_list);
@@ -3066,6 +4614,71 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "x_axis", build_vec3_tuple(x_axis));
     PyDict_SetItemString(result, "y_axis", build_vec3_tuple(y_axis));
     PyDict_SetItemString(result, "parameters", params_copy);
+
+    const std::string algorithm = solver_algorithm_from_params(params_copy);
+    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
+    const bool converged = !(acp_energy_mode && edge_violations > 0);
+    const char *termination_reason = converged ? "converged" : "max_iterations";
+    const int max_iterations = solver_iterations_from_params(params_copy);
+
+    PyObject *diagnostics = PyDict_New();
+    if (diagnostics) {
+        PyObject *point_count_obj = PyLong_FromLong(static_cast<long>(points.size()));
+        PyObject *triangle_count_obj = PyLong_FromLong(static_cast<long>(faces.size()));
+        PyObject *quad_count_obj = PyLong_FromLong(static_cast<long>(fabric_quads.size()));
+        PyObject *orientation_break_count_obj = PyLong_FromLong(PyList_Size(orientation_breaks_list));
+        PyObject *edge_violations_obj = PyLong_FromLong(edge_violations);
+        PyObject *max_rel_error_obj = PyFloat_FromDouble(max_rel_error);
+        PyObject *residual_threshold_obj = PyFloat_FromDouble(rel_tol);
+        PyObject *max_iterations_obj = PyLong_FromLong(max_iterations);
+        PyObject *residual_history_obj = build_double_list(residual_history);
+        if (point_count_obj) {
+            PyDict_SetItemString(diagnostics, "point_count", point_count_obj);
+            Py_DECREF(point_count_obj);
+        }
+        if (triangle_count_obj) {
+            PyDict_SetItemString(diagnostics, "triangle_count", triangle_count_obj);
+            Py_DECREF(triangle_count_obj);
+        }
+        if (quad_count_obj) {
+            PyDict_SetItemString(diagnostics, "quad_count", quad_count_obj);
+            Py_DECREF(quad_count_obj);
+        }
+        if (orientation_break_count_obj) {
+            PyDict_SetItemString(diagnostics, "orientation_break_count", orientation_break_count_obj);
+            Py_DECREF(orientation_break_count_obj);
+        }
+        if (edge_violations_obj) {
+            PyDict_SetItemString(diagnostics, "edge_violations", edge_violations_obj);
+            Py_DECREF(edge_violations_obj);
+        }
+        if (max_rel_error_obj) {
+            PyDict_SetItemString(diagnostics, "max_edge_rel_error", max_rel_error_obj);
+            PyDict_SetItemString(diagnostics, "final_residual", max_rel_error_obj);
+            Py_DECREF(max_rel_error_obj);
+        }
+        if (residual_threshold_obj) {
+            PyDict_SetItemString(diagnostics, "residual_threshold", residual_threshold_obj);
+            Py_DECREF(residual_threshold_obj);
+        }
+        if (max_iterations_obj) {
+            PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
+            Py_DECREF(max_iterations_obj);
+        }
+        if (residual_history_obj) {
+            PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
+            Py_DECREF(residual_history_obj);
+        }
+        PyObject *residual_metric_obj = PyUnicode_FromString("max_edge_rel_error");
+        if (residual_metric_obj) {
+            PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
+            Py_DECREF(residual_metric_obj);
+        }
+        attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
+        Py_DECREF(diagnostics);
+    } else {
+        attach_solver_metadata(result, params_copy, termination_reason, converged);
+    }
 
     Py_DECREF(fabric_points_list);
     Py_DECREF(fabric_quads_list);

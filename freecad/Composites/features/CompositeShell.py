@@ -3,7 +3,7 @@
 
 import FreeCADGui
 import MeshEnums
-from FreeCAD import Console
+from FreeCAD import Console, Vector
 from pivy import coin
 
 from .. import (
@@ -101,6 +101,62 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyEnumeration",
+            name="DrapingAlgorithm",
+            group="Draping",
+            doc="Draping solver algorithm mode",
+        )
+
+        obj.addProperty(
+            type="App::PropertyVector",
+            name="SeedPoint",
+            group="Draping",
+            doc="Seed point for drape propagation",
+        )
+
+        obj.addProperty(
+            type="App::PropertyBool",
+            name="AutoDrapingDirection",
+            group="Draping",
+            doc="Automatically choose draping direction",
+        )
+
+        obj.addProperty(
+            type="App::PropertyVector",
+            name="DrapingDirection",
+            group="Draping",
+            doc="Preferred draping direction when auto mode is disabled",
+        )
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="MeshSize",
+            group="Draping",
+            doc="Target draping mesh size",
+        )
+
+        obj.addProperty(
+            type="App::PropertyEnumeration",
+            name="MaterialModel",
+            group="Draping",
+            doc="Material model used by draping solver",
+        )
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="UDCoefficient",
+            group="Draping",
+            doc="Unidirectional transverse compliance coefficient",
+        )
+
+        obj.addProperty(
+            type="App::PropertyBool",
+            name="ThicknessCorrection",
+            group="Draping",
+            doc="Enable thickness correction from local area change",
+        )
+
+        obj.addProperty(
             type="App::PropertyString",
             name="DrapeStatus",
             group="Draping",
@@ -133,6 +189,16 @@ class CompositeShellFP(CompositeBaseFP):
         obj.FabricSpacing = 5.0
         obj.RelaxWeight = 0.95
         obj.SolveSteps = 5
+        obj.DrapingAlgorithm = ["legacy_fishnet", "acp_energy_v1"]
+        obj.DrapingAlgorithm = "legacy_fishnet"
+        obj.SeedPoint = Vector(0.0, 0.0, 0.0)
+        obj.AutoDrapingDirection = True
+        obj.DrapingDirection = Vector(1.0, 0.0, 0.0)
+        obj.MeshSize = 0.0
+        obj.MaterialModel = ["woven", "ud"]
+        obj.MaterialModel = "woven"
+        obj.UDCoefficient = 0.0
+        obj.ThicknessCorrection = False
         obj.DrapeStatus = "Idle"
         obj.DrapeError = ""
         obj.LocalCoordinateSystem = lcs
@@ -168,9 +234,18 @@ class CompositeShellFP(CompositeBaseFP):
                 fp.Shape,
                 get_lcs(),
                 fp.Shape,
-                fabric_spacing=fp.FabricSpacing,
-                relax_weight=fp.RelaxWeight,
-                steps=fp.SolveSteps,
+                fabric_spacing=getattr(fp, "FabricSpacing", 0.0),
+                max_length=getattr(fp, "MaxLength", None),
+                relax_weight=getattr(fp, "RelaxWeight", None),
+                steps=getattr(fp, "SolveSteps", None),
+                algorithm=getattr(fp, "DrapingAlgorithm", "legacy_fishnet"),
+                seed_point=getattr(fp, "SeedPoint", None),
+                auto_draping_direction=getattr(fp, "AutoDrapingDirection", True),
+                draping_direction=getattr(fp, "DrapingDirection", None),
+                mesh_size=getattr(fp, "MeshSize", None),
+                material_model=getattr(fp, "MaterialModel", "woven"),
+                ud_coefficient=getattr(fp, "UDCoefficient", 0.0),
+                thickness_correction=getattr(fp, "ThicknessCorrection", False),
             )
             fp.Mesh.Mesh = self.draper.mesh
             if not self.has_valid_draper():
@@ -206,7 +281,21 @@ class CompositeShellFP(CompositeBaseFP):
                 fp.recompute()
             case "LocalCoordinateSystem" | "Rosette":
                 fp.recompute()
-            case "MaxLength" | "Support" | "FabricSpacing" | "RelaxWeight" | "SolveSteps":
+            case (
+                "MaxLength"
+                | "Support"
+                | "FabricSpacing"
+                | "RelaxWeight"
+                | "SolveSteps"
+                | "DrapingAlgorithm"
+                | "SeedPoint"
+                | "AutoDrapingDirection"
+                | "DrapingDirection"
+                | "MeshSize"
+                | "MaterialModel"
+                | "UDCoefficient"
+                | "ThicknessCorrection"
+            ):
                 fp.recompute()
 
     def has_valid_draper(self):

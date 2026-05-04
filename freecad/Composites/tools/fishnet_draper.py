@@ -26,6 +26,15 @@ class Draper:
         fabric_spacing=0.0,
         relax_weight=None,
         steps=None,
+        max_length=None,
+        algorithm=None,
+        seed_point=None,
+        auto_draping_direction=True,
+        draping_direction=None,
+        mesh_size=None,
+        material_model=None,
+        ud_coefficient=None,
+        thickness_correction=False,
     ):
         self.source = mesh
         self.shape = shape
@@ -35,6 +44,16 @@ class Draper:
             self.unwrap_steps = int(steps)
         if relax_weight is not None:
             self.unwrap_relax_weight = float(relax_weight)
+
+        self.max_length = float(max_length) if max_length is not None else None
+        self.algorithm = str(algorithm or "legacy_fishnet")
+        self.seed_point = seed_point
+        self.auto_draping_direction = bool(auto_draping_direction)
+        self.draping_direction = draping_direction
+        self.mesh_size = float(mesh_size) if mesh_size is not None else None
+        self.material_model = str(material_model or "woven")
+        self.ud_coefficient = float(ud_coefficient) if ud_coefficient is not None else 0.0
+        self.thickness_correction = bool(thickness_correction)
 
         self.result = self._solve()
         self.valid = bool(self.result.get("valid"))
@@ -51,10 +70,12 @@ class Draper:
             self.T_fo = Base.Placement()
             return
 
-        self.fabric_points = [Vector(*n) for n in self.result["fabric_points"]]
+        tex_points = self.result.get("warp_weft_points", self.result.get("fabric_points", []))
+        self.fabric_points = [Vector(*n) for n in tex_points]
+        tex_boundaries = self.result.get("warp_weft_boundary_loops", self.result.get("boundary_loops", []))
         self.boundaries = [
             [Vector(*node) for node in edge]
-            for edge in self.result.get("boundary_loops", [])
+            for edge in tex_boundaries
         ]
         self.fabric_quads = [
             [int(idx) for idx in quad]
@@ -79,14 +100,42 @@ class Draper:
             mesh.addFacet(points[idx[0]], points[idx[1]], points[idx[2]])
         return mesh
 
+    def _as_xyz_list(self, value):
+        if value is None:
+            return None
+        if isinstance(value, Vector):
+            return [float(value.x), float(value.y), float(value.z)]
+        x = getattr(value, "x", None)
+        y = getattr(value, "y", None)
+        z = getattr(value, "z", None)
+        if x is not None and y is not None and z is not None:
+            return [float(x), float(y), float(z)]
+        try:
+            return [float(value[0]), float(value[1]), float(value[2])]
+        except Exception:
+            return None
+
     def _solve(self):
         params = {
+            "algorithm": self.algorithm,
             "seed": 0,
             "fabric_spacing": self.fabric_spacing,
-            "max_length": self.fabric_spacing or 0.0,
+            "max_length": self.max_length if self.max_length is not None else (self.fabric_spacing or 0.0),
             "relax_weight": self.unwrap_relax_weight,
             "steps": self.unwrap_steps,
+            "auto_draping_direction": self.auto_draping_direction,
+            "material_model": self.material_model,
+            "ud_coefficient": self.ud_coefficient,
+            "thickness_correction": self.thickness_correction,
         }
+        seed_point = self._as_xyz_list(self.seed_point)
+        if seed_point is not None:
+            params["seed_point"] = seed_point
+        draping_direction = self._as_xyz_list(self.draping_direction)
+        if draping_direction is not None:
+            params["draping_direction"] = draping_direction
+        if self.mesh_size is not None and self.mesh_size > 0.0:
+            params["mesh_size"] = self.mesh_size
         result = solve(self.shape, parameters=params)
         if not result.get("valid"):
             return result
@@ -95,8 +144,10 @@ class Draper:
                 "valid": False,
                 "error": "Can't flatten shape",
                 "fabric_points": [],
+                "warp_weft_points": [],
                 "fabric_quads": [],
                 "boundary_loops": [],
+                "warp_weft_boundary_loops": [],
                 "strains": [],
                 "mesh_points": [],
                 "mesh_faces": [],
