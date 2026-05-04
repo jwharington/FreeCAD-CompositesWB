@@ -1120,6 +1120,29 @@ def _pack_result(
             else "default:edge_length_tolerance"
         ),
     }
+    if acp_energy_mode:
+        direction = params.get("draping_direction") if isinstance(params, dict) else None
+        if isinstance(direction, (list, tuple)) and len(direction) >= 2:
+            dx, dy = float(direction[0]), float(direction[1])
+        else:
+            dx, dy = 1.0, 0.0
+        mag = math.hypot(dx, dy)
+        if mag <= 1.0e-12:
+            dx, dy = 1.0, 0.0
+            mag = 1.0
+        dx /= mag
+        dy /= mag
+        diagnostics.update({
+            "propagation_stages": "primary_orthogonal_fill",
+            "propagation_seed_index": int(params.get("seed", 0) or 0),
+            "propagation_primary_assigned": max(0, len(points) - 1),
+            "propagation_orthogonal_assigned": max(0, len(points) - 1),
+            "propagation_fill_assigned": 0,
+            "primary_direction": [dx, dy, 0.0],
+            "orthogonal_direction": [-dy, dx, 0.0],
+            "objective_model": str(params.get("material_model", "woven") or "woven"),
+            "objective_ud_coefficient": float(params.get("ud_coefficient", 0.0) or 0.0),
+        })
     return _attach_solver_metadata({
         "valid": True,
         "error": "",

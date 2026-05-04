@@ -3,11 +3,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <limits>
 #include <queue>
 #include <string>
@@ -467,6 +469,74 @@ static double max_edge_relative_error_for_edges(
     return max_rel;
 }
 
+static double max_edge_relative_error_for_targets(
+    const std::vector<Vec3> &fabric_points,
+    const std::vector<std::pair<int, int>> &edges,
+    const std::vector<double> &edge_targets,
+    double fallback_nominal_edge_length
+) {
+    if (fabric_points.empty() || edges.empty()) {
+        return 0.0;
+    }
+    double max_rel = 0.0;
+    for (size_t i = 0; i < edges.size(); ++i) {
+        int a = edges[i].first;
+        int b = edges[i].second;
+        if (a < 0 || b < 0 ||
+            a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+            continue;
+        }
+        double target = fallback_nominal_edge_length;
+        if (i < edge_targets.size() && std::isfinite(edge_targets[i]) && edge_targets[i] > kVectorZeroEpsilon) {
+            target = edge_targets[i];
+        }
+        if (!(std::isfinite(target) && target > kVectorZeroEpsilon)) {
+            continue;
+        }
+        Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
+        double current = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        double rel = std::abs(current - target) / target;
+        if (std::isfinite(rel)) {
+            max_rel = std::max(max_rel, rel);
+        }
+    }
+    return max_rel;
+}
+
+static std::pair<int, double> edge_length_violation_summary_for_targets(
+    const std::vector<Vec3> &fabric_points,
+    const std::vector<std::pair<int, int>> &edges,
+    const std::vector<double> &edge_targets,
+    double fallback_nominal_edge_length,
+    double rel_tol
+) {
+    int violations = 0;
+    double max_rel = 0.0;
+    for (size_t i = 0; i < edges.size(); ++i) {
+        int a = edges[i].first;
+        int b = edges[i].second;
+        if (a < 0 || b < 0 ||
+            a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
+            continue;
+        }
+        double target = fallback_nominal_edge_length;
+        if (i < edge_targets.size() && std::isfinite(edge_targets[i]) && edge_targets[i] > kVectorZeroEpsilon) {
+            target = edge_targets[i];
+        }
+        if (!(std::isfinite(target) && target > kVectorZeroEpsilon)) {
+            continue;
+        }
+        Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
+        double current = std::sqrt(delta.x * delta.x + delta.y * delta.y);
+        double rel = std::abs(current - target) / target;
+        if (rel > rel_tol) {
+            ++violations;
+            max_rel = std::max(max_rel, rel);
+        }
+    }
+    return std::make_pair(violations, max_rel);
+}
+
 static void relax_fabric_points_with_edge_constraints(
     const std::vector<Vec3> &mesh_points,
     std::vector<Vec3> &fabric_points,
@@ -474,7 +544,9 @@ static void relax_fabric_points_with_edge_constraints(
     const std::vector<std::vector<int>> &boundary_loops,
     double requested_nominal_edge_length,
     int iterations = 120,
-    std::vector<double> *residual_history = nullptr
+    std::vector<double> *residual_history = nullptr,
+    const std::vector<double> *edge_targets = nullptr,
+    const std::vector<double> *edge_weights = nullptr
 ) {
     if (fabric_points.empty() || edges.empty()) {
         return;
@@ -488,7 +560,27 @@ static void relax_fabric_points_with_edge_constraints(
         edge_index[edge_key(edges[i].first, edges[i].second)] = i;
     }
 
-    auto relax_edge_to_target = [&](int a, int b, double target) {
+    auto edge_target_at = [&](size_t edge_i) {
+        if (edge_targets && edge_i < edge_targets->size()) {
+            double target = (*edge_targets)[edge_i];
+            if (std::isfinite(target) && target > kVectorZeroEpsilon) {
+                return target;
+            }
+        }
+        return nominal_edge_length;
+    };
+
+    auto edge_weight_at = [&](size_t edge_i) {
+        if (edge_weights && edge_i < edge_weights->size()) {
+            double w = (*edge_weights)[edge_i];
+            if (std::isfinite(w) && w > 0.0) {
+                return std::clamp(w, 0.25, 2.0);
+            }
+        }
+        return 1.0;
+    };
+
+    auto relax_edge_to_target = [&](int a, int b, double target, double weight) {
         if (a < 0 || b < 0 || a >= static_cast<int>(fabric_points.size()) || b >= static_cast<int>(fabric_points.size())) {
             return;
         }
@@ -497,7 +589,7 @@ static void relax_fabric_points_with_edge_constraints(
         if (target <= kVectorZeroEpsilon || current <= kVectorZeroEpsilon) {
             return;
         }
-        double scale = (current - target) / current;
+        double scale = ((current - target) / current) * std::clamp(weight, 0.25, 1.25);
         Vec3 corr = {0.5 * scale * delta.x, 0.5 * scale * delta.y, 0.0};
         fabric_points[static_cast<size_t>(a)] = fabric_points[static_cast<size_t>(a)] + corr;
         fabric_points[static_cast<size_t>(b)] = fabric_points[static_cast<size_t>(b)] - corr;
@@ -529,8 +621,9 @@ static void relax_fabric_points_with_edge_constraints(
     }
 
     for (int iter = 0; iter < iterations; ++iter) {
-        for (const auto &edge : edges) {
-            relax_edge_to_target(edge.first, edge.second, nominal_edge_length);
+        for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i) {
+            const auto &edge = edges[edge_i];
+            relax_edge_to_target(edge.first, edge.second, edge_target_at(edge_i), edge_weight_at(edge_i));
         }
 
         for (const auto &loop : boundary_loops) {
@@ -545,14 +638,15 @@ static void relax_fabric_points_with_edge_constraints(
                 if (it == edge_index.end()) {
                     continue;
                 }
-                double target = nominal_edge_length + carry;
+                size_t edge_i = it->second;
+                double target = edge_target_at(edge_i) + carry;
                 Vec3 delta = fabric_points[static_cast<size_t>(b)] - fabric_points[static_cast<size_t>(a)];
                 double current = std::sqrt(delta.x * delta.x + delta.y * delta.y);
                 if (current + kVectorZeroEpsilon < target) {
                     carry = target - current;
                     continue;
                 }
-                relax_edge_to_target(a, b, target);
+                relax_edge_to_target(a, b, target, edge_weight_at(edge_i));
                 carry = 0.0;
             }
         }
@@ -565,7 +659,11 @@ static void relax_fabric_points_with_edge_constraints(
         }
 
         if (residual_history) {
-            residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
+            if (edge_targets && !edge_targets->empty()) {
+                residual_history->push_back(max_edge_relative_error_for_targets(fabric_points, edges, *edge_targets, nominal_edge_length));
+            } else {
+                residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
+            }
         }
     }
 
@@ -580,7 +678,11 @@ static void relax_fabric_points_with_edge_constraints(
         }
     }
     if (residual_history) {
-        residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
+        if (edge_targets && !edge_targets->empty()) {
+            residual_history->push_back(max_edge_relative_error_for_targets(fabric_points, edges, *edge_targets, nominal_edge_length));
+        } else {
+            residual_history->push_back(max_edge_relative_error_for_edges(fabric_points, edges, nominal_edge_length));
+        }
     }
 }
 
@@ -691,6 +793,357 @@ static SeamContinuityStats seam_layout_continuity_summary(
         stats.mean_min_distance = min_distance_total / static_cast<double>(stats.group_count);
     }
     return stats;
+}
+
+static bool try_parse_param_vec3(PyObject *params, const char *key, Vec3 &out) {
+    if (!params || !PyDict_Check(params) || !key) {
+        return false;
+    }
+    PyObject *obj = PyDict_GetItemString(params, key);
+    if (!obj) {
+        return false;
+    }
+    PyObject *seq = PySequence_Fast(obj, "vector parameter must be a sequence");
+    if (!seq) {
+        PyErr_Clear();
+        return false;
+    }
+    bool ok = false;
+    if (PySequence_Fast_GET_SIZE(seq) >= 3) {
+        PyObject **items = PySequence_Fast_ITEMS(seq);
+        out.x = PyFloat_AsDouble(items[0]);
+        out.y = PyFloat_AsDouble(items[1]);
+        out.z = PyFloat_AsDouble(items[2]);
+        ok = !PyErr_Occurred() && std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
+    }
+    if (PyErr_Occurred()) {
+        PyErr_Clear();
+    }
+    Py_DECREF(seq);
+    return ok;
+}
+
+static double param_double(PyObject *params, const char *key, double fallback) {
+    if (!params || !PyDict_Check(params) || !key) {
+        return fallback;
+    }
+    PyObject *obj = PyDict_GetItemString(params, key);
+    if (!obj) {
+        return fallback;
+    }
+    double parsed = PyFloat_AsDouble(obj);
+    if (PyErr_Occurred() || !std::isfinite(parsed)) {
+        PyErr_Clear();
+        return fallback;
+    }
+    return parsed;
+}
+
+static std::string param_string(PyObject *params, const char *key, const char *fallback) {
+    if (!params || !PyDict_Check(params) || !key) {
+        return fallback ? std::string(fallback) : std::string();
+    }
+    PyObject *obj = PyDict_GetItemString(params, key);
+    if (!obj || !PyUnicode_Check(obj)) {
+        return fallback ? std::string(fallback) : std::string();
+    }
+    const char *value = PyUnicode_AsUTF8(obj);
+    if (!value) {
+        PyErr_Clear();
+        return fallback ? std::string(fallback) : std::string();
+    }
+    return std::string(value);
+}
+
+static std::vector<std::vector<int>> build_vertex_adjacency(
+    size_t point_count,
+    const std::vector<std::pair<int, int>> &edges
+) {
+    std::vector<std::vector<int>> adjacency(point_count);
+    for (const auto &edge : edges) {
+        int a = edge.first;
+        int b = edge.second;
+        if (a < 0 || b < 0 ||
+            a >= static_cast<int>(point_count) || b >= static_cast<int>(point_count) ||
+            a == b) {
+            continue;
+        }
+        adjacency[static_cast<size_t>(a)].push_back(b);
+        adjacency[static_cast<size_t>(b)].push_back(a);
+    }
+    for (auto &nbrs : adjacency) {
+        std::sort(nbrs.begin(), nbrs.end());
+        nbrs.erase(std::unique(nbrs.begin(), nbrs.end()), nbrs.end());
+    }
+    return adjacency;
+}
+
+static int nearest_point_index(const std::vector<Vec3> &points, const Vec3 &target) {
+    if (points.empty()) {
+        return -1;
+    }
+    int best_idx = 0;
+    double best_dist2 = std::numeric_limits<double>::infinity();
+    for (size_t i = 0; i < points.size(); ++i) {
+        Vec3 d = points[i] - target;
+        double dist2 = dot(d, d);
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            best_idx = static_cast<int>(i);
+        }
+    }
+    return best_idx;
+}
+
+struct AcpPropagationSummary {
+    int seed_index{0};
+    int primary_assigned{0};
+    int orthogonal_assigned{0};
+    int fill_assigned{0};
+    Vec3 primary_axis{1.0, 0.0, 0.0};
+    Vec3 orthogonal_axis{0.0, 1.0, 0.0};
+};
+
+static Vec3 choose_primary_axis(
+    const std::vector<Vec3> &local_points,
+    const Vec3 &x_axis,
+    const Vec3 &y_axis,
+    PyObject *params
+) {
+    Vec3 requested_dir{};
+    bool has_requested = try_parse_param_vec3(params, "draping_direction", requested_dir);
+    if (has_requested) {
+        Vec3 projected = {
+            dot(requested_dir, x_axis),
+            dot(requested_dir, y_axis),
+            0.0,
+        };
+        if (norm(projected) > kVectorZeroEpsilon) {
+            return normalize(projected);
+        }
+    }
+
+    if (!local_points.empty()) {
+        double min_x = local_points.front().x;
+        double max_x = local_points.front().x;
+        double min_y = local_points.front().y;
+        double max_y = local_points.front().y;
+        for (const auto &p : local_points) {
+            min_x = std::min(min_x, p.x);
+            max_x = std::max(max_x, p.x);
+            min_y = std::min(min_y, p.y);
+            max_y = std::max(max_y, p.y);
+        }
+        if ((max_x - min_x) >= (max_y - min_y)) {
+            return {1.0, 0.0, 0.0};
+        }
+        return {0.0, 1.0, 0.0};
+    }
+
+    return {1.0, 0.0, 0.0};
+}
+
+static AcpPropagationSummary initialize_acp_layout(
+    const std::vector<Vec3> &mesh_points,
+    const std::vector<Vec3> &local_points,
+    const std::vector<std::pair<int, int>> &edges,
+    const Vec3 &x_axis,
+    const Vec3 &y_axis,
+    double nominal_edge_length,
+    PyObject *params,
+    std::vector<Vec3> &fabric_points
+) {
+    AcpPropagationSummary summary;
+    if (mesh_points.empty() || local_points.size() != mesh_points.size() || fabric_points.size() != mesh_points.size()) {
+        return summary;
+    }
+
+    summary.primary_axis = choose_primary_axis(local_points, x_axis, y_axis, params);
+    summary.primary_axis = normalize(summary.primary_axis);
+    if (norm(summary.primary_axis) <= kVectorZeroEpsilon) {
+        summary.primary_axis = {1.0, 0.0, 0.0};
+    }
+    summary.orthogonal_axis = {-summary.primary_axis.y, summary.primary_axis.x, 0.0};
+
+    int seed_index = 0;
+    if (params && PyDict_Check(params)) {
+        if (PyObject *seed_obj = PyDict_GetItemString(params, "seed")) {
+            long seed_long = PyLong_AsLong(seed_obj);
+            if (!PyErr_Occurred() && seed_long >= 0 && seed_long < static_cast<long>(mesh_points.size())) {
+                seed_index = static_cast<int>(seed_long);
+            } else {
+                PyErr_Clear();
+            }
+        }
+        Vec3 seed_point{};
+        if (try_parse_param_vec3(params, "seed_point", seed_point)) {
+            int nearest = nearest_point_index(mesh_points, seed_point);
+            if (nearest >= 0) {
+                seed_index = nearest;
+            }
+        }
+    }
+    summary.seed_index = seed_index;
+
+    const double nominal = (std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)
+        ? nominal_edge_length
+        : infer_nominal_edge_length(nominal_edge_length, fabric_points, edges);
+
+    std::vector<std::vector<int>> adjacency = build_vertex_adjacency(mesh_points.size(), edges);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    std::vector<double> x_coord(mesh_points.size(), nan);
+    std::vector<double> y_coord(mesh_points.size(), nan);
+    x_coord[static_cast<size_t>(seed_index)] = 0.0;
+    y_coord[static_cast<size_t>(seed_index)] = 0.0;
+
+    std::deque<int> queue;
+    queue.push_back(seed_index);
+
+    while (!queue.empty()) {
+        int cur = queue.front();
+        queue.pop_front();
+        if (cur < 0 || cur >= static_cast<int>(local_points.size())) {
+            continue;
+        }
+        for (int nbr : adjacency[static_cast<size_t>(cur)]) {
+            if (nbr < 0 || nbr >= static_cast<int>(local_points.size())) {
+                continue;
+            }
+            Vec3 edge = local_points[static_cast<size_t>(nbr)] - local_points[static_cast<size_t>(cur)];
+            double elen = std::sqrt(edge.x * edge.x + edge.y * edge.y);
+            if (elen <= kVectorZeroEpsilon) {
+                continue;
+            }
+            Vec3 e2 = {edge.x / elen, edge.y / elen, 0.0};
+            double p_align = std::abs(dot(e2, summary.primary_axis));
+            double o_align = std::abs(dot(e2, summary.orthogonal_axis));
+            bool progressed = false;
+
+            if (p_align >= o_align && std::isnan(x_coord[static_cast<size_t>(nbr)]) && !std::isnan(x_coord[static_cast<size_t>(cur)])) {
+                double step = nominal > kVectorZeroEpsilon ? nominal : elen;
+                double sign = dot(e2, summary.primary_axis) >= 0.0 ? 1.0 : -1.0;
+                x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)] + sign * step;
+                if (std::isnan(y_coord[static_cast<size_t>(nbr)]) && !std::isnan(y_coord[static_cast<size_t>(cur)])) {
+                    y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)];
+                }
+                ++summary.primary_assigned;
+                progressed = true;
+            }
+
+            if (o_align > p_align && std::isnan(y_coord[static_cast<size_t>(nbr)]) && !std::isnan(y_coord[static_cast<size_t>(cur)])) {
+                double step = nominal > kVectorZeroEpsilon ? nominal : elen;
+                double sign = dot(e2, summary.orthogonal_axis) >= 0.0 ? 1.0 : -1.0;
+                y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)] + sign * step;
+                if (std::isnan(x_coord[static_cast<size_t>(nbr)]) && !std::isnan(x_coord[static_cast<size_t>(cur)])) {
+                    x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)];
+                }
+                ++summary.orthogonal_assigned;
+                progressed = true;
+            }
+
+            if (progressed) {
+                queue.push_back(nbr);
+            }
+        }
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (size_t i = 0; i < adjacency.size(); ++i) {
+            if (!std::isnan(x_coord[i]) && !std::isnan(y_coord[i])) {
+                continue;
+            }
+            double x_sum = 0.0;
+            double y_sum = 0.0;
+            int x_count = 0;
+            int y_count = 0;
+            for (int nbr : adjacency[i]) {
+                if (!std::isnan(x_coord[static_cast<size_t>(nbr)])) {
+                    x_sum += x_coord[static_cast<size_t>(nbr)];
+                    ++x_count;
+                }
+                if (!std::isnan(y_coord[static_cast<size_t>(nbr)])) {
+                    y_sum += y_coord[static_cast<size_t>(nbr)];
+                    ++y_count;
+                }
+            }
+            if (std::isnan(x_coord[i]) && x_count > 0) {
+                x_coord[i] = x_sum / static_cast<double>(x_count);
+                changed = true;
+            }
+            if (std::isnan(y_coord[i]) && y_count > 0) {
+                y_coord[i] = y_sum / static_cast<double>(y_count);
+                changed = true;
+            }
+        }
+    }
+
+    Vec3 seed_local = local_points[static_cast<size_t>(seed_index)];
+    for (size_t i = 0; i < fabric_points.size(); ++i) {
+        if (std::isnan(x_coord[i]) || std::isnan(y_coord[i])) {
+            Vec3 d = local_points[i] - seed_local;
+            x_coord[i] = dot(d, summary.primary_axis);
+            y_coord[i] = dot(d, summary.orthogonal_axis);
+            ++summary.fill_assigned;
+        }
+        fabric_points[i] = {x_coord[i], y_coord[i], 0.0};
+    }
+
+    return summary;
+}
+
+static void build_acp_edge_objective(
+    const std::vector<Vec3> &local_points,
+    const std::vector<std::pair<int, int>> &edges,
+    double nominal_edge_length,
+    const Vec3 &primary_axis,
+    const std::string &material_model,
+    double ud_coefficient,
+    std::vector<double> &edge_targets,
+    std::vector<double> &edge_weights
+) {
+    const double nominal = (std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)
+        ? nominal_edge_length
+        : infer_nominal_edge_length(nominal_edge_length, local_points, edges);
+
+    std::string model = material_model;
+    std::transform(model.begin(), model.end(), model.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    const bool ud_model = (model == "ud" || model == "unidirectional");
+    const double ud = std::clamp(ud_coefficient, 0.0, 1.0);
+
+    edge_targets.clear();
+    edge_weights.clear();
+    edge_targets.reserve(edges.size());
+    edge_weights.reserve(edges.size());
+
+    Vec3 primary = normalize(primary_axis);
+    if (norm(primary) <= kVectorZeroEpsilon) {
+        primary = {1.0, 0.0, 0.0};
+    }
+
+    for (const auto &edge : edges) {
+        int a = edge.first;
+        int b = edge.second;
+        double target = nominal;
+        double weight = 1.0;
+        if (a >= 0 && b >= 0 &&
+            a < static_cast<int>(local_points.size()) && b < static_cast<int>(local_points.size())) {
+            Vec3 d = local_points[static_cast<size_t>(b)] - local_points[static_cast<size_t>(a)];
+            double len = std::sqrt(d.x * d.x + d.y * d.y);
+            if (len > kVectorZeroEpsilon) {
+                Vec3 e2 = {d.x / len, d.y / len, 0.0};
+                double along_primary = std::abs(dot(e2, primary));
+                if (ud_model) {
+                    double transverse = 1.0 - along_primary;
+                    target = nominal * (1.0 + 0.35 * ud * transverse);
+                    weight = 1.0 + 0.8 * ud * along_primary;
+                }
+            }
+        }
+        edge_targets.push_back(target);
+        edge_weights.push_back(weight);
+    }
 }
 
 static bool parse_point(PyObject *obj, Vec3 &out) {
@@ -3915,8 +4368,47 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     if (relax_iterations <= 0) {
         relax_iterations = 120;
     }
+
+    AcpPropagationSummary acp_summary;
+    std::vector<double> edge_targets;
+    std::vector<double> edge_weights;
+    if (acp_energy_mode) {
+        acp_summary = initialize_acp_layout(
+            points,
+            local_points,
+            constrained_edges,
+            x_axis,
+            y_axis,
+            nominal_edge_length,
+            params_copy,
+            fabric_points
+        );
+        const std::string material_model = param_string(params_copy, "material_model", "woven");
+        const double ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
+        build_acp_edge_objective(
+            local_points,
+            constrained_edges,
+            nominal_edge_length,
+            acp_summary.primary_axis,
+            material_model,
+            ud_coefficient,
+            edge_targets,
+            edge_weights
+        );
+    }
+
     std::vector<double> residual_history;
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, relax_iterations, &residual_history);
+    relax_fabric_points_with_edge_constraints(
+        points,
+        fabric_points,
+        constrained_edges,
+        loops_idx,
+        nominal_edge_length,
+        relax_iterations,
+        &residual_history,
+        acp_energy_mode ? &edge_targets : nullptr,
+        acp_energy_mode ? &edge_weights : nullptr
+    );
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -3966,8 +4458,10 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
-    auto [edge_violations, max_rel_error] = edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
-    if (edge_violations > 0) {
+    auto [edge_violations, max_rel_error] = acp_energy_mode
+        ? edge_length_violation_summary_for_targets(fabric_points, constrained_edges, edge_targets, infer_nominal_edge_length(nominal_edge_length, fabric_points, constrained_edges), rel_tol)
+        : edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+    if (acp_energy_mode && edge_violations > 0) {
         PyObject *break_item = PyDict_New();
         if (break_item) {
             PyObject *from_face = PyLong_FromLong(-1);
@@ -4361,6 +4855,53 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
             Py_DECREF(threshold_source_obj);
         }
+        if (acp_energy_mode) {
+            PyObject *seed_idx_obj = PyLong_FromLong(acp_summary.seed_index);
+            PyObject *primary_assigned_obj = PyLong_FromLong(acp_summary.primary_assigned);
+            PyObject *orth_assigned_obj = PyLong_FromLong(acp_summary.orthogonal_assigned);
+            PyObject *fill_assigned_obj = PyLong_FromLong(acp_summary.fill_assigned);
+            PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis);
+            PyObject *orth_axis_obj = build_vec3_tuple(acp_summary.orthogonal_axis);
+            PyObject *objective_model_obj = PyUnicode_FromString(param_string(params_copy, "material_model", "woven").c_str());
+            PyObject *ud_coeff_obj = PyFloat_FromDouble(param_double(params_copy, "ud_coefficient", 0.0));
+            if (seed_idx_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_seed_index", seed_idx_obj);
+                Py_DECREF(seed_idx_obj);
+            }
+            if (primary_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_primary_assigned", primary_assigned_obj);
+                Py_DECREF(primary_assigned_obj);
+            }
+            if (orth_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_orthogonal_assigned", orth_assigned_obj);
+                Py_DECREF(orth_assigned_obj);
+            }
+            if (fill_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_fill_assigned", fill_assigned_obj);
+                Py_DECREF(fill_assigned_obj);
+            }
+            if (primary_axis_obj) {
+                PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
+                Py_DECREF(primary_axis_obj);
+            }
+            if (orth_axis_obj) {
+                PyDict_SetItemString(diagnostics, "orthogonal_direction", orth_axis_obj);
+                Py_DECREF(orth_axis_obj);
+            }
+            if (objective_model_obj) {
+                PyDict_SetItemString(diagnostics, "objective_model", objective_model_obj);
+                Py_DECREF(objective_model_obj);
+            }
+            if (ud_coeff_obj) {
+                PyDict_SetItemString(diagnostics, "objective_ud_coefficient", ud_coeff_obj);
+                Py_DECREF(ud_coeff_obj);
+            }
+            PyObject *stage_obj = PyUnicode_FromString("primary_orthogonal_fill");
+            if (stage_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_stages", stage_obj);
+                Py_DECREF(stage_obj);
+            }
+        }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
@@ -4451,6 +4992,9 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         return nullptr;
     }
 
+    const std::string algorithm = solver_algorithm_from_params(params_copy);
+    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
+
     if (points.empty()) {
         PyObject *res = PyDict_New();
         PyDict_SetItemString(res, "valid", Py_False);
@@ -4519,8 +5063,47 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     if (relax_iterations <= 0) {
         relax_iterations = 120;
     }
+
+    AcpPropagationSummary acp_summary;
+    std::vector<double> edge_targets;
+    std::vector<double> edge_weights;
+    if (acp_energy_mode) {
+        acp_summary = initialize_acp_layout(
+            points,
+            local_points,
+            constrained_edges,
+            x_axis,
+            y_axis,
+            nominal_edge_length,
+            params_copy,
+            fabric_points
+        );
+        const std::string material_model = param_string(params_copy, "material_model", "woven");
+        const double ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
+        build_acp_edge_objective(
+            local_points,
+            constrained_edges,
+            nominal_edge_length,
+            acp_summary.primary_axis,
+            material_model,
+            ud_coefficient,
+            edge_targets,
+            edge_weights
+        );
+    }
+
     std::vector<double> residual_history;
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, relax_iterations, &residual_history);
+    relax_fabric_points_with_edge_constraints(
+        points,
+        fabric_points,
+        constrained_edges,
+        loops_idx,
+        nominal_edge_length,
+        relax_iterations,
+        &residual_history,
+        acp_energy_mode ? &edge_targets : nullptr,
+        acp_energy_mode ? &edge_weights : nullptr
+    );
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -4554,8 +5137,10 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
             PyErr_Clear();
         }
     }
-    auto [edge_violations, max_rel_error] = edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
-    if (orientation_breaks_list && edge_violations > 0) {
+    auto [edge_violations, max_rel_error] = acp_energy_mode
+        ? edge_length_violation_summary_for_targets(fabric_points, constrained_edges, edge_targets, infer_nominal_edge_length(nominal_edge_length, fabric_points, constrained_edges), rel_tol)
+        : edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+    if (acp_energy_mode && orientation_breaks_list && edge_violations > 0) {
         PyObject *break_item = PyDict_New();
         if (break_item) {
             PyObject *from_face = PyLong_FromLong(-1);
@@ -4662,8 +5247,6 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyDict_SetItemString(result, "y_axis", build_vec3_tuple(y_axis));
     PyDict_SetItemString(result, "parameters", params_copy);
 
-    const std::string algorithm = solver_algorithm_from_params(params_copy);
-    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
     const bool converged = !(acp_energy_mode && edge_violations > 0);
     const char *termination_reason = converged ? "converged" : "max_iterations";
     const int max_iterations = relax_iterations;
@@ -4740,6 +5323,53 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         if (threshold_source_obj) {
             PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
             Py_DECREF(threshold_source_obj);
+        }
+        if (acp_energy_mode) {
+            PyObject *seed_idx_obj = PyLong_FromLong(acp_summary.seed_index);
+            PyObject *primary_assigned_obj = PyLong_FromLong(acp_summary.primary_assigned);
+            PyObject *orth_assigned_obj = PyLong_FromLong(acp_summary.orthogonal_assigned);
+            PyObject *fill_assigned_obj = PyLong_FromLong(acp_summary.fill_assigned);
+            PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis);
+            PyObject *orth_axis_obj = build_vec3_tuple(acp_summary.orthogonal_axis);
+            PyObject *objective_model_obj = PyUnicode_FromString(param_string(params_copy, "material_model", "woven").c_str());
+            PyObject *ud_coeff_obj = PyFloat_FromDouble(param_double(params_copy, "ud_coefficient", 0.0));
+            if (seed_idx_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_seed_index", seed_idx_obj);
+                Py_DECREF(seed_idx_obj);
+            }
+            if (primary_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_primary_assigned", primary_assigned_obj);
+                Py_DECREF(primary_assigned_obj);
+            }
+            if (orth_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_orthogonal_assigned", orth_assigned_obj);
+                Py_DECREF(orth_assigned_obj);
+            }
+            if (fill_assigned_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_fill_assigned", fill_assigned_obj);
+                Py_DECREF(fill_assigned_obj);
+            }
+            if (primary_axis_obj) {
+                PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
+                Py_DECREF(primary_axis_obj);
+            }
+            if (orth_axis_obj) {
+                PyDict_SetItemString(diagnostics, "orthogonal_direction", orth_axis_obj);
+                Py_DECREF(orth_axis_obj);
+            }
+            if (objective_model_obj) {
+                PyDict_SetItemString(diagnostics, "objective_model", objective_model_obj);
+                Py_DECREF(objective_model_obj);
+            }
+            if (ud_coeff_obj) {
+                PyDict_SetItemString(diagnostics, "objective_ud_coefficient", ud_coeff_obj);
+                Py_DECREF(ud_coeff_obj);
+            }
+            PyObject *stage_obj = PyUnicode_FromString("primary_orthogonal_fill");
+            if (stage_obj) {
+                PyDict_SetItemString(diagnostics, "propagation_stages", stage_obj);
+                Py_DECREF(stage_obj);
+            }
         }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);

@@ -504,9 +504,85 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("residual_norm_type", result["diagnostics"])
         self.assertIn("stop_threshold_source", result["diagnostics"])
         self.assertIn("performed_iterations", result["diagnostics"])
+        self.assertIn("propagation_stages", result["diagnostics"])
+        self.assertIn("propagation_seed_index", result["diagnostics"])
+        self.assertIn("primary_direction", result["diagnostics"])
+        self.assertIn("orthogonal_direction", result["diagnostics"])
+        self.assertIn("objective_model", result["diagnostics"])
+        self.assertIn("objective_ud_coefficient", result["diagnostics"])
+        self.assertEqual(result["diagnostics"]["propagation_stages"], "primary_orthogonal_fill")
+        self.assertEqual(result["diagnostics"]["objective_model"], "woven")
         self.assertEqual(result["diagnostics"]["max_iterations"], 7)
         self.assertEqual(result["diagnostics"]["performed_iterations"], 7)
         self.assertEqual(len(result["diagnostics"]["residual_history"]), 8)
+
+    def test_acp_direction_and_ud_objective_are_reported(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 4),
+            (0, 4, 3),
+            (1, 2, 5),
+            (1, 5, 4),
+        ]
+        woven = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy_v1",
+                "steps": 10,
+                "fabric_spacing": 1.0,
+                "material_model": "woven",
+                "ud_coefficient": 0.0,
+                "draping_direction": (0.0, 1.0, 0.0),
+            },
+        )
+        woven_xdir = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy_v1",
+                "steps": 10,
+                "fabric_spacing": 1.0,
+                "material_model": "woven",
+                "ud_coefficient": 0.0,
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+        ud = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy_v1",
+                "steps": 10,
+                "fabric_spacing": 1.0,
+                "material_model": "ud",
+                "ud_coefficient": 0.8,
+                "draping_direction": (0.0, 1.0, 0.0),
+            },
+        )
+
+        self.assertTrue(woven["valid"])
+        self.assertTrue(ud["valid"])
+
+        woven_diag = woven.get("diagnostics", {})
+        ud_diag = ud.get("diagnostics", {})
+
+        pdir = [float(v) for v in woven_diag.get("primary_direction", [1.0, 0.0, 0.0])]
+        xdir = [float(v) for v in woven_xdir.get("diagnostics", {}).get("primary_direction", [1.0, 0.0, 0.0])]
+        self.assertGreater(math.dist(pdir, xdir), 1.0e-6)
+        self.assertEqual(ud_diag.get("objective_model"), "ud")
+        self.assertAlmostEqual(float(ud_diag.get("objective_ud_coefficient", 0.0)), 0.8, places=6)
+
+        woven_res = float(woven_diag.get("final_residual", 0.0))
+        ud_res = float(ud_diag.get("final_residual", 0.0))
+        self.assertGreater(abs(ud_res - woven_res), 1.0e-6)
 
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters={"algorithm": "acp_energy_v1"})
