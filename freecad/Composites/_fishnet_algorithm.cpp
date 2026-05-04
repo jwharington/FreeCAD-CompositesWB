@@ -35,11 +35,10 @@
 
 #include <Mod/Part/App/TopoShapePy.h>
 
+#include "_fishnet_algorithm_sections.hpp"
 #include "_fishnet_algorithm_types.hpp"
 
-namespace {
-
-#include "_fishnet_relaxation_objective.inc"
+namespace fishnet_internal {
 
 static bool parse_point(PyObject *obj, Vec3 &out) {
     PyObject *seq = PySequence_Fast(obj, "point must be a sequence");
@@ -79,7 +78,7 @@ static bool parse_face(PyObject *obj, std::array<int, 3> &out) {
     return !PyErr_Occurred();
 }
 
-static PyObject *build_vec3_tuple(const Vec3 &v) {
+PyObject *build_vec3_tuple(const Vec3 &v) {
     PyObject *tuple = PyTuple_New(3);
     if (!tuple) {
         return nullptr;
@@ -185,7 +184,7 @@ static PyObject *build_strain_list(const std::vector<std::array<double, 3>> &str
     return outer;
 }
 
-static PyObject *build_double_list(const std::vector<double> &values) {
+PyObject *build_double_list(const std::vector<double> &values) {
     PyObject *list = PyList_New(static_cast<Py_ssize_t>(values.size()));
     if (!list) {
         return nullptr;
@@ -200,10 +199,6 @@ static PyObject *build_double_list(const std::vector<double> &values) {
     }
     return list;
 }
-
-#include "_fishnet_geometry_sampling.inc"
-
-#include "_fishnet_diagnostics_result.inc"
 
 static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     ensure_part_module_loaded();
@@ -706,7 +701,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     }
 
     if (!samples.empty()) {
-        PyObject *frame = build_face_frame_dict(samples.front(), face_indices.front(), true);
+        PyObject *frame = build_face_frame_dict(samples.front(), face_indices.front(), true, -1);
         if (!frame) {
             Py_DECREF(face_frames_list);
             Py_DECREF(orientation_breaks_list);
@@ -929,7 +924,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
-        attach_solver_metadata(result, params_copy, termination_reason, converged);
+        attach_solver_metadata(result, params_copy, termination_reason, converged, nullptr);
     }
 
     Py_DECREF(fabric_points_list);
@@ -1033,7 +1028,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
-        attach_solver_metadata(res, params_copy, "infeasible", false);
+        attach_solver_metadata(res, params_copy, "infeasible", false, nullptr);
         Py_DECREF(params_copy);
         return res;
     }
@@ -1051,7 +1046,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
         PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
         PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
         PyDict_SetItemString(res, "parameters", params_copy);
-        attach_solver_metadata(res, params_copy, "infeasible", false);
+        attach_solver_metadata(res, params_copy, "infeasible", false, nullptr);
         Py_DECREF(params_copy);
         return res;
     }
@@ -1312,7 +1307,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
-        attach_solver_metadata(result, params_copy, termination_reason, converged);
+        attach_solver_metadata(result, params_copy, termination_reason, converged, nullptr);
     }
 
     Py_DECREF(fabric_points_list);
@@ -1328,8 +1323,8 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
     return result;
 }
 
-}  // namespace
+}  // namespace fishnet_internal
 
 PyObject *fishnet_solve(PyObject *self, PyObject *args, PyObject *kwargs) {
-    return solve_impl(self, args, kwargs);
+    return fishnet_internal::solve_impl(self, args, kwargs);
 }

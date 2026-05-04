@@ -46,6 +46,9 @@ fishnet_extension = Extension(
     sources=[
         os.path.join("freecad", "Composites", "_fishnet.cpp"),
         os.path.join("freecad", "Composites", "_fishnet_algorithm.cpp"),
+        os.path.join("freecad", "Composites", "_fishnet_relaxation_objective.cpp"),
+        os.path.join("freecad", "Composites", "_fishnet_geometry_sampling.cpp"),
+        os.path.join("freecad", "Composites", "_fishnet_diagnostics_result.cpp"),
     ],
     language="c++",
     include_dirs=fishnet_include_dirs,
