@@ -201,6 +201,14 @@ The shell object exposes:
 - per-face strain arrays for analysis coloring
 - local coordinate system/orientation helpers for downstream tools
 
+### Drape mesh layout rules
+
+1. Drape-mesh edges must preserve constant length in the flattened solution.
+2. This constant-edge-length rule follows from the zero-effective-stretch and zero-effective-slip assumptions of the fishnet model.
+3. Any layout step that requires edge-length distortion should be treated as a continuity/layout failure and reported explicitly (rather than silently absorbed).
+4. At face perimeters, an edge may be trimmed at the boundary.
+5. When a perimeter trim occurs, the unplaced residual edge length must be carried forward and becomes the target length for the next edge segment beyond that perimeter crossing.
+
 ## Error handling
 
 The fishnet work should be explicit about invalid geometry and solver failures.

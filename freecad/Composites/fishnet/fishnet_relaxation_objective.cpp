@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#include "_fishnet_algorithm_types.hpp"
+#include "fishnet_algorithm_sections.hpp"
 
 namespace fishnet_internal {
 
@@ -23,7 +23,7 @@ double orient2(const std::array<double, 2> &a, const std::array<double, 2> &b, c
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 }
 
-bool strict_segment_intersect(
+bool segment_intersect_proper(
     const std::array<double, 2> &a,
     const std::array<double, 2> &b,
     const std::array<double, 2> &c,
@@ -37,7 +37,7 @@ bool strict_segment_intersect(
     return (o1 * o2 < -eps) && (o3 * o4 < -eps);
 }
 
-bool point_in_triangle_strict(
+bool point_in_triangle_proper(
     const std::array<double, 2> &p,
     const std::array<double, 2> &a,
     const std::array<double, 2> &b,
@@ -55,7 +55,7 @@ bool point_in_triangle_strict(
     return std::abs(d1) > eps && std::abs(d2) > eps && std::abs(d3) > eps;
 }
 
-bool triangles_overlap_strict(
+bool triangles_overlap_proper(
     const std::array<std::array<double, 2>, 3> &t1,
     const std::array<std::array<double, 2>, 3> &t2,
     double eps = kOverlapEpsilon
@@ -72,21 +72,21 @@ bool triangles_overlap_strict(
     };
     for (const auto &a : e1) {
         for (const auto &b : e2) {
-            if (strict_segment_intersect(a.first, a.second, b.first, b.second, eps)) {
+            if (segment_intersect_proper(a.first, a.second, b.first, b.second, eps)) {
                 return true;
             }
         }
     }
-    if (point_in_triangle_strict(t1[0], t2[0], t2[1], t2[2], eps)) {
+    if (point_in_triangle_proper(t1[0], t2[0], t2[1], t2[2], eps)) {
         return true;
     }
-    if (point_in_triangle_strict(t2[0], t1[0], t1[1], t1[2], eps)) {
+    if (point_in_triangle_proper(t2[0], t1[0], t1[1], t1[2], eps)) {
         return true;
     }
     return false;
 }
 
-bool quads_overlap_strict(
+bool quads_overlap(
     const std::array<std::array<double, 2>, 4> &qa,
     const std::array<std::array<double, 2>, 4> &qb,
     double eps = kOverlapEpsilon
@@ -118,7 +118,7 @@ bool quads_overlap_strict(
     };
     for (const auto &t_a : ta) {
         for (const auto &t_b : tb) {
-            if (triangles_overlap_strict(t_a, t_b, eps)) {
+            if (triangles_overlap_proper(t_a, t_b, eps)) {
                 return true;
             }
         }
@@ -126,7 +126,7 @@ bool quads_overlap_strict(
     return false;
 }
 
-bool segment_triangle_intersect_strict_3d(
+bool segment_triangle_intersect_3d(
     const Vec3 &p0,
     const Vec3 &p1,
     const std::array<Vec3, 3> &tri,
@@ -158,7 +158,7 @@ bool segment_triangle_intersect_strict_3d(
     return true;
 }
 
-bool triangles_overlap_strict_3d(
+bool triangles_overlap_3d(
     const std::array<Vec3, 3> &t1,
     const std::array<Vec3, 3> &t2,
     double eps = kOverlapEpsilon
@@ -197,19 +197,19 @@ bool triangles_overlap_strict_3d(
     };
 
     for (const auto &e : e1) {
-        if (segment_triangle_intersect_strict_3d(e.first, e.second, t2, eps)) {
+        if (segment_triangle_intersect_3d(e.first, e.second, t2, eps)) {
             return true;
         }
     }
     for (const auto &e : e2) {
-        if (segment_triangle_intersect_strict_3d(e.first, e.second, t1, eps)) {
+        if (segment_triangle_intersect_3d(e.first, e.second, t1, eps)) {
             return true;
         }
     }
     return false;
 }
 
-bool quads_overlap_strict_3d(
+bool quads_overlap_3d(
     const std::vector<Vec3> &points,
     const std::array<int, 4> &qa,
     const std::array<int, 4> &qb,
@@ -268,7 +268,7 @@ bool quads_overlap_strict_3d(
     };
     for (const auto &x : ta) {
         for (const auto &y : tb) {
-            if (triangles_overlap_strict_3d(x, y, eps)) {
+            if (triangles_overlap_3d(x, y, eps)) {
                 return true;
             }
         }
@@ -629,12 +629,6 @@ std::pair<int, double> edge_length_violation_summary_for_edges(
     return std::make_pair(violations, max_rel);
 }
 
-struct SeamContinuityStats {
-    int group_count{0};
-    double mean_min_distance{0.0};
-    double max_min_distance{0.0};
-};
-
 SeamContinuityStats seam_layout_continuity_summary(
     const std::vector<Vec3> &mesh_points,
     const std::vector<Vec3> &fabric_points,
@@ -821,15 +815,6 @@ int nearest_point_index(const std::vector<Vec3> &points, const Vec3 &target) {
     }
     return best_idx;
 }
-
-struct AcpPropagationSummary {
-    int seed_index{0};
-    int primary_assigned{0};
-    int orthogonal_assigned{0};
-    int fill_assigned{0};
-    Vec3 primary_axis{1.0, 0.0, 0.0};
-    Vec3 orthogonal_axis{0.0, 1.0, 0.0};
-};
 
 Vec3 choose_primary_axis(
     const std::vector<Vec3> &local_points,

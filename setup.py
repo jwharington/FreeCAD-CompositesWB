@@ -1,29 +1,57 @@
-from pathlib import Path
-from setuptools import Extension, setup
 import os
 import sysconfig
+from pathlib import Path
+
+from setuptools import Extension, setup
 
 # name: this is the name of the distribution.
 # Packages using the same name here cannot be installed together
 
 repo_root = Path(__file__).resolve().parent
 freecad_root = Path(os.environ.get("FREECAD_SRC_DIR", "/home/jmw/opt/FreeCAD"))
-freecad_build = Path(os.environ.get("FREECAD_BUILD_DIR", "/home/jmw/opt/FreeCAD/build/pixi-debug"))
-freecad_env = Path(os.environ.get("FREECAD_PIXI_ENV", "/home/jmw/opt/FreeCAD/.pixi/envs/default"))
+freecad_build = Path(
+    os.environ.get(
+        "FREECAD_BUILD_DIR", "/home/jmw/opt/FreeCAD/build/pixi-debug"
+    )
+)
+freecad_env = Path(
+    os.environ.get(
+        "FREECAD_PIXI_ENV", "/home/jmw/opt/FreeCAD/.pixi/envs/default"
+    )
+)
 python_include = sysconfig.get_paths().get("include")
 
-version_path = os.path.join(os.path.abspath(os.path.dirname(__file__)),
-                            "freecad", "Composites", "version.py")
+version_path = os.path.join(
+    os.path.abspath(os.path.dirname(__file__)),
+    "freecad",
+    "Composites",
+    "version.py",
+)
 with open(version_path) as fp:
     exec(fp.read())
 
 fishnet_include_dirs = [
     str(freecad_build),
     str(freecad_build / "src"),
-    str(freecad_build / "src" / "Mod" / "Part" / "App" / "Part_autogen" / "include"),
+    str(
+        freecad_build
+        / "src"
+        / "Mod"
+        / "Part"
+        / "App"
+        / "Part_autogen"
+        / "include"
+    ),
     str(freecad_root / "src"),
     str(freecad_root / "src" / "3rdParty" / "PyCXX"),
-    str(freecad_root / "src" / "3rdParty" / "FastSignals" / "libfastsignals" / "include"),
+    str(
+        freecad_root
+        / "src"
+        / "3rdParty"
+        / "FastSignals"
+        / "libfastsignals"
+        / "include"
+    ),
     str(freecad_root / "src" / "3rdParty"),
     str(freecad_env / "include" / "opencascade"),
     str(freecad_env / "include"),
@@ -44,11 +72,43 @@ fishnet_library_dirs = [
 fishnet_extension = Extension(
     "freecad.Composites._fishnet",
     sources=[
-        os.path.join("freecad", "Composites", "_fishnet.cpp"),
-        os.path.join("freecad", "Composites", "_fishnet_algorithm.cpp"),
-        os.path.join("freecad", "Composites", "_fishnet_relaxation_objective.cpp"),
-        os.path.join("freecad", "Composites", "_fishnet_geometry_sampling.cpp"),
-        os.path.join("freecad", "Composites", "_fishnet_diagnostics_result.cpp"),
+        os.path.join("freecad", "Composites", "fishnet", "fishnet.cpp"),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_algorithm.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_primitives.cpp"
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_relaxation_objective.cpp",
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_geometry_sampling.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_python_geometry.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_python_parse.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_python_util.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_boundary_atlas.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_surface_queries.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_diagnostics_result.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_options.cpp"
+        ),
     ],
     language="c++",
     include_dirs=fishnet_include_dirs,
@@ -67,17 +127,25 @@ fishnet_extension = Extension(
     ],
     extra_objects=[str(freecad_build / "Mod" / "Part" / "Part.so")],
     runtime_library_dirs=fishnet_library_dirs,
-    extra_compile_args=["-std=c++20", "-DHAVE_CONFIG_H", "-DPYCXX_6_2_COMPATIBILITY", "-D_OCC64"],
+    extra_compile_args=[
+        "-std=c++20",
+        "-DHAVE_CONFIG_H",
+        "-DPYCXX_6_2_COMPATIBILITY",
+        "-D_OCC64",
+    ],
 )
 
-setup(name='freecad.Composites',
-      version=str(__version__),
-      packages=['freecad',
-                'freecad.Composites'],
-      maintainer="jwharington",
-      maintainer_email="jwharington@gmail.com",
-      url="https://github.com/jwharington/FreeCAD-CompositesWB",
-      description="Additional tools to define and manipulate laminated composites structures in FreeCAD",
-      install_requires=['numpy'],  # should be satisfied by FreeCAD's system dependencies already
-      include_package_data=True,
-      ext_modules=[fishnet_extension])
+setup(
+    name="freecad.Composites",
+    version=str(__version__),
+    packages=["freecad", "freecad.Composites", "freecad.Composites.fishnet"],
+    maintainer="jwharington",
+    maintainer_email="jwharington@gmail.com",
+    url="https://github.com/jwharington/FreeCAD-CompositesWB",
+    description="Additional tools to define and manipulate laminated composites structures in FreeCAD",
+    install_requires=[
+        "numpy"
+    ],  # should be satisfied by FreeCAD's system dependencies already
+    include_package_data=True,
+    ext_modules=[fishnet_extension],
+)

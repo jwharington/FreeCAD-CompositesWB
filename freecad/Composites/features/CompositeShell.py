@@ -108,6 +108,13 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyEnumeration",
+            name="AcpStrategy",
+            group="Draping",
+            doc="ACP draping strategy (woven baseline vs surface-spacing objective)",
+        )
+
+        obj.addProperty(
             type="App::PropertyVector",
             name="SeedPoint",
             group="Draping",
@@ -189,8 +196,12 @@ class CompositeShellFP(CompositeBaseFP):
         obj.FabricSpacing = 5.0
         obj.RelaxWeight = 0.95
         obj.SolveSteps = 5
-        obj.DrapingAlgorithm = ["legacy_fishnet", "acp_energy_v1"]
-        obj.DrapingAlgorithm = "legacy_fishnet"
+        obj.DrapingAlgorithm = [
+            "acp_energy",
+        ]
+        obj.DrapingAlgorithm = "acp_energy"
+        obj.AcpStrategy = ["woven", "surface_spacing"]
+        obj.AcpStrategy = "woven"
         obj.SeedPoint = Vector(0.0, 0.0, 0.0)
         obj.AutoDrapingDirection = True
         obj.DrapingDirection = Vector(1.0, 0.0, 0.0)
@@ -238,7 +249,8 @@ class CompositeShellFP(CompositeBaseFP):
                 max_length=getattr(fp, "MaxLength", None),
                 relax_weight=getattr(fp, "RelaxWeight", None),
                 steps=getattr(fp, "SolveSteps", None),
-                algorithm=getattr(fp, "DrapingAlgorithm", "legacy_fishnet"),
+                algorithm=getattr(fp, "DrapingAlgorithm", "acp_energy"),
+                acp_strategy=getattr(fp, "AcpStrategy", "woven"),
                 seed_point=getattr(fp, "SeedPoint", None),
                 auto_draping_direction=getattr(fp, "AutoDrapingDirection", True),
                 draping_direction=getattr(fp, "DrapingDirection", None),
@@ -288,6 +300,7 @@ class CompositeShellFP(CompositeBaseFP):
                 | "RelaxWeight"
                 | "SolveSteps"
                 | "DrapingAlgorithm"
+                | "AcpStrategy"
                 | "SeedPoint"
                 | "AutoDrapingDirection"
                 | "DrapingDirection"

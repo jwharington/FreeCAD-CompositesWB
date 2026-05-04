@@ -1211,7 +1211,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
             self.assertIn(name, props)
 
     def test_init_sets_acp_draping_property_defaults(self):
-        self.assertEqual(self.obj.DrapingAlgorithm, "legacy_fishnet")
+        self.assertEqual(self.obj.DrapingAlgorithm, "acp_energy")
         self.assertTrue(self.obj.AutoDrapingDirection)
         self.assertEqual(self.obj.MaterialModel, "woven")
         self.assertAlmostEqual(float(self.obj.UDCoefficient), 0.0)
@@ -1291,7 +1291,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         shell_obj.MaxLength = 12.0
         shell_obj.RelaxWeight = 0.8
         shell_obj.SolveSteps = 9
-        shell_obj.DrapingAlgorithm = "acp_energy_v1"
+        shell_obj.DrapingAlgorithm = "acp_energy"
         shell_obj.SeedPoint = (1.0, 2.0, 3.0)
         shell_obj.AutoDrapingDirection = False
         shell_obj.DrapingDirection = (0.0, 1.0, 0.0)
@@ -1324,7 +1324,8 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(kwargs["max_length"], 12.0)
         self.assertEqual(kwargs["relax_weight"], 0.8)
         self.assertEqual(kwargs["steps"], 9)
-        self.assertEqual(kwargs["algorithm"], "acp_energy_v1")
+        self.assertEqual(kwargs["algorithm"], "acp_energy")
+        self.assertEqual(kwargs["acp_strategy"], "woven")
         self.assertEqual(kwargs["seed_point"], (1.0, 2.0, 3.0))
         self.assertFalse(kwargs["auto_draping_direction"])
         self.assertEqual(kwargs["draping_direction"], (0.0, 1.0, 0.0))

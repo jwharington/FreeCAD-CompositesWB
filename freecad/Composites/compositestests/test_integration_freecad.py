@@ -23,6 +23,9 @@ import FreeCAD
 from freecad.Composites.compositestests.plotting import (
     save_integration_fishnet_plot,
 )
+from freecad.Composites.compositestests.test_shapes import (
+    make_krogh_double_curved_bspline_face,
+)
 
 # Some existing modules import CompositesWB by name.
 if "CompositesWB" not in sys.modules:

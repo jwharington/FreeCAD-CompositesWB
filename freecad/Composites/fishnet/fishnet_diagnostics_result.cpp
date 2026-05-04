@@ -1,30 +1,112 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <vector>
 
-#include "_fishnet_algorithm_sections.hpp"
-#include "_fishnet_algorithm_types.hpp"
+#include "fishnet_algorithm_sections.hpp"
+#include "fishnet_algorithm_types.hpp"
+#include "fishnet_python_util.hpp"
 
 namespace fishnet_internal {
 
+namespace {
+
+void set_dict_string(PyObject *dict, const char *key, const char *value) {
+    if (!dict || !PyDict_Check(dict) || !key || !value) {
+        return;
+    }
+    PyObject *str_obj = PyUnicode_FromString(value);
+    if (!str_obj) {
+        return;
+    }
+    PyDict_SetItemString(dict, key, str_obj);
+    Py_DECREF(str_obj);
+}
+
+void set_dict_empty_list(PyObject *dict, const char *key) {
+    if (!dict || !PyDict_Check(dict) || !key) {
+        return;
+    }
+    PyObject *list_obj = PyList_New(0);
+    if (!list_obj) {
+        return;
+    }
+    PyDict_SetItemString(dict, key, list_obj);
+    Py_DECREF(list_obj);
+}
+
+std::string lowercase_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return value;
+}
+
+bool is_acp_energy_algorithm_name(const std::string &algorithm) {
+    return algorithm == "acp_energy";
+}
+
+std::string parse_acp_strategy_name(const std::string &raw_value) {
+    const std::string value = lowercase_copy(raw_value);
+    if (value == "surface_spacing" || value == "surface-spacing" || value == "v2") {
+        return "surface_spacing";
+    }
+    if (value == "woven" || value == "v1" || value == "default") {
+        return "woven";
+    }
+    return "";
+}
+
+}  // namespace
+
 std::string solver_algorithm_from_params(PyObject *params_copy) {
     if (!params_copy || !PyDict_Check(params_copy)) {
-        return "legacy_fishnet";
+        return "acp_energy";
     }
     PyObject *alg_obj = PyDict_GetItemString(params_copy, "algorithm");
     if (!alg_obj || !PyUnicode_Check(alg_obj)) {
-        return "legacy_fishnet";
+        return "acp_energy";
     }
     const char *alg_name = PyUnicode_AsUTF8(alg_obj);
     if (!alg_name || !*alg_name) {
         PyErr_Clear();
-        return "legacy_fishnet";
+        return "acp_energy";
     }
     return std::string(alg_name);
+}
+
+SolverAlgorithmProfile solver_algorithm_profile_from_params(PyObject *params_copy) {
+    SolverAlgorithmProfile profile;
+    profile.requested_algorithm = solver_algorithm_from_params(params_copy);
+
+    const std::string algorithm = lowercase_copy(profile.requested_algorithm);
+    profile.acp_energy_mode = is_acp_energy_algorithm_name(algorithm);
+    if (!profile.acp_energy_mode) {
+        profile.acp_strategy = "none";
+        profile.surface_spacing_mode = false;
+        return profile;
+    }
+
+    std::string strategy = "woven";
+
+    const std::string explicit_strategy = parse_acp_strategy_name(
+        param_string(params_copy, "acp_strategy", ""));
+    if (!explicit_strategy.empty()) {
+        strategy = explicit_strategy;
+    }
+
+    if (param_bool(params_copy, "objective_surface_spacing", false)) {
+        strategy = "surface_spacing";
+    }
+
+    profile.acp_strategy = strategy;
+    profile.surface_spacing_mode = (strategy == "surface_spacing");
+    return profile;
 }
 
 int solver_iterations_from_params(PyObject *params_copy) {
@@ -151,7 +233,14 @@ void add_solver_diagnostics(
     int max_iterations,
     const std::vector<double> &residual_history,
     bool acp_energy_mode,
-    const AcpPropagationSummary &acp_summary
+    const AcpPropagationSummary &acp_summary,
+    long coverage_point_count,
+    long surface_spacing_active_nodes,
+    long surface_spacing_total_nodes,
+    long surface_spacing_frontier_pops,
+    long surface_spacing_frontier_accepts,
+    long surface_spacing_candidate_quads,
+    long surface_spacing_selected_quads
 ) {
     if (!diagnostics || !PyDict_Check(diagnostics)) {
         return;
@@ -185,6 +274,13 @@ void add_solver_diagnostics(
         rel_tol_from_parameter ? "parameter:edge_length_tolerance" : "default:edge_length_tolerance"
     );
 
+    if (coverage_point_count >= 0) {
+        set_diag_long(diagnostics, "coverage_point_count", coverage_point_count);
+        if (point_count > 0) {
+            set_diag_double(diagnostics, "coverage_point_ratio", static_cast<double>(coverage_point_count) / static_cast<double>(point_count));
+        }
+    }
+
     if (acp_energy_mode) {
         set_diag_long(diagnostics, "propagation_seed_index", acp_summary.seed_index);
         set_diag_long(diagnostics, "propagation_primary_assigned", acp_summary.primary_assigned);
@@ -201,9 +297,57 @@ void add_solver_diagnostics(
         set_diag_string(diagnostics, "objective_model", param_string(params_copy, "material_model", "woven").c_str());
         set_diag_double(diagnostics, "objective_ud_coefficient", param_double(params_copy, "ud_coefficient", 0.0));
         set_diag_long(diagnostics, "objective_thickness_correction", param_bool(params_copy, "thickness_correction", false) ? 1L : 0L);
-        const std::string algorithm = solver_algorithm_from_params(params_copy);
-        set_diag_long(diagnostics, "objective_surface_spacing", (algorithm == "acp_energy_v2_surface_spacing") ? 1L : 0L);
+        const SolverAlgorithmProfile profile = solver_algorithm_profile_from_params(params_copy);
+        set_diag_long(diagnostics, "objective_surface_spacing", profile.surface_spacing_mode ? 1L : 0L);
+        set_diag_string(diagnostics, "objective_strategy", profile.acp_strategy.c_str());
         set_diag_string(diagnostics, "propagation_stages", "primary_orthogonal_fill");
+        if (profile.surface_spacing_mode) {
+            if (surface_spacing_active_nodes >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_active_nodes", surface_spacing_active_nodes);
+            }
+            if (surface_spacing_total_nodes >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_total_nodes", surface_spacing_total_nodes);
+            }
+            if (surface_spacing_total_nodes > 0 && surface_spacing_active_nodes >= 0) {
+                set_diag_double(
+                    diagnostics,
+                    "surface_spacing_active_ratio",
+                    static_cast<double>(surface_spacing_active_nodes) / static_cast<double>(surface_spacing_total_nodes));
+            }
+            if (surface_spacing_frontier_pops >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_frontier_pops", surface_spacing_frontier_pops);
+            }
+            if (surface_spacing_frontier_accepts >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_frontier_accepts", surface_spacing_frontier_accepts);
+                if (surface_spacing_frontier_pops > 0) {
+                    set_diag_double(
+                        diagnostics,
+                        "surface_spacing_frontier_accept_ratio",
+                        static_cast<double>(surface_spacing_frontier_accepts) / static_cast<double>(surface_spacing_frontier_pops));
+                }
+            }
+            if (surface_spacing_candidate_quads >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_candidate_quads", surface_spacing_candidate_quads);
+            }
+            if (surface_spacing_selected_quads >= 0) {
+                set_diag_long(diagnostics, "surface_spacing_selected_quads", surface_spacing_selected_quads);
+                if (surface_spacing_candidate_quads > 0) {
+                    const double select_ratio =
+                        static_cast<double>(surface_spacing_selected_quads) / static_cast<double>(surface_spacing_candidate_quads);
+                    set_diag_double(diagnostics, "surface_spacing_quad_select_ratio", select_ratio);
+
+                    std::string stall_reason = "none";
+                    if (surface_spacing_selected_quads == 0 && surface_spacing_frontier_accepts > 0) {
+                        stall_reason = "no_valid_quad_component";
+                    } else if (select_ratio < 0.5) {
+                        stall_reason = "component_or_overlap_filtered";
+                    } else if (surface_spacing_frontier_pops > 0 && surface_spacing_frontier_accepts == 0) {
+                        stall_reason = "frontier_rejected";
+                    }
+                    set_diag_string(diagnostics, "surface_spacing_growth_stall_reason", stall_reason.c_str());
+                }
+            }
+        }
     }
 }
 
@@ -231,7 +375,7 @@ void set_result_common_fields(
     }
 
     PyDict_SetItemString(result, "valid", Py_True);
-    PyDict_SetItemString(result, "error", PyUnicode_FromString(""));
+    set_dict_string(result, "error", "");
     PyDict_SetItemString(result, "fabric_points", fabric_points);
     PyDict_SetItemString(result, "warp_weft_points", warp_weft_points);
     PyDict_SetItemString(result, "fabric_quads", fabric_quads);
@@ -276,18 +420,18 @@ PyObject *build_empty_geometry_result(const char *error, PyObject *params_copy) 
     }
 
     PyDict_SetItemString(res, "valid", Py_False);
-    PyDict_SetItemString(res, "error", PyUnicode_FromString(error));
-    PyDict_SetItemString(res, "fabric_points", PyList_New(0));
-    PyDict_SetItemString(res, "warp_weft_points", PyList_New(0));
-    PyDict_SetItemString(res, "fabric_quads", PyList_New(0));
-    PyDict_SetItemString(res, "boundary_loops", PyList_New(0));
-    PyDict_SetItemString(res, "warp_weft_boundary_loops", PyList_New(0));
-    PyDict_SetItemString(res, "strains", PyList_New(0));
-    PyDict_SetItemString(res, "mesh_points", PyList_New(0));
-    PyDict_SetItemString(res, "mesh_faces", PyList_New(0));
-    PyDict_SetItemString(res, "face_frames", PyList_New(0));
-    PyDict_SetItemString(res, "orientation_breaks", PyList_New(0));
-    PyDict_SetItemString(res, "atlas_charts", PyList_New(0));
+    set_dict_string(res, "error", error ? error : "");
+    set_dict_empty_list(res, "fabric_points");
+    set_dict_empty_list(res, "warp_weft_points");
+    set_dict_empty_list(res, "fabric_quads");
+    set_dict_empty_list(res, "boundary_loops");
+    set_dict_empty_list(res, "warp_weft_boundary_loops");
+    set_dict_empty_list(res, "strains");
+    set_dict_empty_list(res, "mesh_points");
+    set_dict_empty_list(res, "mesh_faces");
+    set_dict_empty_list(res, "face_frames");
+    set_dict_empty_list(res, "orientation_breaks");
+    set_dict_empty_list(res, "atlas_charts");
     PyDict_SetItemString(res, "parameters", params_copy);
     attach_solver_metadata(res, params_copy, "infeasible", false);
     Py_DECREF(params_copy);

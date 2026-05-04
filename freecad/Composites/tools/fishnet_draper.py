@@ -6,7 +6,7 @@ import Part
 import Mesh
 from FreeCAD import Base, Rotation, Vector
 
-from .._fishnet import solve
+from ..fishnet import solve
 from ..util.mesh_util import axes_mapped, calc_lambda_vec, eval_lam
 
 
@@ -28,6 +28,7 @@ class Draper:
         steps=None,
         max_length=None,
         algorithm=None,
+        acp_strategy=None,
         seed_point=None,
         auto_draping_direction=True,
         draping_direction=None,
@@ -46,7 +47,8 @@ class Draper:
             self.unwrap_relax_weight = float(relax_weight)
 
         self.max_length = float(max_length) if max_length is not None else None
-        self.algorithm = str(algorithm or "legacy_fishnet")
+        self.algorithm = str(algorithm or "acp_energy")
+        self.acp_strategy = str(acp_strategy or "")
         self.seed_point = seed_point
         self.auto_draping_direction = bool(auto_draping_direction)
         self.draping_direction = draping_direction
@@ -118,6 +120,7 @@ class Draper:
     def _solve(self):
         params = {
             "algorithm": self.algorithm,
+            "acp_strategy": self.acp_strategy,
             "seed": 0,
             "fabric_spacing": self.fabric_spacing,
             "max_length": self.max_length if self.max_length is not None else (self.fabric_spacing or 0.0),

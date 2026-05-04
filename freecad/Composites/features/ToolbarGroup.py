@@ -7,6 +7,7 @@ from . import (
     HomogeneousLamina,  # noqa
     Laminate,  # noqa
     Mould,  # noqa
+    MouldAnalysis,  # noqa
     PartPlane,  # noqa
     Rosette,  # noqa
     Seam,  # noqa
@@ -75,6 +76,7 @@ FreeCADGui.addCommand(
     "Composites_MouldTools",
     CommandGroup(
         [
+            "Composites_MouldAnalysis",
             "Composites_PartPlane",
             "Composites_Mould",
         ],

@@ -16,7 +16,7 @@ class _TaskPanel(_BaseTaskPanel):
         self.parameter_widget.spin_solve_steps.setValue(int(obj.SolveSteps))
 
         self.parameter_widget.spin_max_length.setValue(float(getattr(obj, "MaxLength", 0.0)))
-        algorithm = str(getattr(obj, "DrapingAlgorithm", "legacy_fishnet"))
+        algorithm = str(getattr(obj, "DrapingAlgorithm", "acp_energy"))
         algorithm_idx = self.parameter_widget.combo_algorithm.findText(algorithm)
         if algorithm_idx >= 0:
             self.parameter_widget.combo_algorithm.setCurrentIndex(algorithm_idx)
@@ -47,7 +47,8 @@ class _TaskPanel(_BaseTaskPanel):
         self.obj.SolveSteps = self.parameter_widget.spin_solve_steps.value()
 
         self.obj.MaxLength = self.parameter_widget.spin_max_length.value()
-        self.obj.DrapingAlgorithm = self.parameter_widget.combo_algorithm.currentText()
+        selected_algorithm = self.parameter_widget.combo_algorithm.currentText()
+        self.obj.DrapingAlgorithm = selected_algorithm
         self.obj.AutoDrapingDirection = self.parameter_widget.check_auto_direction.isChecked()
         self.obj.MeshSize = self.parameter_widget.spin_mesh_size.value()
         self.obj.MaterialModel = self.parameter_widget.combo_material_model.currentText()

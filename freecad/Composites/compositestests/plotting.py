@@ -388,6 +388,70 @@ def _cells_to_2d_line_coords(points, cells):
     return xs, ys
 
 
+def _warp_weft_grid_line_coords(points):
+    pts = [_xyz(point) for point in points or []]
+    if len(pts) < 2:
+        return [], []
+
+    xs_vals = sorted({round(p[0], 6) for p in pts})
+    ys_vals = sorted({round(p[1], 6) for p in pts})
+
+    def step(vals):
+        if len(vals) < 2:
+            return 1.0
+        diffs = [abs(b - a) for a, b in zip(vals[:-1], vals[1:]) if abs(b - a) > 1.0e-9]
+        return sorted(diffs)[len(diffs) // 2] if diffs else 1.0
+
+    tx = max(step(xs_vals) * 0.35, 1.0e-6)
+    ty = max(step(ys_vals) * 0.35, 1.0e-6)
+
+    rows = {}
+    cols = {}
+    for x, y, _ in pts:
+        yk = round(y / ty)
+        xk = round(x / tx)
+        rows.setdefault(yk, []).append((x, y))
+        cols.setdefault(xk, []).append((x, y))
+
+    xs, ys = [], []
+    for _, row in sorted(rows.items()):
+        row_sorted = sorted(row, key=lambda p: p[0])
+        for a, b in zip(row_sorted[:-1], row_sorted[1:]):
+            xs.extend([a[0], b[0], None])
+            ys.extend([a[1], b[1], None])
+    for _, col in sorted(cols.items()):
+        col_sorted = sorted(col, key=lambda p: p[1])
+        for a, b in zip(col_sorted[:-1], col_sorted[1:]):
+            xs.extend([a[0], b[0], None])
+            ys.extend([a[1], b[1], None])
+    return xs, ys
+
+
+def _quad_edges_2d_line_coords(points_2d, quads):
+    pts = [_xyz(point) for point in points_2d or []]
+    if not pts or not quads:
+        return [], []
+
+    edges = set()
+    for quad in quads:
+        idx = [int(i) for i in quad]
+        if len(idx) < 4:
+            continue
+        a, b, c, d = idx[:4]
+        for u, v in ((a, b), (b, c), (c, d), (d, a)):
+            if u < 0 or v < 0 or u >= len(pts) or v >= len(pts) or u == v:
+                continue
+            edges.add((u, v) if u < v else (v, u))
+
+    xs, ys = [], []
+    for u, v in sorted(edges):
+        pu = pts[u]
+        pv = pts[v]
+        xs.extend([pu[0], pv[0], None])
+        ys.extend([pu[1], pv[1], None])
+    return xs, ys
+
+
 def _quad_edges_filtered_by_2d_3d(points_3d, points_2d, quads):
     import math
 
@@ -458,7 +522,7 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
         rows=1,
         cols=2,
         specs=[[{"type": "scene"}, {"type": "xy"}]],
-        subplot_titles=("Source shape + drape", "Flattened drape"),
+        subplot_titles=("Source shape + drape", "Warp/weft coordinates"),
     )
     try:
         shape_points, shape_tris = shape.tessellate(1.0)
@@ -518,7 +582,8 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
                 row=1,
                 col=1,
             )
-            xs, ys, zs = _cells_to_3d_line_coords(lifted_points, tris)
+            edge_cells_3d = fabric_quads if fabric_quads else tris
+            xs, ys, zs = _cells_to_3d_line_coords(lifted_points, edge_cells_3d)
             fig.add_trace(
                 go.Scatter3d(
                     x=xs,
@@ -533,28 +598,32 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
             )
 
     edge_cells_2d = fabric_quads or (mesh.Topology[1] if mesh and getattr(mesh, "Topology", None) else [])
-    xs2, ys2 = _cells_to_2d_line_coords(tex_coords or [], edge_cells_2d)
+    xs2, ys2 = _quad_edges_2d_line_coords(tex_coords or [], edge_cells_2d)
+    if not (xs2 and ys2):
+        xs2, ys2 = _warp_weft_grid_line_coords(tex_coords or [])
     if xs2 and ys2:
         fig.add_trace(
             go.Scatter(
                 x=xs2,
                 y=ys2,
                 mode="lines",
-                name="Flattened mesh",
+                name="Warp/weft mesh",
                 line={"color": "#1f77b4", "width": 1.6},
             ),
             row=1,
             col=2,
         )
-    if tex_coords:
+
+    show_nodes = len(tex_coords or []) <= 250
+    if show_nodes and tex_coords:
         pts2 = [_xyz(point) for point in tex_coords]
         fig.add_trace(
             go.Scatter(
                 x=[p[0] for p in pts2],
                 y=[p[1] for p in pts2],
                 mode="markers",
-                name="Flat nodes",
-                marker={"size": 3, "color": "#1f77b4", "opacity": 0.9},
+                name="Warp/weft nodes",
+                marker={"size": 2, "color": "#1f77b4", "opacity": 0.45},
             ),
             row=1,
             col=2,
@@ -638,23 +707,28 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
             linewidth=0.9,
             marker_size=8,
             alpha=0.55,
-            cells=mesh.Topology[1],
+            cells=fabric_quads or mesh.Topology[1],
         )
     ax1.set_box_aspect((1, 1, 1))
 
     ax2 = fig.add_subplot(1, panel_count, 2)
-    ax2.set_title("Drape mesh")
-    if mesh and getattr(mesh, "Topology", None):
-        faces = mesh.Topology[1]
-        _plot_2d_mesh(
-            ax2,
-            tex_coords,
-            faces,
-            edge_color="#1f77b4",
-            point_color="#1f77b4",
-            linewidth=1.15,
-            cells=fabric_quads,
+    ax2.set_title("Warp/weft coordinates")
+    if tex_coords:
+        xs2, ys2 = _warp_weft_grid_line_coords(tex_coords)
+        if xs2 and ys2:
+            ax2.plot(xs2, ys2, color="#1f77b4", linewidth=1.15)
+        pts2 = [_xyz(point) for point in tex_coords]
+        ax2.scatter(
+            [p[0] for p in pts2],
+            [p[1] for p in pts2],
+            s=10,
+            color="#1f77b4",
+            edgecolors="white",
+            linewidths=0.4,
+            alpha=1.0,
+            zorder=3,
         )
+        ax2.set_aspect("equal", adjustable="box")
     _plot_boundaries(ax2, boundaries, color="#d62728")
 
     if show_unwrapped_net:

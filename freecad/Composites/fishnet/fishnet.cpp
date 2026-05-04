@@ -1,7 +1,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
-#include "_fishnet_algorithm.hpp"
+#include "fishnet_algorithm.hpp"
 
 namespace {
 

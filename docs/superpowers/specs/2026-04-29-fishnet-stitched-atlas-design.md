@@ -112,7 +112,12 @@ The builder should try to keep adjacent faces in a single chart whenever possibl
 
 A face may be stitched to a neighboring face only when the shared edge orientation can be preserved consistently.
 
-### 6.3 Failure means a chart split, not silence
+### 6.3 No-overlap requirement
+
+A face may be placed into a chart only if its placed elements do **not** overlap already placed elements in that chart.
+Any overlap candidate must be treated as a placement failure for that chart.
+
+### 6.4 Failure means a chart split, not silence
 
 If a face cannot be placed into the current chart, the solver must not guess.
 It should:
@@ -122,12 +127,12 @@ It should:
 3. record the transition reason,
 4. continue solving the remaining connected region.
 
-### 6.4 Explicit failure semantics
+### 6.5 Explicit failure semantics
 
 A placement failure means the current atlas cannot remain one connected piece under the solver’s rules.
 That does **not** mean the entire shape is unsolvable. It means the shape needs multiple charts or fabric pieces.
 
-### 6.5 User feedback requirement
+### 6.6 User feedback requirement
 
 The solver must preserve enough information to tell the user:
 
