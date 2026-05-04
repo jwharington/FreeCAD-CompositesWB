@@ -92,6 +92,9 @@ fishnet_extension = Extension(
             "freecad", "Composites", "fishnet", "fishnet_python_geometry.cpp"
         ),
         os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_python_input.cpp"
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_python_parse.cpp"
         ),
         os.path.join(

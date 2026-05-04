@@ -3,4 +3,5 @@
 *.FCStd*
 *.FCBak
 *.swp
+*.so
 mcp.json
