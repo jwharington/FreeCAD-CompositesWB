@@ -628,6 +628,97 @@ class TestFishnetSolver(unittest.TestCase):
         corr_res = float(corr_diag.get("final_residual", 0.0))
         self.assertGreater(abs(corr_res - base_res), 1.0e-9)
 
+    def test_acp_parameter_sweep_remains_valid_and_finite(self):
+        xs = [0.0, 0.5, 1.0, 1.5, 2.0]
+        ys = [0.0, 0.5, 1.0, 1.5]
+        curved, faces = _make_grid_mesh(
+            xs,
+            ys,
+            lambda u, v: 0.35 * math.sin(1.7 * u) * math.cos(1.3 * v),
+        )
+
+        sweeps = [
+            {
+                "material_model": "woven",
+                "ud_coefficient": 0.0,
+                "draping_direction": (1.0, 0.0, 0.0),
+                "seed_point": (0.0, 0.0, 0.0),
+            },
+            {
+                "material_model": "woven",
+                "ud_coefficient": 0.0,
+                "draping_direction": (0.0, 1.0, 0.0),
+                "seed_point": (2.0, 1.5, 0.0),
+            },
+            {
+                "material_model": "ud",
+                "ud_coefficient": 0.6,
+                "draping_direction": (0.7, 0.7, 0.0),
+                "seed_point": (1.0, 0.5, 0.0),
+            },
+        ]
+
+        for cfg in sweeps:
+            result = _fishnet.solve(
+                mesh_points=curved,
+                mesh_faces=faces,
+                parameters={
+                    "algorithm": "acp_energy_v1",
+                    "steps": 12,
+                    "fabric_spacing": 0.5,
+                    **cfg,
+                },
+            )
+            self.assertTrue(result["valid"])
+            self.assertEqual(result.get("algorithm"), "acp_energy_v1")
+            for p in result.get("fabric_points", []):
+                self.assertTrue(all(math.isfinite(float(c)) for c in p[:3]))
+            diag = result.get("diagnostics", {})
+            self.assertTrue(math.isfinite(float(diag.get("final_residual", 0.0))))
+            self.assertIn(diag.get("objective_model"), ("woven", "ud"))
+            self.assertTrue(math.isfinite(float(diag.get("objective_ud_coefficient", 0.0))))
+
+    def test_acp_multiface_seam_continuity_sweep_on_axial_cone(self):
+        import FreeCAD
+        import Part
+
+        shape = Part.makeCone(
+            12,
+            0,
+            24,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+
+        spacing = 2.0
+        configs = [
+            {"seed_point": (12.0, 0.0, 2.0), "draping_direction": (1.0, 0.0, 0.0)},
+            {"seed_point": (6.0, 0.0, 18.0), "draping_direction": (0.0, 1.0, 0.0)},
+        ]
+
+        for cfg in configs:
+            result = _fishnet.solve(
+                shape,
+                parameters={
+                    "algorithm": "acp_energy_v1",
+                    "fabric_spacing": spacing,
+                    "steps": 16,
+                    **cfg,
+                },
+            )
+            self.assertTrue(result["valid"])
+            n_groups, mean_dist, max_dist = _seam_min_dist_stats(result)
+            self.assertGreater(n_groups, 0)
+            self.assertLess(mean_dist, spacing * 2.5)
+            self.assertLess(max_dist, spacing * 4.0)
+            self.assertFalse(
+                any(
+                    "seam continuity degraded" in str(item.get("reason", ""))
+                    for item in result.get("orientation_breaks", [])
+                    if isinstance(item, dict)
+                )
+            )
+
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters={"algorithm": "acp_energy_v1"})
 
