@@ -538,7 +538,6 @@ static std::pair<int, double> edge_length_violation_summary_for_targets(
 }
 
 static void relax_fabric_points_with_edge_constraints(
-    const std::vector<Vec3> &mesh_points,
     std::vector<Vec3> &fabric_points,
     const std::vector<std::pair<int, int>> &edges,
     const std::vector<std::vector<int>> &boundary_loops,
@@ -552,7 +551,6 @@ static void relax_fabric_points_with_edge_constraints(
         return;
     }
 
-    (void)mesh_points;
     const double nominal_edge_length = infer_nominal_edge_length(requested_nominal_edge_length, fabric_points, edges);
     std::unordered_map<uint64_t, size_t> edge_index;
     edge_index.reserve(edges.size());
@@ -687,7 +685,6 @@ static void relax_fabric_points_with_edge_constraints(
 }
 
 static std::pair<int, double> edge_length_violation_summary_for_edges(
-    const std::vector<Vec3> &mesh_points,
     const std::vector<Vec3> &fabric_points,
     const std::vector<std::pair<int, int>> &edges,
     double requested_nominal_edge_length,
@@ -695,7 +692,6 @@ static std::pair<int, double> edge_length_violation_summary_for_edges(
 ) {
     int violations = 0;
     double max_rel = 0.0;
-    (void)mesh_points;
     const double nominal_edge_length = infer_nominal_edge_length(requested_nominal_edge_length, fabric_points, edges);
     if (nominal_edge_length <= kVectorZeroEpsilon) {
         return std::make_pair(0, 0.0);
@@ -902,14 +898,22 @@ struct AcpPropagationSummary {
     int fill_assigned{0};
     Vec3 primary_axis{1.0, 0.0, 0.0};
     Vec3 orthogonal_axis{0.0, 1.0, 0.0};
+    std::string seed_source{"default_seed_index"};
+    std::string direction_source{"auto_bbox_axis"};
 };
 
-static Vec3 choose_primary_axis(
+struct AcpDirectionChoice {
+    Vec3 axis{1.0, 0.0, 0.0};
+    std::string source{"auto_bbox_axis"};
+};
+
+static AcpDirectionChoice choose_primary_axis(
     const std::vector<Vec3> &local_points,
     const Vec3 &x_axis,
     const Vec3 &y_axis,
     PyObject *params
 ) {
+    AcpDirectionChoice choice;
     Vec3 requested_dir{};
     bool has_requested = try_parse_param_vec3(params, "draping_direction", requested_dir);
     if (has_requested) {
@@ -919,8 +923,28 @@ static Vec3 choose_primary_axis(
             0.0,
         };
         if (norm(projected) > kVectorZeroEpsilon) {
-            return normalize(projected);
+            choice.axis = normalize(projected);
+            choice.source = "parameter:draping_direction";
+            return choice;
         }
+    }
+
+    bool auto_direction = true;
+    if (params && PyDict_Check(params)) {
+        if (PyObject *auto_obj = PyDict_GetItemString(params, "auto_draping_direction")) {
+            int as_bool = PyObject_IsTrue(auto_obj);
+            if (as_bool >= 0) {
+                auto_direction = (as_bool != 0);
+            } else {
+                PyErr_Clear();
+            }
+        }
+    }
+
+    if (!auto_direction) {
+        choice.axis = {1.0, 0.0, 0.0};
+        choice.source = "parameter:auto_draping_direction=false";
+        return choice;
     }
 
     if (!local_points.empty()) {
@@ -935,12 +959,18 @@ static Vec3 choose_primary_axis(
             max_y = std::max(max_y, p.y);
         }
         if ((max_x - min_x) >= (max_y - min_y)) {
-            return {1.0, 0.0, 0.0};
+            choice.axis = {1.0, 0.0, 0.0};
+            choice.source = "auto_bbox_axis:x";
+            return choice;
         }
-        return {0.0, 1.0, 0.0};
+        choice.axis = {0.0, 1.0, 0.0};
+        choice.source = "auto_bbox_axis:y";
+        return choice;
     }
 
-    return {1.0, 0.0, 0.0};
+    choice.axis = {1.0, 0.0, 0.0};
+    choice.source = "default_fallback";
+    return choice;
 }
 
 static AcpPropagationSummary initialize_acp_layout(
@@ -958,8 +988,9 @@ static AcpPropagationSummary initialize_acp_layout(
         return summary;
     }
 
-    summary.primary_axis = choose_primary_axis(local_points, x_axis, y_axis, params);
-    summary.primary_axis = normalize(summary.primary_axis);
+    AcpDirectionChoice direction_choice = choose_primary_axis(local_points, x_axis, y_axis, params);
+    summary.primary_axis = normalize(direction_choice.axis);
+    summary.direction_source = direction_choice.source;
     if (norm(summary.primary_axis) <= kVectorZeroEpsilon) {
         summary.primary_axis = {1.0, 0.0, 0.0};
     }
@@ -971,6 +1002,7 @@ static AcpPropagationSummary initialize_acp_layout(
             long seed_long = PyLong_AsLong(seed_obj);
             if (!PyErr_Occurred() && seed_long >= 0 && seed_long < static_cast<long>(mesh_points.size())) {
                 seed_index = static_cast<int>(seed_long);
+                summary.seed_source = "parameter:seed";
             } else {
                 PyErr_Clear();
             }
@@ -980,6 +1012,7 @@ static AcpPropagationSummary initialize_acp_layout(
             int nearest = nearest_point_index(mesh_points, seed_point);
             if (nearest >= 0) {
                 seed_index = nearest;
+                summary.seed_source = "parameter:seed_point";
             }
         }
     }
@@ -1093,6 +1126,17 @@ static AcpPropagationSummary initialize_acp_layout(
     return summary;
 }
 
+struct AcpObjectiveStats {
+    int edge_count{0};
+    double min_target{0.0};
+    double max_target{0.0};
+    double mean_target{0.0};
+    double min_weight{0.0};
+    double max_weight{0.0};
+    double mean_weight{0.0};
+    bool anisotropic{false};
+};
+
 static void build_acp_edge_objective(
     const std::vector<Vec3> &local_points,
     const std::vector<std::pair<int, int>> &edges,
@@ -1101,7 +1145,8 @@ static void build_acp_edge_objective(
     const std::string &material_model,
     double ud_coefficient,
     std::vector<double> &edge_targets,
-    std::vector<double> &edge_weights
+    std::vector<double> &edge_weights,
+    AcpObjectiveStats *objective_stats = nullptr
 ) {
     const double nominal = (std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)
         ? nominal_edge_length
@@ -1122,6 +1167,8 @@ static void build_acp_edge_objective(
         primary = {1.0, 0.0, 0.0};
     }
 
+    double target_sum = 0.0;
+    double weight_sum = 0.0;
     for (const auto &edge : edges) {
         int a = edge.first;
         int b = edge.second;
@@ -1143,6 +1190,28 @@ static void build_acp_edge_objective(
         }
         edge_targets.push_back(target);
         edge_weights.push_back(weight);
+        target_sum += target;
+        weight_sum += weight;
+        if (objective_stats) {
+            if (objective_stats->edge_count == 0) {
+                objective_stats->min_target = target;
+                objective_stats->max_target = target;
+                objective_stats->min_weight = weight;
+                objective_stats->max_weight = weight;
+            } else {
+                objective_stats->min_target = std::min(objective_stats->min_target, target);
+                objective_stats->max_target = std::max(objective_stats->max_target, target);
+                objective_stats->min_weight = std::min(objective_stats->min_weight, weight);
+                objective_stats->max_weight = std::max(objective_stats->max_weight, weight);
+            }
+            ++objective_stats->edge_count;
+        }
+    }
+
+    if (objective_stats && objective_stats->edge_count > 0) {
+        objective_stats->mean_target = target_sum / static_cast<double>(objective_stats->edge_count);
+        objective_stats->mean_weight = weight_sum / static_cast<double>(objective_stats->edge_count);
+        objective_stats->anisotropic = ud_model && ud > 0.0;
     }
 }
 
@@ -4399,7 +4468,6 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
 
     std::vector<double> residual_history;
     relax_fabric_points_with_edge_constraints(
-        points,
         fabric_points,
         constrained_edges,
         loops_idx,
@@ -4460,7 +4528,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     }
     auto [edge_violations, max_rel_error] = acp_energy_mode
         ? edge_length_violation_summary_for_targets(fabric_points, constrained_edges, edge_targets, infer_nominal_edge_length(nominal_edge_length, fabric_points, constrained_edges), rel_tol)
-        : edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+        : edge_length_violation_summary_for_edges(fabric_points, constrained_edges, nominal_edge_length, rel_tol);
     if (acp_energy_mode && edge_violations > 0) {
         PyObject *break_item = PyDict_New();
         if (break_item) {
@@ -5094,7 +5162,6 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
 
     std::vector<double> residual_history;
     relax_fabric_points_with_edge_constraints(
-        points,
         fabric_points,
         constrained_edges,
         loops_idx,
@@ -5139,7 +5206,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     }
     auto [edge_violations, max_rel_error] = acp_energy_mode
         ? edge_length_violation_summary_for_targets(fabric_points, constrained_edges, edge_targets, infer_nominal_edge_length(nominal_edge_length, fabric_points, constrained_edges), rel_tol)
-        : edge_length_violation_summary_for_edges(points, fabric_points, constrained_edges, nominal_edge_length, rel_tol);
+        : edge_length_violation_summary_for_edges(fabric_points, constrained_edges, nominal_edge_length, rel_tol);
     if (acp_energy_mode && orientation_breaks_list && edge_violations > 0) {
         PyObject *break_item = PyDict_New();
         if (break_item) {
