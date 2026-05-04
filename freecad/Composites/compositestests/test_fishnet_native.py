@@ -539,6 +539,58 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertLessEqual(max(float(v) for v in history), start * 10.0)
         self.assertLessEqual(float(history[-1]), max(float(v) for v in history))
 
+    def test_residual_history_last_quartile_non_increasing(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "acp_energy_v1", "steps": 16, "fabric_spacing": 1.0},
+        )
+
+        self.assertTrue(result["valid"])
+        history = [float(v) for v in result.get("diagnostics", {}).get("residual_history", [])]
+        self.assertGreaterEqual(len(history), 4)
+        tail_start = max(0, len(history) - max(2, len(history) // 4))
+        tail = history[tail_start:]
+        self.assertGreaterEqual(len(tail), 2)
+        for i in range(len(tail) - 1):
+            self.assertLessEqual(tail[i + 1], tail[i] + 1.0e-9)
+
+    def test_residual_history_last_quartile_non_increasing_cylinder_patch(self):
+        xs = [0.0, 0.25, 0.5, 0.75, 1.0]
+        ys = [0.0, 0.5, 1.0, 1.5]
+        points, faces = _make_grid_mesh(xs, ys, lambda u, v: 0.0)
+        cylinder_points = []
+        for x, y, z in points:
+            theta = x * math.pi
+            radius = 10.0
+            height = 20.0
+            cylinder_points.append((radius * math.cos(theta), radius * math.sin(theta), z * height + y))
+
+        result = _fishnet.solve(
+            mesh_points=cylinder_points,
+            mesh_faces=faces,
+            parameters={"algorithm": "acp_energy_v1", "steps": 18, "fabric_spacing": 2.0},
+        )
+
+        self.assertTrue(result["valid"])
+        history = [float(v) for v in result.get("diagnostics", {}).get("residual_history", [])]
+        self.assertGreaterEqual(len(history), 4)
+        tail_start = max(0, len(history) - max(2, len(history) // 4))
+        tail = history[tail_start:]
+        self.assertGreaterEqual(len(tail), 2)
+        for i in range(len(tail) - 1):
+            self.assertLessEqual(tail[i + 1], tail[i] + 1.0e-9)
+
     def test_cylinder_patch_mesh_solves(self):
         xs = [0.0, 0.25, 0.5, 0.75, 1.0]
         ys = [0.0, 0.5, 1.0, 1.5]
