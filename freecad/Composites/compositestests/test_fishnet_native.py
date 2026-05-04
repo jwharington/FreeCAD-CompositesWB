@@ -1142,6 +1142,55 @@ class TestFishnetSolver(unittest.TestCase):
         for i in range(len(tail) - 1):
             self.assertLessEqual(tail[i + 1], tail[i] + 1.0e-9)
 
+    def test_performed_iterations_never_exceed_max_iterations(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        for steps in (1, 4, 9, 16):
+            result = _fishnet.solve(
+                mesh_points=points,
+                mesh_faces=faces,
+                parameters={"algorithm": "acp_energy_v1", "steps": steps, "fabric_spacing": 1.0},
+            )
+            self.assertTrue(result["valid"])
+            diagnostics = result.get("diagnostics", {})
+            performed = int(diagnostics.get("performed_iterations", -1))
+            maximum = int(diagnostics.get("max_iterations", -1))
+            self.assertGreaterEqual(performed, 0)
+            self.assertGreaterEqual(maximum, 0)
+            self.assertLessEqual(performed, maximum)
+
+    def test_zero_or_negative_steps_fall_back_to_default_iterations(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        for steps in (0, -5):
+            result = _fishnet.solve(
+                mesh_points=points,
+                mesh_faces=faces,
+                parameters={"algorithm": "acp_energy_v1", "steps": steps, "fabric_spacing": 1.0},
+            )
+            self.assertTrue(result["valid"])
+            diagnostics = result.get("diagnostics", {})
+            self.assertEqual(int(diagnostics.get("max_iterations", -1)), 120)
+            self.assertEqual(int(diagnostics.get("performed_iterations", -1)), 120)
+            history = diagnostics.get("residual_history", [])
+            self.assertEqual(len(history), 121)
+
     def test_step_mesh_solves(self):
         xs = [0.0, 1.0, 2.0]
         ys = [0.0, 1.0, 2.0]
