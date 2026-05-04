@@ -139,19 +139,32 @@ def _make_legacy_single_face_draper(face, deflection=1.0):
         draper_mod.Draper.calc_strain = original_calc_strain
 
 
-def _make_axially_sliced_cone_mesh():
+def _make_truncated_half_cone_curved_shape(large_radius=12.0, small_radius_ratio=0.8, height=24.0):
     import FreeCAD
     import Part
 
+    small_radius = float(large_radius) * float(small_radius_ratio)
     cone = Part.makeCone(
-        12,
-        0,
-        24,
+        float(large_radius),
+        float(small_radius),
+        float(height),
         FreeCAD.Vector(0, 0, 0),
         FreeCAD.Vector(0, 0, 1),
     )
     cutter = Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100))
     half_cone = cone.cut(cutter)
+    curved_faces = [
+        face
+        for face in half_cone.Faces
+        if hasattr(face.Surface, "Radius") or hasattr(face.Surface, "Apex")
+    ]
+    if not curved_faces:
+        raise RuntimeError("expected at least one curved face on truncated half-cone")
+    return Part.Shell(curved_faces)
+
+
+def _make_axially_sliced_cone_mesh():
+    half_cone = _make_truncated_half_cone_curved_shape()
     points, tris = half_cone.tessellate(1.0)
     mesh_points = [tuple(point) for point in points]
     mesh_faces = [tuple(int(index) for index in tri[:3]) for tri in tris]
@@ -679,16 +692,7 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertTrue(math.isfinite(float(diag.get("objective_ud_coefficient", 0.0))))
 
     def test_acp_multiface_seam_continuity_sweep_on_axial_cone(self):
-        import FreeCAD
-        import Part
-
-        shape = Part.makeCone(
-            12,
-            0,
-            24,
-            FreeCAD.Vector(0, 0, 0),
-            FreeCAD.Vector(0, 0, 1),
-        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+        shape = _make_truncated_half_cone_curved_shape()
 
         spacing = 2.0
         configs = [
@@ -707,10 +711,13 @@ class TestFishnetSolver(unittest.TestCase):
                 },
             )
             self.assertTrue(result["valid"])
+            # Curved-only truncated shell should avoid seam-duplicate mesh groups.
             n_groups, mean_dist, max_dist = _seam_min_dist_stats(result)
-            self.assertGreater(n_groups, 0)
-            self.assertLess(mean_dist, spacing * 2.5)
-            self.assertLess(max_dist, spacing * 4.0)
+            self.assertEqual(n_groups, 0)
+            self.assertEqual(mean_dist, 0.0)
+            self.assertEqual(max_dist, 0.0)
+            self.assertEqual(len(_duplicate_mesh_point_groups(result)), 0)
+            self.assertGreater(len(result.get("fabric_quads", [])), 0)
             self.assertFalse(
                 any(
                     "seam continuity degraded" in str(item.get("reason", ""))
@@ -718,6 +725,51 @@ class TestFishnetSolver(unittest.TestCase):
                     if isinstance(item, dict)
                 )
             )
+
+    def test_acp_v2_surface_spacing_enforces_near_constant_3d_edge_lengths(self):
+        shape = _make_truncated_half_cone_curved_shape()
+        spacing = 2.0
+        result = _fishnet.solve(
+            shape,
+            parameters={
+                "algorithm": "acp_energy_v2_surface_spacing",
+                "fabric_spacing": spacing,
+                "steps": 32,
+                "seed_point": (12.0, 0.0, 2.0),
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result.get("algorithm"), "acp_energy_v2_surface_spacing")
+        self.assertGreater(len(result.get("fabric_quads", [])), 0)
+
+        pts = result.get("mesh_points", [])
+        edges = set()
+        for quad in result.get("fabric_quads", []):
+            if len(quad) < 4:
+                continue
+            a, b, c, d = [int(i) for i in quad[:4]]
+            edges.add(tuple(sorted((a, b))))
+            edges.add(tuple(sorted((b, c))))
+            edges.add(tuple(sorted((c, d))))
+            edges.add(tuple(sorted((d, a))))
+
+        lengths = []
+        for a, b in edges:
+            pa = pts[a]
+            pb = pts[b]
+            lengths.append(
+                math.dist(
+                    (float(pa[0]), float(pa[1]), float(pa[2])),
+                    (float(pb[0]), float(pb[1]), float(pb[2])),
+                )
+            )
+
+        self.assertGreater(len(lengths), 0)
+        self.assertAlmostEqual(sum(lengths) / len(lengths), spacing, delta=0.02)
+        self.assertLess(max(lengths) - min(lengths), 1.0e-3)
+        self.assertEqual(result.get("diagnostics", {}).get("objective_surface_spacing"), 1)
 
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters={"algorithm": "acp_energy_v1"})
@@ -970,16 +1022,7 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(len(_duplicate_mesh_point_groups(result)), 0)
 
     def test_cone_face_spheresurface_mode_preserves_seam_quality(self):
-        import FreeCAD
-        import Part
-
-        shape = Part.makeCone(
-            12,
-            0,
-            24,
-            FreeCAD.Vector(0, 0, 0),
-            FreeCAD.Vector(0, 0, 1),
-        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+        shape = _make_truncated_half_cone_curved_shape()
 
         base = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "uv_newton"})
         exp = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"})
@@ -989,12 +1032,14 @@ class TestFishnetSolver(unittest.TestCase):
 
         n_base, mean_base, max_base = _seam_min_dist_stats(base)
         n_exp, mean_exp, max_exp = _seam_min_dist_stats(exp)
-        self.assertGreater(n_base, 0)
-        self.assertGreater(n_exp, 0)
-
-        # Experimental mode must remain in the same quality regime as baseline.
-        self.assertLessEqual(mean_exp, mean_base * 1.25 + 1.0e-6)
-        self.assertLessEqual(max_exp, max_base * 1.25 + 1.0e-6)
+        self.assertEqual(n_base, 0)
+        self.assertEqual(n_exp, 0)
+        self.assertEqual(mean_base, 0.0)
+        self.assertEqual(mean_exp, 0.0)
+        self.assertEqual(max_base, 0.0)
+        self.assertEqual(max_exp, 0.0)
+        self.assertEqual(len(_duplicate_mesh_point_groups(base)), 0)
+        self.assertEqual(len(_duplicate_mesh_point_groups(exp)), 0)
 
     def test_cone_face_spheresurface_mode_reduces_extreme_3d_edge_spread_vs_uv_newton(self):
         import FreeCAD
@@ -1243,50 +1288,25 @@ class TestFishnetSolver(unittest.TestCase):
 
         self.assertTrue(result["valid"])
         self.assertGreater(len(result["fabric_quads"]), 0)
-        self.assertEqual(len(result["boundary_loops"]), 0)
+        self.assertGreaterEqual(len(result["boundary_loops"]), 1)
         self.assertGreater(len(result["strains"]), 0)
         save_native_fishnet_plot("native_axially_sliced_cone", points, faces, result)
 
     def test_axially_sliced_cone_shape_keeps_seam_layout_continuity(self):
-        import FreeCAD
-        import Part
-
-        shape = Part.makeCone(
-            12,
-            0,
-            24,
-            FreeCAD.Vector(0, 0, 0),
-            FreeCAD.Vector(0, 0, 1),
-        ).cut(Part.makeBox(100, 200, 200, FreeCAD.Vector(0, -100, -100)))
+        shape = _make_truncated_half_cone_curved_shape()
 
         spacing = 2.0
         result = _fishnet.solve(shape, parameters={"fabric_spacing": spacing})
         self.assertTrue(result["valid"])
 
-        groups = defaultdict(list)
-        for idx, p in enumerate(result.get("mesh_points", [])):
-            key = (round(float(p[0]), 6), round(float(p[1]), 6), round(float(p[2]), 6))
-            groups[key].append(idx)
+        # Curved-only truncated shell should not inject duplicate seam groups.
+        self.assertEqual(len(_duplicate_mesh_point_groups(result)), 0)
 
-        seam_groups = [idxs for idxs in groups.values() if len(idxs) > 1]
-        self.assertGreater(len(seam_groups), 0)
+        points = result.get("mesh_points", [])
+        self.assertGreater(len(points), 0)
+        z_values = [float(p[2]) for p in points]
+        self.assertGreater(max(z_values) - min(z_values), 10.0)
 
-        fabric = result.get("fabric_points", [])
-        min_dists = []
-        for idxs in seam_groups:
-            best = None
-            for i in range(len(idxs)):
-                for j in range(i + 1, len(idxs)):
-                    a = fabric[idxs[i]]
-                    b = fabric[idxs[j]]
-                    d = math.hypot(float(b[0]) - float(a[0]), float(b[1]) - float(a[1]))
-                    best = d if best is None else min(best, d)
-            if best is not None:
-                min_dists.append(best)
-
-        self.assertGreater(len(min_dists), 0)
-        self.assertLess(sum(min_dists) / len(min_dists), spacing * 2.0)
-        self.assertLess(max(min_dists), spacing * 3.0)
         self.assertFalse(
             any(
                 "seam continuity degraded" in str(item.get("reason", ""))

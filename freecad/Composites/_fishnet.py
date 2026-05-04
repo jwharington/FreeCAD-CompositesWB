@@ -1097,7 +1097,7 @@ def _pack_result(
             "reason": f"edge length constraint violated: {violations} edges (max relative error {max_rel:.6g}, tolerance {rel_tol:.6g})",
         })
 
-    acp_energy_mode = _solver_algorithm(params) == "acp_energy_v1"
+    acp_energy_mode = _solver_algorithm(params) in {"acp_energy_v1", "acp_energy_v2_surface_spacing"}
     converged = not (acp_energy_mode and violations > 0)
     termination_reason = "converged" if converged else "max_iterations"
     diagnostics = {
@@ -1143,6 +1143,7 @@ def _pack_result(
             "objective_model": str(params.get("material_model", "woven") or "woven"),
             "objective_ud_coefficient": float(params.get("ud_coefficient", 0.0) or 0.0),
             "objective_thickness_correction": 1 if bool(params.get("thickness_correction", False)) else 0,
+            "objective_surface_spacing": 1 if _solver_algorithm(params) == "acp_energy_v2_surface_spacing" else 0,
         })
     return _attach_solver_metadata({
         "valid": True,
@@ -1324,9 +1325,14 @@ def _solve_shell(shape, params):
 
 def solve(mesh_points: Iterable[Iterable[float]], mesh_faces=None, parameters=None):
     params = dict(parameters or {})
-    if _solver_algorithm(params) == "acp_energy_v1":
+    if _solver_algorithm(params) in {"acp_energy_v1", "acp_energy_v2_surface_spacing"}:
         params.setdefault("current_node_solver", "spheresurface")
         params.setdefault("incremental_growth", True)
+    if _solver_algorithm(params) == "acp_energy_v2_surface_spacing":
+        params.setdefault("surface_spacing_refine", True)
+        params.setdefault("surface_spacing_relax_iterations", 12)
+        params.setdefault("paper_strict_inextensible", True)
+        params.setdefault("paper_strict_rel_tol", 0.3)
 
     if _is_point_cloud(mesh_points):
         points = [tuple(map(float, p)) for p in mesh_points]

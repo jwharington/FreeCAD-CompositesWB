@@ -259,7 +259,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     }
 
     const std::string algorithm = solver_algorithm_from_params(params_copy);
-    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
+    const bool acp_surface_spacing_mode = (algorithm == "acp_energy_v2_surface_spacing");
+    const bool acp_energy_mode = (algorithm == "acp_energy_v1") || acp_surface_spacing_mode;
 
     CurrentNodeSolverMode solver_mode = acp_energy_mode
         ? CurrentNodeSolverMode::SphereSurfaceExperimental
@@ -330,7 +331,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         }
     }
     bool enforce_local_strain_optimization =
-        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run);
+        (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental && single_face_run) || acp_surface_spacing_mode;
     if (PyObject *strain_obj = PyDict_GetItemString(params_copy, "enforce_local_strain_optimization")) {
         int parsed_bool = PyObject_IsTrue(strain_obj);
         if (parsed_bool >= 0) {
@@ -359,7 +360,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         }
     }
 
-    bool paper_strict_inextensible = false;
+    bool paper_strict_inextensible = acp_surface_spacing_mode;
     if (PyObject *strict_obj = PyDict_GetItemString(params_copy, "paper_strict_inextensible")) {
         int parsed_bool = PyObject_IsTrue(strict_obj);
         if (parsed_bool >= 0) {
@@ -368,11 +369,30 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyErr_Clear();
         }
     }
-    double paper_strict_rel_tol = 1.0e-3;
+    double paper_strict_rel_tol = acp_surface_spacing_mode ? 0.3 : 1.0e-3;
     if (PyObject *strict_tol_obj = PyDict_GetItemString(params_copy, "paper_strict_rel_tol")) {
         double parsed_tol = PyFloat_AsDouble(strict_tol_obj);
         if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol >= 0.0) {
             paper_strict_rel_tol = parsed_tol;
+        } else {
+            PyErr_Clear();
+        }
+    }
+
+    bool surface_spacing_refine = acp_surface_spacing_mode;
+    if (PyObject *refine_obj = PyDict_GetItemString(params_copy, "surface_spacing_refine")) {
+        int parsed_bool = PyObject_IsTrue(refine_obj);
+        if (parsed_bool >= 0) {
+            surface_spacing_refine = (parsed_bool != 0);
+        } else {
+            PyErr_Clear();
+        }
+    }
+    int surface_spacing_relax_iterations = acp_surface_spacing_mode ? 12 : 3;
+    if (PyObject *iters_obj = PyDict_GetItemString(params_copy, "surface_spacing_relax_iterations")) {
+        long parsed_iters = PyLong_AsLong(iters_obj);
+        if (!PyErr_Occurred() && parsed_iters > 0) {
+            surface_spacing_relax_iterations = static_cast<int>(parsed_iters);
         } else {
             PyErr_Clear();
         }
@@ -384,6 +404,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         enforce_local_strain_optimization = false;
         max_local_edge_rel_error = 0.0;
         strict_inside_updates = true;
+        surface_spacing_refine = false;
     }
 
     ExperimentalSolveStats experimental_stats;
@@ -433,6 +454,8 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             incremental_growth,
             paper_strict_inextensible,
             paper_strict_rel_tol,
+            surface_spacing_refine,
+            surface_spacing_relax_iterations,
             (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) ? &experimental_stats : nullptr
         );
         if (sample.points.empty() || sample.triangles.empty()) {
@@ -1014,7 +1037,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
     }
 
     const std::string algorithm = solver_algorithm_from_params(params_copy);
-    const bool acp_energy_mode = (algorithm == "acp_energy_v1");
+    const bool acp_energy_mode = (algorithm == "acp_energy_v1") || (algorithm == "acp_energy_v2_surface_spacing");
 
     if (points.empty()) {
         PyObject *res = PyDict_New();

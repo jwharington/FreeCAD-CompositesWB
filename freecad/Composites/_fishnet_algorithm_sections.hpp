@@ -328,6 +328,8 @@ FaceSample sample_face(
     bool incremental_growth,
     bool paper_strict_inextensible,
     double paper_strict_rel_tol,
+    bool surface_spacing_refine,
+    int surface_spacing_relax_iterations,
     ExperimentalSolveStats *experimental_stats
 );
 PyObject *build_face_frame_dict(const FaceSample &sample, int face_index, bool continuous, int chart_index);

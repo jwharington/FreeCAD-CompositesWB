@@ -1079,6 +1079,8 @@ FaceSample sample_face(
     bool incremental_growth,
     bool paper_strict_inextensible,
     double paper_strict_rel_tol,
+    bool surface_spacing_refine,
+    int surface_spacing_relax_iterations,
     ExperimentalSolveStats *experimental_stats
 ) {
     FaceSample sample;
@@ -1250,9 +1252,10 @@ FaceSample sample_face(
         std::vector<unsigned char>(static_cast<size_t>(divisions + 1), paper_strict_inextensible ? 0 : 1));
 
     if (paper_strict_inextensible && seed_i_uv >= 0 && seed_j_uv >= 0) {
-        // Seed a compact local patch so strict frontier has initial valid cells.
-        for (int di = -1; di <= 1; ++di) {
-            for (int dj = -1; dj <= 1; ++dj) {
+        // Seed a local patch so strict frontier has initial valid cells.
+        const int strict_seed_radius = surface_spacing_refine ? 3 : 1;
+        for (int di = -strict_seed_radius; di <= strict_seed_radius; ++di) {
+            for (int dj = -strict_seed_radius; dj <= strict_seed_radius; ++dj) {
                 int ii = seed_i_uv + di;
                 int jj = seed_j_uv + dj;
                 if (ii < 0 || jj < 0 || ii > divisions || jj > divisions) {
@@ -1848,8 +1851,14 @@ FaceSample sample_face(
                     }
                     bool b_active = strict_active[static_cast<size_t>(ib)][static_cast<size_t>(jb)] != 0;
                     bool c_active = strict_active[static_cast<size_t>(ic)][static_cast<size_t>(jc)] != 0;
-                    if (!b_active || !c_active) {
-                        return false;
+                    if (surface_spacing_refine) {
+                        if (!b_active && !c_active) {
+                            return false;
+                        }
+                    } else {
+                        if (!b_active || !c_active) {
+                            return false;
+                        }
                     }
                     return attempt_uv_update(cur.i, cur.j, ib, jb, ic, jc, target_spacing_len, target_spacing_len);
                 };
@@ -1928,8 +1937,7 @@ FaceSample sample_face(
             }
         }
 
-        if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental &&
-            enforce_local_strain_optimization) {
+        if (enforce_local_strain_optimization || surface_spacing_refine) {
             const double target_len = std::max(max_length, 1.0e-6);
 
             auto local_objective = [&](int i, int j, double cu, double cv, const Vec3 &p0) {
@@ -1961,7 +1969,12 @@ FaceSample sample_face(
                 return score;
             };
 
-            for (int relax_iter = 0; relax_iter < 3; ++relax_iter) {
+            const int relax_iters = std::max(
+                1,
+                surface_spacing_refine
+                    ? surface_spacing_relax_iterations
+                    : 3);
+            for (int relax_iter = 0; relax_iter < relax_iters; ++relax_iter) {
                 bool changed = false;
                 for (int i = 1; i < divisions; ++i) {
                     for (int j = 1; j < divisions; ++j) {
@@ -1990,20 +2003,23 @@ FaceSample sample_face(
                             }
                             double su = u;
                             double sv = v;
-                            bool solved = solve_uv_two_distance_constraints_spheresurface_experimental(
-                                face,
-                                surface,
-                                su,
-                                sv,
-                                sample.points[static_cast<size_t>(idx_b)],
-                                target_len,
-                                sample.points[static_cast<size_t>(idx_c)],
-                                target_len,
-                                u0,
-                                u1,
-                                v0,
-                                v1,
-                                experimental_stats);
+                            bool solved = false;
+                            if (solver_mode == CurrentNodeSolverMode::SphereSurfaceExperimental) {
+                                solved = solve_uv_two_distance_constraints_spheresurface_experimental(
+                                    face,
+                                    surface,
+                                    su,
+                                    sv,
+                                    sample.points[static_cast<size_t>(idx_b)],
+                                    target_len,
+                                    sample.points[static_cast<size_t>(idx_c)],
+                                    target_len,
+                                    u0,
+                                    u1,
+                                    v0,
+                                    v1,
+                                    experimental_stats);
+                            }
                             if (!solved) {
                                 solved = solve_uv_two_distance_constraints(
                                     face,
