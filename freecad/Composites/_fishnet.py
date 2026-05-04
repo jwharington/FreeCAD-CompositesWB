@@ -1050,12 +1050,14 @@ def _pack_result(
     constrained_edges = _constrained_edges(quads, triangles)
     boundary_loops_idx = _boundary_loop_indices(triangles)
     nominal_edge_length = float(params.get("fabric_spacing", 0.0) or 0.0)
+    relax_iterations = _solver_iterations(params) or 120
     fabric_points, residual_history = _relax_fabric_points_with_edge_constraints(
         points,
         fabric_points,
         constrained_edges,
         nominal_edge_length,
         boundary_loops=boundary_loops_idx,
+        iterations=relax_iterations,
         return_history=True,
     )
     boundary_loops = _boundary_loops(triangles, fabric_points)
@@ -1097,7 +1099,8 @@ def _pack_result(
         "max_edge_rel_error": float(max_rel),
         "final_residual": float(max_rel),
         "residual_threshold": float(rel_tol),
-        "max_iterations": _solver_iterations(params),
+        "max_iterations": int(relax_iterations),
+        "performed_iterations": max(0, len(residual_history) - 1),
         "residual_history": [float(v) for v in residual_history] if residual_history else [float(max_rel)],
         "residual_metric": "max_edge_rel_error",
         "residual_norm_type": "linf_relative_edge_length_error",

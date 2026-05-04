@@ -3896,8 +3896,12 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         ? perimeter_edges_from_quads(quads)
         : edges_from_triangles(triangles);
     double nominal_edge_length = nominal_spacing;
+    int relax_iterations = solver_iterations_from_params(params_copy);
+    if (relax_iterations <= 0) {
+        relax_iterations = 120;
+    }
     std::vector<double> residual_history;
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, 120, &residual_history);
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, relax_iterations, &residual_history);
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -4262,7 +4266,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
 
     const bool converged = !(acp_energy_mode && edge_violations > 0);
     const char *termination_reason = converged ? "converged" : "max_iterations";
-    const int max_iterations = solver_iterations_from_params(params_copy);
+    const int max_iterations = relax_iterations;
 
     PyObject *diagnostics = PyDict_New();
     if (diagnostics) {
@@ -4312,6 +4316,13 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         if (max_iterations_obj) {
             PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
             Py_DECREF(max_iterations_obj);
+        }
+        PyObject *performed_iterations_obj = PyLong_FromLong(
+            residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1)
+        );
+        if (performed_iterations_obj) {
+            PyDict_SetItemString(diagnostics, "performed_iterations", performed_iterations_obj);
+            Py_DECREF(performed_iterations_obj);
         }
         if (residual_history_obj) {
             PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
@@ -4489,8 +4500,12 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
             nominal_edge_length = 0.0;
         }
     }
+    int relax_iterations = solver_iterations_from_params(params_copy);
+    if (relax_iterations <= 0) {
+        relax_iterations = 120;
+    }
     std::vector<double> residual_history;
-    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, 120, &residual_history);
+    relax_fabric_points_with_edge_constraints(points, fabric_points, constrained_edges, loops_idx, nominal_edge_length, relax_iterations, &residual_history);
 
     std::vector<std::vector<Vec3>> loops_pts;
     loops_pts.reserve(loops_idx.size());
@@ -4636,7 +4651,7 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     const bool acp_energy_mode = (algorithm == "acp_energy_v1");
     const bool converged = !(acp_energy_mode && edge_violations > 0);
     const char *termination_reason = converged ? "converged" : "max_iterations";
-    const int max_iterations = solver_iterations_from_params(params_copy);
+    const int max_iterations = relax_iterations;
 
     PyObject *diagnostics = PyDict_New();
     if (diagnostics) {
@@ -4681,6 +4696,13 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         if (max_iterations_obj) {
             PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
             Py_DECREF(max_iterations_obj);
+        }
+        PyObject *performed_iterations_obj = PyLong_FromLong(
+            residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1)
+        );
+        if (performed_iterations_obj) {
+            PyDict_SetItemString(diagnostics, "performed_iterations", performed_iterations_obj);
+            Py_DECREF(performed_iterations_obj);
         }
         if (residual_history_obj) {
             PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);

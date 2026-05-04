@@ -502,7 +502,10 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("residual_history", result["diagnostics"])
         self.assertIn("residual_norm_type", result["diagnostics"])
         self.assertIn("stop_threshold_source", result["diagnostics"])
-        self.assertGreaterEqual(len(result["diagnostics"]["residual_history"]), 2)
+        self.assertIn("performed_iterations", result["diagnostics"])
+        self.assertEqual(result["diagnostics"]["max_iterations"], 7)
+        self.assertEqual(result["diagnostics"]["performed_iterations"], 7)
+        self.assertEqual(len(result["diagnostics"]["residual_history"]), 8)
 
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters={"algorithm": "acp_energy_v1"})
