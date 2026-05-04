@@ -510,6 +510,7 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("orthogonal_direction", result["diagnostics"])
         self.assertIn("objective_model", result["diagnostics"])
         self.assertIn("objective_ud_coefficient", result["diagnostics"])
+        self.assertIn("objective_thickness_correction", result["diagnostics"])
         self.assertEqual(result["diagnostics"]["propagation_stages"], "primary_orthogonal_fill")
         self.assertEqual(result["diagnostics"]["objective_model"], "woven")
         self.assertEqual(result["diagnostics"]["max_iterations"], 7)
@@ -579,10 +580,53 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertGreater(math.dist(pdir, xdir), 1.0e-6)
         self.assertEqual(ud_diag.get("objective_model"), "ud")
         self.assertAlmostEqual(float(ud_diag.get("objective_ud_coefficient", 0.0)), 0.8, places=6)
+        self.assertEqual(int(ud_diag.get("objective_thickness_correction", 0)), 0)
 
         woven_res = float(woven_diag.get("final_residual", 0.0))
         ud_res = float(ud_diag.get("final_residual", 0.0))
         self.assertGreater(abs(ud_res - woven_res), 1.0e-6)
+
+    def test_acp_thickness_correction_influences_objective_on_curved_mesh(self):
+        xs = [0.0, 0.5, 1.0, 1.5, 2.0]
+        ys = [0.0, 0.5, 1.0, 1.5]
+        curved, faces = _make_grid_mesh(
+            xs,
+            ys,
+            lambda u, v: 0.35 * math.sin(1.7 * u) * math.cos(1.3 * v),
+        )
+
+        base = _fishnet.solve(
+            mesh_points=curved,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy_v1",
+                "steps": 12,
+                "fabric_spacing": 0.5,
+                "thickness_correction": False,
+            },
+        )
+        corrected = _fishnet.solve(
+            mesh_points=curved,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy_v1",
+                "steps": 12,
+                "fabric_spacing": 0.5,
+                "thickness_correction": True,
+            },
+        )
+
+        self.assertTrue(base["valid"])
+        self.assertTrue(corrected["valid"])
+
+        base_diag = base.get("diagnostics", {})
+        corr_diag = corrected.get("diagnostics", {})
+        self.assertEqual(int(base_diag.get("objective_thickness_correction", 0)), 0)
+        self.assertEqual(int(corr_diag.get("objective_thickness_correction", 0)), 1)
+
+        base_res = float(base_diag.get("final_residual", 0.0))
+        corr_res = float(corr_diag.get("final_residual", 0.0))
+        self.assertGreater(abs(corr_res - base_res), 1.0e-9)
 
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
         result = _fishnet.solve(mesh_points=[], mesh_faces=[], parameters={"algorithm": "acp_energy_v1"})

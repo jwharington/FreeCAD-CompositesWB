@@ -159,6 +159,7 @@ SeamContinuityStats seam_layout_continuity_summary(
 );
 bool try_parse_param_vec3(PyObject *params, const char *key, Vec3 &out);
 double param_double(PyObject *params, const char *key, double fallback);
+bool param_bool(PyObject *params, const char *key, bool fallback);
 std::string param_string(PyObject *params, const char *key, const char *fallback);
 std::vector<std::vector<int>> build_vertex_adjacency(
     size_t point_count,
@@ -188,6 +189,7 @@ void build_acp_edge_objective(
     const Vec3 &primary_axis,
     const std::string &material_model,
     double ud_coefficient,
+    bool thickness_correction,
     std::vector<double> &edge_targets,
     std::vector<double> &edge_weights
 );

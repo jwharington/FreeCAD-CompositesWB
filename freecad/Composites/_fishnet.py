@@ -1142,6 +1142,7 @@ def _pack_result(
             "orthogonal_direction": [-dy, dx, 0.0],
             "objective_model": str(params.get("material_model", "woven") or "woven"),
             "objective_ud_coefficient": float(params.get("ud_coefficient", 0.0) or 0.0),
+            "objective_thickness_correction": 1 if bool(params.get("thickness_correction", False)) else 0,
         })
     return _attach_solver_metadata({
         "valid": True,

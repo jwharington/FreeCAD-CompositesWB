@@ -510,6 +510,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
         );
         const std::string material_model = param_string(params_copy, "material_model", "woven");
         const double ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
+        const bool thickness_correction = param_bool(params_copy, "thickness_correction", false);
         build_acp_edge_objective(
             local_points,
             constrained_edges,
@@ -517,6 +518,7 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             acp_summary.primary_axis,
             material_model,
             ud_coefficient,
+            thickness_correction,
             edge_targets,
             edge_weights
         );
@@ -1099,6 +1101,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
         );
         const std::string material_model = param_string(params_copy, "material_model", "woven");
         const double ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
+        const bool thickness_correction = param_bool(params_copy, "thickness_correction", false);
         build_acp_edge_objective(
             local_points,
             constrained_edges,
@@ -1106,6 +1109,7 @@ static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs) {
             acp_summary.primary_axis,
             material_model,
             ud_coefficient,
+            thickness_correction,
             edge_targets,
             edge_weights
         );

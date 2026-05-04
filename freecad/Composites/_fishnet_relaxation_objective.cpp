@@ -750,6 +750,22 @@ double param_double(PyObject *params, const char *key, double fallback) {
     return parsed;
 }
 
+bool param_bool(PyObject *params, const char *key, bool fallback) {
+    if (!params || !PyDict_Check(params) || !key) {
+        return fallback;
+    }
+    PyObject *obj = PyDict_GetItemString(params, key);
+    if (!obj) {
+        return fallback;
+    }
+    int truthy = PyObject_IsTrue(obj);
+    if (truthy < 0) {
+        PyErr_Clear();
+        return fallback;
+    }
+    return truthy != 0;
+}
+
 std::string param_string(PyObject *params, const char *key, const char *fallback) {
     if (!params || !PyDict_Check(params) || !key) {
         return fallback ? std::string(fallback) : std::string();
@@ -1010,6 +1026,7 @@ void build_acp_edge_objective(
     const Vec3 &primary_axis,
     const std::string &material_model,
     double ud_coefficient,
+    bool thickness_correction,
     std::vector<double> &edge_targets,
     std::vector<double> &edge_weights
 ) {
@@ -1042,11 +1059,16 @@ void build_acp_edge_objective(
             Vec3 d = local_points[static_cast<size_t>(b)] - local_points[static_cast<size_t>(a)];
             double len = std::sqrt(d.x * d.x + d.y * d.y);
             if (len > kVectorZeroEpsilon) {
+                if (thickness_correction) {
+                    const double spatial = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+                    const double ratio = std::clamp(spatial / len, 1.0, 1.25);
+                    target *= ratio;
+                }
                 Vec3 e2 = {d.x / len, d.y / len, 0.0};
                 double along_primary = std::abs(dot(e2, primary));
                 if (ud_model) {
                     double transverse = 1.0 - along_primary;
-                    target = nominal * (1.0 + 0.35 * ud * transverse);
+                    target = target * (1.0 + 0.35 * ud * transverse);
                     weight = 1.0 + 0.8 * ud * along_primary;
                 }
             }

@@ -200,6 +200,7 @@ void add_solver_diagnostics(
         }
         set_diag_string(diagnostics, "objective_model", param_string(params_copy, "material_model", "woven").c_str());
         set_diag_double(diagnostics, "objective_ud_coefficient", param_double(params_copy, "ud_coefficient", 0.0));
+        set_diag_long(diagnostics, "objective_thickness_correction", param_bool(params_copy, "thickness_correction", false) ? 1L : 0L);
         set_diag_string(diagnostics, "propagation_stages", "primary_orthogonal_fill");
     }
 }
