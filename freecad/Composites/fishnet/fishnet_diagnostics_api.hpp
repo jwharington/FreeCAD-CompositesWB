@@ -66,6 +66,7 @@ namespace fishnet_internal
         bool rel_tol_from_parameter;
         int max_iterations;
         const std::vector<double> &residual_history;
+        const std::vector<double> &combined_objective_history;
         bool acp_energy_mode;
         const AcpPropagationSummary &acp_summary;
         const AcpObjectiveSummary &objective_summary;
@@ -106,6 +107,7 @@ namespace fishnet_internal
         bool rel_tol_from_parameter,
         int max_iterations,
         const std::vector<double> &residual_history,
+        const std::vector<double> &combined_objective_history,
         bool acp_energy_mode,
         const AcpPropagationSummary &acp_summary,
         const AcpObjectiveSummary &objective_summary,
