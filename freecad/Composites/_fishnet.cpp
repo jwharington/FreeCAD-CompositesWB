@@ -4044,6 +4044,107 @@ static void attach_solver_metadata(PyObject *result, PyObject *params_copy, cons
     }
 }
 
+static void set_diag_long(PyObject *diagnostics, const char *key, long value) {
+    if (!diagnostics || !PyDict_Check(diagnostics) || !key) {
+        return;
+    }
+    PyObject *obj = PyLong_FromLong(value);
+    if (obj) {
+        PyDict_SetItemString(diagnostics, key, obj);
+        Py_DECREF(obj);
+    }
+}
+
+static void set_diag_double(PyObject *diagnostics, const char *key, double value) {
+    if (!diagnostics || !PyDict_Check(diagnostics) || !key) {
+        return;
+    }
+    PyObject *obj = PyFloat_FromDouble(value);
+    if (obj) {
+        PyDict_SetItemString(diagnostics, key, obj);
+        Py_DECREF(obj);
+    }
+}
+
+static void set_diag_string(PyObject *diagnostics, const char *key, const char *value) {
+    if (!diagnostics || !PyDict_Check(diagnostics) || !key || !value) {
+        return;
+    }
+    PyObject *obj = PyUnicode_FromString(value);
+    if (obj) {
+        PyDict_SetItemString(diagnostics, key, obj);
+        Py_DECREF(obj);
+    }
+}
+
+static void add_solver_diagnostics(
+    PyObject *diagnostics,
+    PyObject *params_copy,
+    long face_count,
+    long point_count,
+    long triangle_count,
+    long quad_count,
+    long orientation_break_count,
+    int edge_violations,
+    double max_rel_error,
+    double rel_tol,
+    bool rel_tol_from_parameter,
+    int max_iterations,
+    const std::vector<double> &residual_history,
+    bool acp_energy_mode,
+    const AcpPropagationSummary &acp_summary
+) {
+    if (!diagnostics || !PyDict_Check(diagnostics)) {
+        return;
+    }
+
+    if (face_count >= 0) {
+        set_diag_long(diagnostics, "face_count", face_count);
+    }
+    set_diag_long(diagnostics, "point_count", point_count);
+    set_diag_long(diagnostics, "triangle_count", triangle_count);
+    set_diag_long(diagnostics, "quad_count", quad_count);
+    set_diag_long(diagnostics, "orientation_break_count", orientation_break_count);
+    set_diag_long(diagnostics, "edge_violations", edge_violations);
+    set_diag_double(diagnostics, "max_edge_rel_error", max_rel_error);
+    set_diag_double(diagnostics, "final_residual", max_rel_error);
+    set_diag_double(diagnostics, "residual_threshold", rel_tol);
+    set_diag_long(diagnostics, "max_iterations", max_iterations);
+
+    const long performed_iterations = residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1);
+    set_diag_long(diagnostics, "performed_iterations", performed_iterations);
+    if (PyObject *residual_history_obj = build_double_list(residual_history)) {
+        PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
+        Py_DECREF(residual_history_obj);
+    }
+
+    set_diag_string(diagnostics, "residual_metric", "max_edge_rel_error");
+    set_diag_string(diagnostics, "residual_norm_type", "linf_relative_edge_length_error");
+    set_diag_string(
+        diagnostics,
+        "stop_threshold_source",
+        rel_tol_from_parameter ? "parameter:edge_length_tolerance" : "default:edge_length_tolerance"
+    );
+
+    if (acp_energy_mode) {
+        set_diag_long(diagnostics, "propagation_seed_index", acp_summary.seed_index);
+        set_diag_long(diagnostics, "propagation_primary_assigned", acp_summary.primary_assigned);
+        set_diag_long(diagnostics, "propagation_orthogonal_assigned", acp_summary.orthogonal_assigned);
+        set_diag_long(diagnostics, "propagation_fill_assigned", acp_summary.fill_assigned);
+        if (PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis)) {
+            PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
+            Py_DECREF(primary_axis_obj);
+        }
+        if (PyObject *orth_axis_obj = build_vec3_tuple(acp_summary.orthogonal_axis)) {
+            PyDict_SetItemString(diagnostics, "orthogonal_direction", orth_axis_obj);
+            Py_DECREF(orth_axis_obj);
+        }
+        set_diag_string(diagnostics, "objective_model", param_string(params_copy, "material_model", "woven").c_str());
+        set_diag_double(diagnostics, "objective_ud_coefficient", param_double(params_copy, "ud_coefficient", 0.0));
+        set_diag_string(diagnostics, "propagation_stages", "primary_orthogonal_fill");
+    }
+}
+
 static PyObject *build_empty_geometry_result(const char *error, PyObject *params_copy) {
     PyObject *res = PyDict_New();
     if (!res) {
@@ -4773,129 +4874,23 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
 
     PyObject *diagnostics = PyDict_New();
     if (diagnostics) {
-        PyObject *face_count_obj = PyLong_FromLong(static_cast<long>(samples.size()));
-        PyObject *point_count_obj = PyLong_FromLong(static_cast<long>(points.size()));
-        PyObject *triangle_count_obj = PyLong_FromLong(static_cast<long>(triangles.size()));
-        PyObject *quad_count_obj = PyLong_FromLong(static_cast<long>(quads.size()));
-        PyObject *orientation_break_count_obj = PyLong_FromLong(PyList_Size(orientation_breaks_list));
-        PyObject *edge_violations_obj = PyLong_FromLong(edge_violations);
-        PyObject *max_rel_error_obj = PyFloat_FromDouble(max_rel_error);
-        PyObject *residual_threshold_obj = PyFloat_FromDouble(rel_tol);
-        PyObject *max_iterations_obj = PyLong_FromLong(max_iterations);
-        PyObject *residual_history_obj = build_double_list(residual_history);
-        if (face_count_obj) {
-            PyDict_SetItemString(diagnostics, "face_count", face_count_obj);
-            Py_DECREF(face_count_obj);
-        }
-        if (point_count_obj) {
-            PyDict_SetItemString(diagnostics, "point_count", point_count_obj);
-            Py_DECREF(point_count_obj);
-        }
-        if (triangle_count_obj) {
-            PyDict_SetItemString(diagnostics, "triangle_count", triangle_count_obj);
-            Py_DECREF(triangle_count_obj);
-        }
-        if (quad_count_obj) {
-            PyDict_SetItemString(diagnostics, "quad_count", quad_count_obj);
-            Py_DECREF(quad_count_obj);
-        }
-        if (orientation_break_count_obj) {
-            PyDict_SetItemString(diagnostics, "orientation_break_count", orientation_break_count_obj);
-            Py_DECREF(orientation_break_count_obj);
-        }
-        if (edge_violations_obj) {
-            PyDict_SetItemString(diagnostics, "edge_violations", edge_violations_obj);
-            Py_DECREF(edge_violations_obj);
-        }
-        if (max_rel_error_obj) {
-            PyDict_SetItemString(diagnostics, "max_edge_rel_error", max_rel_error_obj);
-            PyDict_SetItemString(diagnostics, "final_residual", max_rel_error_obj);
-            Py_DECREF(max_rel_error_obj);
-        }
-        if (residual_threshold_obj) {
-            PyDict_SetItemString(diagnostics, "residual_threshold", residual_threshold_obj);
-            Py_DECREF(residual_threshold_obj);
-        }
-        if (max_iterations_obj) {
-            PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
-            Py_DECREF(max_iterations_obj);
-        }
-        PyObject *performed_iterations_obj = PyLong_FromLong(
-            residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1)
+        add_solver_diagnostics(
+            diagnostics,
+            params_copy,
+            static_cast<long>(samples.size()),
+            static_cast<long>(points.size()),
+            static_cast<long>(triangles.size()),
+            static_cast<long>(quads.size()),
+            PyList_Size(orientation_breaks_list),
+            edge_violations,
+            max_rel_error,
+            rel_tol,
+            rel_tol_from_parameter,
+            max_iterations,
+            residual_history,
+            acp_energy_mode,
+            acp_summary
         );
-        if (performed_iterations_obj) {
-            PyDict_SetItemString(diagnostics, "performed_iterations", performed_iterations_obj);
-            Py_DECREF(performed_iterations_obj);
-        }
-        if (residual_history_obj) {
-            PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
-            Py_DECREF(residual_history_obj);
-        }
-        PyObject *residual_metric_obj = PyUnicode_FromString("max_edge_rel_error");
-        if (residual_metric_obj) {
-            PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
-            Py_DECREF(residual_metric_obj);
-        }
-        PyObject *residual_norm_type_obj = PyUnicode_FromString("linf_relative_edge_length_error");
-        if (residual_norm_type_obj) {
-            PyDict_SetItemString(diagnostics, "residual_norm_type", residual_norm_type_obj);
-            Py_DECREF(residual_norm_type_obj);
-        }
-        const char *threshold_source = rel_tol_from_parameter
-            ? "parameter:edge_length_tolerance"
-            : "default:edge_length_tolerance";
-        PyObject *threshold_source_obj = PyUnicode_FromString(threshold_source);
-        if (threshold_source_obj) {
-            PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
-            Py_DECREF(threshold_source_obj);
-        }
-        if (acp_energy_mode) {
-            PyObject *seed_idx_obj = PyLong_FromLong(acp_summary.seed_index);
-            PyObject *primary_assigned_obj = PyLong_FromLong(acp_summary.primary_assigned);
-            PyObject *orth_assigned_obj = PyLong_FromLong(acp_summary.orthogonal_assigned);
-            PyObject *fill_assigned_obj = PyLong_FromLong(acp_summary.fill_assigned);
-            PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis);
-            PyObject *orth_axis_obj = build_vec3_tuple(acp_summary.orthogonal_axis);
-            PyObject *objective_model_obj = PyUnicode_FromString(param_string(params_copy, "material_model", "woven").c_str());
-            PyObject *ud_coeff_obj = PyFloat_FromDouble(param_double(params_copy, "ud_coefficient", 0.0));
-            if (seed_idx_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_seed_index", seed_idx_obj);
-                Py_DECREF(seed_idx_obj);
-            }
-            if (primary_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_primary_assigned", primary_assigned_obj);
-                Py_DECREF(primary_assigned_obj);
-            }
-            if (orth_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_orthogonal_assigned", orth_assigned_obj);
-                Py_DECREF(orth_assigned_obj);
-            }
-            if (fill_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_fill_assigned", fill_assigned_obj);
-                Py_DECREF(fill_assigned_obj);
-            }
-            if (primary_axis_obj) {
-                PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
-                Py_DECREF(primary_axis_obj);
-            }
-            if (orth_axis_obj) {
-                PyDict_SetItemString(diagnostics, "orthogonal_direction", orth_axis_obj);
-                Py_DECREF(orth_axis_obj);
-            }
-            if (objective_model_obj) {
-                PyDict_SetItemString(diagnostics, "objective_model", objective_model_obj);
-                Py_DECREF(objective_model_obj);
-            }
-            if (ud_coeff_obj) {
-                PyDict_SetItemString(diagnostics, "objective_ud_coefficient", ud_coeff_obj);
-                Py_DECREF(ud_coeff_obj);
-            }
-            PyObject *stage_obj = PyUnicode_FromString("primary_orthogonal_fill");
-            if (stage_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_stages", stage_obj);
-                Py_DECREF(stage_obj);
-            }
-        }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
@@ -5246,124 +5241,23 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
 
     PyObject *diagnostics = PyDict_New();
     if (diagnostics) {
-        PyObject *point_count_obj = PyLong_FromLong(static_cast<long>(points.size()));
-        PyObject *triangle_count_obj = PyLong_FromLong(static_cast<long>(faces.size()));
-        PyObject *quad_count_obj = PyLong_FromLong(static_cast<long>(fabric_quads.size()));
-        PyObject *orientation_break_count_obj = PyLong_FromLong(PyList_Size(orientation_breaks_list));
-        PyObject *edge_violations_obj = PyLong_FromLong(edge_violations);
-        PyObject *max_rel_error_obj = PyFloat_FromDouble(max_rel_error);
-        PyObject *residual_threshold_obj = PyFloat_FromDouble(rel_tol);
-        PyObject *max_iterations_obj = PyLong_FromLong(max_iterations);
-        PyObject *residual_history_obj = build_double_list(residual_history);
-        if (point_count_obj) {
-            PyDict_SetItemString(diagnostics, "point_count", point_count_obj);
-            Py_DECREF(point_count_obj);
-        }
-        if (triangle_count_obj) {
-            PyDict_SetItemString(diagnostics, "triangle_count", triangle_count_obj);
-            Py_DECREF(triangle_count_obj);
-        }
-        if (quad_count_obj) {
-            PyDict_SetItemString(diagnostics, "quad_count", quad_count_obj);
-            Py_DECREF(quad_count_obj);
-        }
-        if (orientation_break_count_obj) {
-            PyDict_SetItemString(diagnostics, "orientation_break_count", orientation_break_count_obj);
-            Py_DECREF(orientation_break_count_obj);
-        }
-        if (edge_violations_obj) {
-            PyDict_SetItemString(diagnostics, "edge_violations", edge_violations_obj);
-            Py_DECREF(edge_violations_obj);
-        }
-        if (max_rel_error_obj) {
-            PyDict_SetItemString(diagnostics, "max_edge_rel_error", max_rel_error_obj);
-            PyDict_SetItemString(diagnostics, "final_residual", max_rel_error_obj);
-            Py_DECREF(max_rel_error_obj);
-        }
-        if (residual_threshold_obj) {
-            PyDict_SetItemString(diagnostics, "residual_threshold", residual_threshold_obj);
-            Py_DECREF(residual_threshold_obj);
-        }
-        if (max_iterations_obj) {
-            PyDict_SetItemString(diagnostics, "max_iterations", max_iterations_obj);
-            Py_DECREF(max_iterations_obj);
-        }
-        PyObject *performed_iterations_obj = PyLong_FromLong(
-            residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1)
+        add_solver_diagnostics(
+            diagnostics,
+            params_copy,
+            -1,
+            static_cast<long>(points.size()),
+            static_cast<long>(faces.size()),
+            static_cast<long>(fabric_quads.size()),
+            PyList_Size(orientation_breaks_list),
+            edge_violations,
+            max_rel_error,
+            rel_tol,
+            rel_tol_from_parameter,
+            max_iterations,
+            residual_history,
+            acp_energy_mode,
+            acp_summary
         );
-        if (performed_iterations_obj) {
-            PyDict_SetItemString(diagnostics, "performed_iterations", performed_iterations_obj);
-            Py_DECREF(performed_iterations_obj);
-        }
-        if (residual_history_obj) {
-            PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
-            Py_DECREF(residual_history_obj);
-        }
-        PyObject *residual_metric_obj = PyUnicode_FromString("max_edge_rel_error");
-        if (residual_metric_obj) {
-            PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
-            Py_DECREF(residual_metric_obj);
-        }
-        PyObject *residual_norm_type_obj = PyUnicode_FromString("linf_relative_edge_length_error");
-        if (residual_norm_type_obj) {
-            PyDict_SetItemString(diagnostics, "residual_norm_type", residual_norm_type_obj);
-            Py_DECREF(residual_norm_type_obj);
-        }
-        const char *threshold_source = rel_tol_from_parameter
-            ? "parameter:edge_length_tolerance"
-            : "default:edge_length_tolerance";
-        PyObject *threshold_source_obj = PyUnicode_FromString(threshold_source);
-        if (threshold_source_obj) {
-            PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
-            Py_DECREF(threshold_source_obj);
-        }
-        if (acp_energy_mode) {
-            PyObject *seed_idx_obj = PyLong_FromLong(acp_summary.seed_index);
-            PyObject *primary_assigned_obj = PyLong_FromLong(acp_summary.primary_assigned);
-            PyObject *orth_assigned_obj = PyLong_FromLong(acp_summary.orthogonal_assigned);
-            PyObject *fill_assigned_obj = PyLong_FromLong(acp_summary.fill_assigned);
-            PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis);
-            PyObject *orth_axis_obj = build_vec3_tuple(acp_summary.orthogonal_axis);
-            PyObject *objective_model_obj = PyUnicode_FromString(param_string(params_copy, "material_model", "woven").c_str());
-            PyObject *ud_coeff_obj = PyFloat_FromDouble(param_double(params_copy, "ud_coefficient", 0.0));
-            if (seed_idx_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_seed_index", seed_idx_obj);
-                Py_DECREF(seed_idx_obj);
-            }
-            if (primary_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_primary_assigned", primary_assigned_obj);
-                Py_DECREF(primary_assigned_obj);
-            }
-            if (orth_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_orthogonal_assigned", orth_assigned_obj);
-                Py_DECREF(orth_assigned_obj);
-            }
-            if (fill_assigned_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_fill_assigned", fill_assigned_obj);
-                Py_DECREF(fill_assigned_obj);
-            }
-            if (primary_axis_obj) {
-                PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
-                Py_DECREF(primary_axis_obj);
-            }
-            if (orth_axis_obj) {
-                PyDict_SetItemString(diagnostics, "orthogonal_direction", orth_axis_obj);
-                Py_DECREF(orth_axis_obj);
-            }
-            if (objective_model_obj) {
-                PyDict_SetItemString(diagnostics, "objective_model", objective_model_obj);
-                Py_DECREF(objective_model_obj);
-            }
-            if (ud_coeff_obj) {
-                PyDict_SetItemString(diagnostics, "objective_ud_coefficient", ud_coeff_obj);
-                Py_DECREF(ud_coeff_obj);
-            }
-            PyObject *stage_obj = PyUnicode_FromString("primary_orthogonal_fill");
-            if (stage_obj) {
-                PyDict_SetItemString(diagnostics, "propagation_stages", stage_obj);
-                Py_DECREF(stage_obj);
-            }
-        }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
