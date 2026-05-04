@@ -16,7 +16,6 @@ constexpr double kDefaultEdgeLengthTolerance = 1.0e-6;
 constexpr double kOverlapEpsilon = 1.0e-9;
 
 enum class CurrentNodeSolverMode {
-    UvNewton,
-    SphereSurfaceExperimental,
+    SphereSurface,
 };
 

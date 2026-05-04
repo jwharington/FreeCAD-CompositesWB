@@ -77,7 +77,7 @@ bool constraints_satisfied_asymmetric_rel(
     double max_shortening_rel
 );
 
-bool solve_uv_two_distance_constraints_spheresurface_experimental(
+bool solve_uv_two_distance_constraints_spheresurface(
     const TopoDS_Face &face,
     const BRepAdaptor_Surface &surface,
     double &u,

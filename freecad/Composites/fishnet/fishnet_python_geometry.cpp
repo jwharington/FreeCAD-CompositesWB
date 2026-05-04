@@ -3,7 +3,11 @@
 
 #include <Mod/Part/App/TopoShapePy.h>
 
-#include "fishnet_algorithm_sections.hpp"
+#include "fishnet_diagnostics_api.hpp"
+#include "fishnet_layout_geometry_api.hpp"
+#include "fishnet_options_api.hpp"
+#include "fishnet_result_api.hpp"
+#include "fishnet_sampling_api.hpp"
 #include "fishnet_python_geometry.hpp"
 #include "fishnet_python_util.hpp"
 #include "fishnet_surface_queries.hpp"

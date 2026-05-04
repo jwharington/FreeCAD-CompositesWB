@@ -866,6 +866,7 @@ namespace fishnet_internal
         const EdgeDiagnosticsContext &edge_context;
         int relax_iterations;
         const std::vector<double> &residual_history;
+        const std::vector<double> &combined_objective_history;
         bool acp_energy_mode;
         const AcpPropagationSummary &acp_summary;
         const AcpObjectiveSummary &objective_summary;
@@ -904,6 +905,7 @@ namespace fishnet_internal
             input.edge_context.rel_tol_from_parameter,
             input.relax_iterations,
             input.residual_history,
+            input.combined_objective_history,
             input.acp_energy_mode,
             input.acp_summary,
             input.objective_summary,
@@ -1008,6 +1010,7 @@ namespace fishnet_internal
             edge_context,
             input.relax_iterations,
             input.residual_history,
+            input.combined_objective_history,
             input.acp_energy_mode,
             input.acp_summary,
             input.objective_summary,
@@ -1097,6 +1100,7 @@ namespace fishnet_internal
             edge_context.rel_tol_from_parameter,
             input.relax_iterations,
             input.residual_history,
+            input.combined_objective_history,
             input.acp_energy_mode,
             input.acp_summary,
             input.objective_summary,

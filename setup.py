@@ -86,6 +86,30 @@ fishnet_extension = Extension(
             "fishnet_relaxation_objective.cpp",
         ),
         os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_acp_layout.cpp",
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_surface_relaxation.cpp",
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_layout_geometry.cpp",
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_sampling_node_update.cpp",
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_geometry_sampling.cpp"
         ),
         os.path.join(
@@ -108,6 +132,9 @@ fishnet_extension = Extension(
         ),
         os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_diagnostics_result.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_result_builder.cpp"
         ),
         os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_options.cpp"

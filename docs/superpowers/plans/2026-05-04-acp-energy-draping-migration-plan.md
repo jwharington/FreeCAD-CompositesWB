@@ -11,19 +11,26 @@ This plan is updated using details extracted from:
 
 - FreeCAD build path for local extension/testing work: `~/opt/FreeCAD/build/pixi-debug`
 
-## Status update (2026-05-04, post-v2 spacing report)
+## Status update (2026-05-04, current)
 
 ### Completed since initial draft
 
 - ACP parameter contract/plumbing landed in model, adapter, and UI.
 - Native solver architecture is now split into interface + multiple algorithm translation units (no `.inc` implementation fragments).
-- `acp_energy_v1` staged propagation/objective path is integrated with deterministic diagnostics and explicit stop reasons.
+- `acp_energy` staged propagation/objective path is integrated with deterministic diagnostics and explicit stop reasons.
 - Curved-only truncated half-cone geometry (small radius = 80% of large radius) is now the main cone validation shape.
-- `acp_energy_v2_surface_spacing` mode is implemented and now enforces near-constant 3D edge lengths on the truncated curved cone test scenario (with reduced patch coverage tradeoff).
-- Added v2 coverage diagnostics (`coverage_point_ratio`, active-node ratio, frontier acceptance, candidate-vs-selected quad ratios) in native + fallback metadata.
-- Added native test assertions for v2 diagnostics on truncated cone and the Krogh double-curved mesh helper.
-- Native/integration suites are green locally (`FreeCADCmd`), and plots/report were regenerated under:
-  - `artifacts/acp-v2-spacing-report-2026-05-04/`
+- `acp_energy` + `acp_strategy=surface_spacing` now enforces near-constant 3D edge lengths **and** high coverage on truncated curved cone scenarios.
+- Added v2 coverage diagnostics (`coverage_point_ratio`, active-node ratio, frontier acceptance, candidate-vs-selected quad ratios) in native diagnostics.
+- Added and tightened native test assertions for v2 spacing+coverage on truncated cone and the Krogh double-curved mesh helper.
+- Deepened UD constitutive shaping with higher-order anisotropy control (`objective_p_norm`) and orientation-bucket objective diagnostics.
+- Added pre-shear constitutive hook (`pre_shear_deg`) with signed bias-family target asymmetry diagnostics.
+- Added optional cell-level objective hooks (`objective_shear_weight`, `objective_fiber_weight`, `objective_cell_gain`) for shear/fiber-angle p-norm shaping.
+- Added native constitutive test coverage for monotonic UD anisotropy response, pre-shear sign-convention consistency, and direction-sensitive cell-level shear/fiber diagnostics.
+- Removed legacy algorithm mode (`legacy_fishnet`) and removed ACP alias modes in favor of `acp_energy` + `acp_strategy`.
+- Removed pure-Python solver fallback (`fishnet/python_solver.py`) and made solver backend native-only.
+- Simplified current-node solver policy to SphereSurface-only.
+- Refactored `sample_face_impl` into explicit `init -> grow -> emit` phases.
+- Native/integration suites are green locally (`FreeCADCmd`): 42 native + 15 integration.
 
 ### Important test-asset note
 
@@ -36,8 +43,9 @@ There is now explicit **double-curved mesh coverage** for validation:
 
 ### Current gap
 
-- v2 achieves strong spacing uniformity but currently grows a smaller strict patch than desired.
-- Next implementation step is improving **coverage expansion while preserving near-constant on-surface spacing**.
+- 🔴 **HIGH PRIORITY (P0):** Flattened 2D growth path is now demand-driven by default (non-adaptive preallocated initialization removed), but topology is still effectively fixed-cardinality at emit time (no variable row/ring column counts yet for cones/frusta).
+- Remaining major technical gap is full physically faithful ACP constitutive objective fidelity (beyond current staged anisotropic edge/cell surrogate shaping + signed pre-shear terms and diagnostics).
+- Secondary gap is plan/documentation cleanup to remove stale references to legacy/fallback paths.
 
 ## Goals
 
@@ -109,8 +117,9 @@ From the paper’s process optimization setup:
 
 ### Tasks
 
-- Add a versioned solver mode:
-  - `acp_energy_v1` (new default target)
+- Add a unified solver mode:
+  - `acp_energy` (production mode)
+  - strategy via `acp_strategy` (`woven` / `surface_spacing`)
 - Define and normalize solver input schema in native + Python layers:
   - `seed_point`
   - `auto_draping_direction`
@@ -140,7 +149,7 @@ From the paper’s process optimization setup:
 
 ### Tasks
 
-- Implement explicit Step 1/2/3 propagation loop in `_fishnet.cpp` under `acp_energy_v1`.
+- Implement explicit Step 1/2/3 propagation loop in `fishnet/fishnet.cpp` under `acp_energy`.
 - Implement Step 2 constrained local objective:
   - Woven baseline objective: minimize corner shear sum in generator cells.
   - If `pre_shear_deg != 0`, minimize deviation from target pre-shear in generator cells.
@@ -183,8 +192,8 @@ From the paper’s process optimization setup:
 ### Acceptance criteria
 
 - User can configure ACP-style controls in UI.
-- `CompositeShell` recompute path uses new algorithm mode.
-- Legacy mode remains available behind explicit flag during transition.
+- `CompositeShell` recompute path uses `acp_energy` mode.
+- No legacy mode remains in production path.
 
 ## Phase 5 — Validation and testing (no legacy parity)
 
@@ -232,37 +241,65 @@ Use geometry-based expected behavior + numerical invariants.
 - Tests pass for all canonical geometries and invariants.
 - No dependency on old WIP output files/data.
 
-## Phase 6 — Default switch and cleanup
-
-## Phase 7 — ACP v2 on-surface spacing coverage expansion
+## Phase 6 — ACP v2 on-surface spacing coverage expansion
 
 ### Tasks
 
-- Improve frontier growth/activation in `acp_energy_v2_surface_spacing` so coverage expands beyond the current strict seed patch.
+- Improve frontier growth/activation in `acp_strategy=surface_spacing` so coverage expands beyond strict seed patches.
 - Keep near-constant 3D/on-surface edge-length objective active while growing coverage.
 - Add diagnostics for coverage quality (coverage ratio, growth stall reason, spacing error summary).
 - Add targeted tests that assert both spacing quality and minimum coverage on curved-only truncated cone and double-curved meshes.
 
 ### Acceptance criteria
 
-- v2 keeps low 3D edge-length spread while producing materially higher quad coverage than current strict patch behavior.
+- v2 keeps low 3D edge-length spread while producing materially higher quad coverage on curved supports.
 - Diagnostics clearly report spacing-vs-coverage tradeoffs.
 
+## Phase 6.5 — 🔴 High-priority topology behavior correction (KinDrape-style growth)
 
 ### Tasks
 
-- Switch default mode to `acp_energy_v1` after validation.
-- Remove dead code paths and outdated UI hints after acceptance.
+- [x] Replace fixed preallocated regular-grid topology behavior in sampling/layout path with demand-driven topological growth semantics.
+- Allow flattened mesh cardinality/topology to adapt during growth (instead of fixed row/column counts inherited from initial divisions).
+- Support variable column counts across rings/rows where geometry demands it (e.g., cone/frustum circumference changes).
+- Add diagnostics for topology adaptation behavior (e.g., per-ring/per-band node/column counts and transition events).
+- Add invariant tests proving adaptive growth occurs on cone/frustum surfaces and prevents forced fixed-column artifacts.
 
 ### Acceptance criteria
 
-- New mode is default in production path.
-- Fallback documented and time-boxed for removal.
+- Flattened drape mesh grows/adapts as required (not fixed-cardinality).
+- Cone/frustum cases show variable column counts where needed rather than forced equal-count rows.
+- Diagnostics and tests explicitly guard this behavior.
+
+## Phase 7 — ACP constitutive fidelity deepening
+
+### Tasks
+
+- Deepen objective terms toward physically faithful ACP material-law behavior (beyond staged edge/cell surrogate shaping).
+- Add canonical invariant tests for new constitutive terms on curved surfaces.
+- Expand diagnostics so constitutive failure modes remain interpretable.
+
+### Acceptance criteria
+
+- Constitutive behavior matches agreed ACP-fidelity targets on canonical validation geometries.
+- Diagnostics are sufficient to debug non-convergence/incorrect constitutive responses.
+
+## Phase 8 — Default switch and cleanup
+### Tasks
+
+- Keep default mode as `acp_energy` and remove dead compatibility paths.
+- Remove stale references to legacy/fallback modes from docs, tests, and UI hints.
+
+### Acceptance criteria
+
+- `acp_energy` remains default and stable in production path.
+- No legacy/fallback solver path remains in production code.
 
 ## File-level Work Plan
 
-- `freecad/Composites/_fishnet.cpp`
-- `freecad/Composites/_fishnet.py` (fallback parity behavior only where needed)
+- `freecad/Composites/fishnet/fishnet.cpp`
+- `freecad/Composites/fishnet/fishnet_geometry_sampling.cpp`
+- `freecad/Composites/fishnet/fishnet_algorithm.cpp`
 - `freecad/Composites/tools/fishnet_draper.py`
 - `freecad/Composites/features/CompositeShell.py`
 - `freecad/Composites/resources/ui/FishnetDrape.ui`
@@ -273,7 +310,7 @@ Use geometry-based expected behavior + numerical invariants.
 ## Risks and Mitigations
 
 - **Trimmed-surface projection instability**
-  - Mitigation: strict inside checks, tangent-plane update limiting, robust fallbacks.
+  - Mitigation: strict inside checks, tangent-plane update limiting, robust local candidate seeding.
 - **Numerical folding/shear blow-up on high curvature**
   - Mitigation: hard local guards + infeasible diagnostics.
 - **Parameter confusion (`MaxLength` vs mesh size)**
@@ -289,7 +326,7 @@ Use geometry-based expected behavior + numerical invariants.
 2. FreeCAD-facing parameterized draping controls (including pre-shear).
 3. Updated adapter integration with stable public methods.
 4. New test suite based on invariants and canonical behavior.
-5. Documented deprecation path for legacy mode.
+5. Documentation updated to reflect native-only `acp_energy` + strategy architecture.
 
 ## Definition of Done
 

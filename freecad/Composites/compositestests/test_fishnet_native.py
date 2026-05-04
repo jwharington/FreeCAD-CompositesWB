@@ -675,6 +675,157 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertIn(diag.get("objective_model"), ("woven", "ud"))
             self.assertTrue(math.isfinite(float(diag.get("objective_ud_coefficient", 0.0))))
 
+    def test_acp_ud_constitutive_objective_anisotropy_is_monotonic(self):
+        points, faces = _make_grid_mesh(
+            xs=[0.0, 1.0, 2.0, 3.0],
+            ys=[0.0, 1.0, 2.0],
+            z_func=lambda u, v: 0.0,
+        )
+
+        weight_ratios = []
+        target_ratios = []
+        for ud_coeff in (0.0, 0.5, 1.0):
+            result = _fishnet.solve(
+                mesh_points=points,
+                mesh_faces=faces,
+                parameters={
+                    "algorithm": "acp_energy",
+                    "steps": 14,
+                    "fabric_spacing": 1.0,
+                    "material_model": "ud",
+                    "ud_coefficient": ud_coeff,
+                    "objective_p_norm": 8.0,
+                    "draping_direction": (1.0, 0.0, 0.0),
+                },
+            )
+            self.assertTrue(result["valid"])
+            diag = result.get("diagnostics", {})
+            self.assertEqual(diag.get("objective_model"), "ud")
+            self.assertAlmostEqual(float(diag.get("objective_p_norm", 0.0)), 8.0, places=6)
+            self.assertGreater(int(diag.get("objective_primary_edge_count", 0)), 0)
+            self.assertGreater(int(diag.get("objective_transverse_edge_count", 0)), 0)
+
+            weight_ratio = float(diag.get("objective_weight_anisotropy_ratio", 1.0))
+            target_ratio = float(diag.get("objective_target_anisotropy_ratio", 1.0))
+            self.assertTrue(math.isfinite(weight_ratio))
+            self.assertTrue(math.isfinite(target_ratio))
+            weight_ratios.append(weight_ratio)
+            target_ratios.append(target_ratio)
+
+        self.assertGreaterEqual(weight_ratios[1] + 1.0e-9, weight_ratios[0])
+        self.assertGreaterEqual(weight_ratios[2] + 1.0e-9, weight_ratios[1])
+        self.assertGreaterEqual(target_ratios[1] + 1.0e-9, target_ratios[0])
+        self.assertGreaterEqual(target_ratios[2] + 1.0e-9, target_ratios[1])
+        self.assertGreater(weight_ratios[2], weight_ratios[0] + 0.25)
+        self.assertGreater(target_ratios[2], target_ratios[0] + 0.10)
+
+    def test_acp_preshear_sign_convention_is_consistent_on_bias_families(self):
+        points, faces = _make_grid_mesh(
+            xs=[0.0, 1.0, 2.0, 3.0],
+            ys=[0.0, 1.0, 2.0, 3.0],
+            z_func=lambda u, v: 0.0,
+        )
+
+        def solve_with_preshear(value):
+            result = _fishnet.solve(
+                mesh_points=points,
+                mesh_faces=faces,
+                parameters={
+                    "algorithm": "acp_energy",
+                    "steps": 14,
+                    "fabric_spacing": 1.0,
+                    "material_model": "woven",
+                    "pre_shear_deg": value,
+                    "draping_direction": (1.0, 1.0, 0.0),
+                },
+            )
+            self.assertTrue(result["valid"])
+            diag = result.get("diagnostics", {})
+            self.assertAlmostEqual(float(diag.get("objective_pre_shear_deg", 0.0)), value, places=6)
+            self.assertGreater(int(diag.get("objective_positive_bias_edge_count", 0)), 0)
+            self.assertGreater(int(diag.get("objective_negative_bias_edge_count", 0)), 0)
+            self.assertTrue(math.isfinite(float(diag.get("objective_signed_shear_proxy_mean", 0.0))))
+            return float(diag.get("objective_signed_bias_target_asymmetry", 0.0)), diag
+
+        asym_neg, diag_neg = solve_with_preshear(-20.0)
+        asym_zero, diag_zero = solve_with_preshear(0.0)
+        asym_pos, diag_pos = solve_with_preshear(20.0)
+
+        self.assertLess(asym_neg, asym_zero - 1.0e-6)
+        self.assertGreater(asym_pos, asym_zero + 1.0e-6)
+        self.assertAlmostEqual(asym_zero, 0.0, delta=1.0e-9)
+        self.assertAlmostEqual(asym_pos, -asym_neg, delta=2.0e-2)
+        self.assertGreater(
+            float(diag_pos.get("objective_target_scale_positive_bias_mean", 1.0)),
+            float(diag_pos.get("objective_target_scale_negative_bias_mean", 1.0)),
+        )
+        self.assertLess(
+            float(diag_neg.get("objective_target_scale_positive_bias_mean", 1.0)),
+            float(diag_neg.get("objective_target_scale_negative_bias_mean", 1.0)),
+        )
+
+    def test_acp_cell_objective_reports_shear_and_fiber_metrics(self):
+        points, faces = _make_grid_mesh(
+            xs=[0.0, 1.0, 2.0, 3.0],
+            ys=[0.0, 1.0, 2.0, 3.0],
+            z_func=lambda u, v: 0.0,
+        )
+
+        aligned = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 14,
+                "fabric_spacing": 1.0,
+                "material_model": "woven",
+                "draping_direction": (1.0, 0.0, 0.0),
+                "pre_shear_deg": 0.0,
+            },
+        )
+        self.assertTrue(aligned["valid"])
+        diag_aligned = aligned.get("diagnostics", {})
+        self.assertGreater(int(diag_aligned.get("objective_cell_count", 0)), 0)
+        self.assertAlmostEqual(float(diag_aligned.get("objective_shear_weight", 0.0)), 1.0, delta=1.0e-9)
+        self.assertAlmostEqual(float(diag_aligned.get("objective_fiber_weight", 0.0)), 0.25, delta=1.0e-9)
+        self.assertAlmostEqual(float(diag_aligned.get("objective_cell_gain", 1.0)), 0.0, delta=1.0e-9)
+        self.assertLess(float(diag_aligned.get("objective_cell_fiber_angle_mean_deg", 90.0)), 5.0)
+        self.assertLess(float(diag_aligned.get("objective_cell_shear_target_error_mean_deg", 90.0)), 5.0)
+
+        rotated = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 14,
+                "fabric_spacing": 1.0,
+                "material_model": "woven",
+                "draping_direction": (1.0, 1.0, 0.0),
+                "pre_shear_deg": 0.0,
+            },
+        )
+        self.assertTrue(rotated["valid"])
+        diag_rot = rotated.get("diagnostics", {})
+        self.assertGreater(int(diag_rot.get("objective_cell_count", 0)), 0)
+        self.assertGreater(float(diag_rot.get("objective_cell_fiber_angle_mean_deg", 0.0)), 20.0)
+        self.assertTrue(math.isfinite(float(diag_rot.get("objective_cell_combined_objective_mean", 0.0))))
+
+        weighted = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 14,
+                "fabric_spacing": 1.0,
+                "material_model": "woven",
+                "draping_direction": (1.0, 1.0, 0.0),
+                "objective_cell_gain": 0.35,
+            },
+        )
+        self.assertTrue(weighted["valid"])
+        diag_weighted = weighted.get("diagnostics", {})
+        self.assertAlmostEqual(float(diag_weighted.get("objective_cell_gain", 0.0)), 0.35, delta=1.0e-9)
+
     def test_krogh_double_curved_analytical_mesh_helper_solves(self):
         points, faces = make_krogh_double_curved_mesh(step=0.05)
 
@@ -777,21 +928,22 @@ class TestFishnetSolver(unittest.TestCase):
         mean_length = sum(lengths) / len(lengths)
         # KinDrape-style propagation uses fixed target spacing in growth, but accepts
         # geometric clipping/seam effects without enforcing exact mean parity.
-        self.assertGreater(mean_length, 0.5 * spacing)
-        self.assertLess(mean_length, 1.5 * spacing)
-        self.assertLess(max(lengths) - min(lengths), 3.0)
+        self.assertGreater(mean_length, 0.6 * spacing)
+        self.assertLess(mean_length, 1.2 * spacing)
+        self.assertLess(max(lengths) - min(lengths), 1.2)
         diag = result.get("diagnostics", {})
         self.assertEqual(diag.get("objective_surface_spacing"), 1)
         self.assertGreater(diag.get("coverage_point_count", 0), 0)
-        self.assertGreater(diag.get("coverage_point_ratio", 0.0), 0.0)
-        self.assertGreaterEqual(diag.get("surface_spacing_active_nodes", -1), 0)
-        self.assertGreaterEqual(diag.get("surface_spacing_total_nodes", -1), 0)
-        self.assertGreaterEqual(diag.get("surface_spacing_frontier_pops", -1), 0)
-        self.assertGreaterEqual(diag.get("surface_spacing_frontier_accepts", -1), 0)
-        self.assertGreaterEqual(diag.get("surface_spacing_candidate_quads", -1), 0)
-        self.assertGreaterEqual(diag.get("surface_spacing_selected_quads", -1), 0)
-        stall_reason = diag.get("surface_spacing_growth_stall_reason")
-        self.assertTrue(stall_reason is None or isinstance(stall_reason, str))
+        self.assertGreater(diag.get("coverage_point_ratio", 0.0), 0.95)
+        self.assertGreater(diag.get("surface_spacing_active_nodes", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_total_nodes", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_active_ratio", 0.0), 0.95)
+        self.assertGreater(diag.get("surface_spacing_frontier_pops", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_frontier_accepts", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_candidate_quads", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_selected_quads", 0), 0)
+        self.assertGreater(diag.get("surface_spacing_quad_select_ratio", 0.0), 0.95)
+        self.assertEqual(diag.get("surface_spacing_growth_stall_reason"), "none")
 
     def test_acp_v2_surface_spacing_reports_coverage_on_double_curved_mesh(self):
         points, faces = make_krogh_double_curved_mesh(step=0.05)
@@ -1083,7 +1235,7 @@ class TestFishnetSolver(unittest.TestCase):
         if plot_path is not None:
             self.assertTrue(plot_path.exists())
 
-    def test_cone_face_spheresurface_mode_is_accepted(self):
+    def test_cone_face_spheresurface_default_mode_is_accepted(self):
         import FreeCAD
         import Part
 
@@ -1099,16 +1251,13 @@ class TestFishnetSolver(unittest.TestCase):
             ).Faces
             if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
         )
-        result = _fishnet.solve(
-            face,
-            parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"},
-        )
+        result = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
         self.assertTrue(result["valid"])
         self.assertGreater(len(result.get("fabric_points", [])), 0)
         diagnostics = [
             str(item.get("reason", ""))
             for item in result.get("orientation_breaks", [])
-            if isinstance(item, dict) and "experimental spheresurface diagnostics" in str(item.get("reason", ""))
+            if isinstance(item, dict) and "spheresurface diagnostics" in str(item.get("reason", ""))
         ]
         self.assertGreater(len(diagnostics), 0)
         self.assertTrue(any("calls=" in reason for reason in diagnostics))
@@ -1136,24 +1285,23 @@ class TestFishnetSolver(unittest.TestCase):
         # Simplified solver allows limited duplicate groups near seams.
         self.assertLessEqual(len(_duplicate_mesh_point_groups(result)), 8)
 
-    def test_cone_face_spheresurface_mode_preserves_seam_quality(self):
+    def test_cone_face_default_mode_preserves_seam_quality_across_repeated_runs(self):
         shape = _make_truncated_half_cone_curved_shape()
 
-        base = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "uv_newton"})
-        exp = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"})
+        first = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0})
+        second = _fishnet.solve(shape, parameters={"fabric_spacing": 2.0})
 
-        self.assertTrue(base["valid"])
-        self.assertTrue(exp["valid"])
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
 
-        n_base, mean_base, max_base = _seam_min_dist_stats(base)
-        n_exp, mean_exp, max_exp = _seam_min_dist_stats(exp)
-        # Under simplified growth, spheresurface should not be worse than uv_newton on seam stats.
-        self.assertLessEqual(n_exp, n_base)
-        self.assertLessEqual(mean_exp, mean_base + 1.0e-9)
-        self.assertLessEqual(max_exp, max_base + 1.0e-9)
-        self.assertLessEqual(len(_duplicate_mesh_point_groups(exp)), len(_duplicate_mesh_point_groups(base)))
+        n_first, mean_first, max_first = _seam_min_dist_stats(first)
+        n_second, mean_second, max_second = _seam_min_dist_stats(second)
+        self.assertEqual(n_second, n_first)
+        self.assertAlmostEqual(mean_second, mean_first, delta=1.0e-12)
+        self.assertAlmostEqual(max_second, max_first, delta=1.0e-12)
+        self.assertEqual(len(_duplicate_mesh_point_groups(second)), len(_duplicate_mesh_point_groups(first)))
 
-    def test_cone_face_spheresurface_mode_reduces_extreme_3d_edge_spread_vs_uv_newton(self):
+    def test_cone_face_default_mode_has_stable_3d_edge_spread(self):
         import FreeCAD
         import Part
 
@@ -1170,23 +1318,22 @@ class TestFishnetSolver(unittest.TestCase):
             if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
         )
 
-        base = _fishnet.solve(face, parameters={"fabric_spacing": 2.0, "current_node_solver": "uv_newton"})
-        exp = _fishnet.solve(face, parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"})
+        first = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
+        second = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
 
-        self.assertTrue(base["valid"])
-        self.assertTrue(exp["valid"])
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
 
-        min_base, med_base, max_base = _structural_3d_edge_stats(base)
-        min_exp, med_exp, max_exp = _structural_3d_edge_stats(exp)
+        min_first, med_first, max_first = _structural_3d_edge_stats(first)
+        min_second, med_second, max_second = _structural_3d_edge_stats(second)
 
-        self.assertGreater(max_base, 0.0)
-        self.assertGreater(max_exp, 0.0)
-        # Simplified solver target: spheresurface should reduce worst-case spread vs uv_newton.
-        self.assertLessEqual(max_exp, max_base)
-        self.assertGreaterEqual(min_exp, min_base)
-        self.assertLessEqual(med_exp, max_base)
+        self.assertGreater(max_first, 0.0)
+        self.assertGreater(max_second, 0.0)
+        self.assertAlmostEqual(min_second, min_first, delta=1.0e-12)
+        self.assertAlmostEqual(med_second, med_first, delta=1.0e-12)
+        self.assertAlmostEqual(max_second, max_first, delta=1.0e-12)
 
-    def test_cone_face_incremental_growth_reaches_small_radius_end_without_intentional_prune(self):
+    def test_cone_face_default_growth_reaches_small_radius_end_without_intentional_prune(self):
         import FreeCAD
         import Part
 
@@ -1203,13 +1350,11 @@ class TestFishnetSolver(unittest.TestCase):
             if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
         )
 
-        base = _fishnet.solve(face, parameters={"fabric_spacing": 2.0, "current_node_solver": "spheresurface"})
+        base = _fishnet.solve(face, parameters={"fabric_spacing": 2.0})
         grown = _fishnet.solve(
             face,
             parameters={
                 "fabric_spacing": 2.0,
-                "current_node_solver": "spheresurface",
-                "incremental_growth": True,
             },
         )
 
@@ -1290,8 +1435,6 @@ class TestFishnetSolver(unittest.TestCase):
             face,
             parameters={
                 "fabric_spacing": 2.0,
-                "current_node_solver": "spheresurface",
-                "incremental_growth": True,
             },
         )
         self.assertTrue(result["valid"])
@@ -1328,8 +1471,6 @@ class TestFishnetSolver(unittest.TestCase):
             face,
             parameters={
                 "fabric_spacing": 2.0,
-                "current_node_solver": "spheresurface",
-                "incremental_growth": True,
                 "max_shear_angle_deg": 30.0,
             },
         )

@@ -285,6 +285,7 @@ namespace fishnet_internal
         bool rel_tol_from_parameter,
         int max_iterations,
         const std::vector<double> &residual_history,
+        const std::vector<double> &combined_objective_history,
         bool acp_energy_mode,
         const AcpPropagationSummary &acp_summary,
         const AcpObjectiveSummary &objective_summary,
@@ -322,9 +323,15 @@ namespace fishnet_internal
             PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
             Py_DECREF(residual_history_obj);
         }
+        if (PyObject *combined_objective_history_obj = build_double_list(combined_objective_history))
+        {
+            PyDict_SetItemString(diagnostics, "combined_objective_history", combined_objective_history_obj);
+            Py_DECREF(combined_objective_history_obj);
+        }
 
         set_diag_string(diagnostics, "residual_metric", "max_edge_rel_error");
         set_diag_string(diagnostics, "residual_norm_type", "linf_relative_edge_length_error");
+        set_diag_string(diagnostics, "combined_objective_metric", "weighted_lp_relative_edge_length_error");
         set_diag_string(
             diagnostics,
             "stop_threshold_source",
@@ -626,6 +633,7 @@ namespace fishnet_internal
                 input.rel_tol_from_parameter,
                 input.max_iterations,
                 input.residual_history,
+                input.combined_objective_history,
                 input.acp_energy_mode,
                 input.acp_summary,
                 input.objective_summary,
