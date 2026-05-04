@@ -1100,6 +1100,12 @@ def _pack_result(
         "max_iterations": _solver_iterations(params),
         "residual_history": [float(v) for v in residual_history] if residual_history else [float(max_rel)],
         "residual_metric": "max_edge_rel_error",
+        "residual_norm_type": "linf_relative_edge_length_error",
+        "stop_threshold_source": (
+            "parameter:edge_length_tolerance"
+            if "edge_length_tolerance" in (params or {})
+            else "default:edge_length_tolerance"
+        ),
     }
     return _attach_solver_metadata({
         "valid": True,

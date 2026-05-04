@@ -3937,7 +3937,9 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
     }
 
     double rel_tol = kDefaultEdgeLengthTolerance;
+    bool rel_tol_from_parameter = false;
     if (PyObject *tol_obj = PyDict_GetItemString(params_copy, "edge_length_tolerance")) {
+        rel_tol_from_parameter = true;
         double parsed_tol = PyFloat_AsDouble(tol_obj);
         if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol > 0.0) {
             rel_tol = parsed_tol;
@@ -4320,6 +4322,19 @@ static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj) {
             PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
             Py_DECREF(residual_metric_obj);
         }
+        PyObject *residual_norm_type_obj = PyUnicode_FromString("linf_relative_edge_length_error");
+        if (residual_norm_type_obj) {
+            PyDict_SetItemString(diagnostics, "residual_norm_type", residual_norm_type_obj);
+            Py_DECREF(residual_norm_type_obj);
+        }
+        const char *threshold_source = rel_tol_from_parameter
+            ? "parameter:edge_length_tolerance"
+            : "default:edge_length_tolerance";
+        PyObject *threshold_source_obj = PyUnicode_FromString(threshold_source);
+        if (threshold_source_obj) {
+            PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
+            Py_DECREF(threshold_source_obj);
+        }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);
     } else {
@@ -4499,7 +4514,9 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
     PyObject *orientation_breaks_list = PyList_New(0);
 
     double rel_tol = kDefaultEdgeLengthTolerance;
+    bool rel_tol_from_parameter = false;
     if (PyObject *tol_obj = PyDict_GetItemString(params_copy, "edge_length_tolerance")) {
+        rel_tol_from_parameter = true;
         double parsed_tol = PyFloat_AsDouble(tol_obj);
         if (!PyErr_Occurred() && std::isfinite(parsed_tol) && parsed_tol > 0.0) {
             rel_tol = parsed_tol;
@@ -4673,6 +4690,19 @@ static PyObject *solve(PyObject *, PyObject *args, PyObject *kwargs) {
         if (residual_metric_obj) {
             PyDict_SetItemString(diagnostics, "residual_metric", residual_metric_obj);
             Py_DECREF(residual_metric_obj);
+        }
+        PyObject *residual_norm_type_obj = PyUnicode_FromString("linf_relative_edge_length_error");
+        if (residual_norm_type_obj) {
+            PyDict_SetItemString(diagnostics, "residual_norm_type", residual_norm_type_obj);
+            Py_DECREF(residual_norm_type_obj);
+        }
+        const char *threshold_source = rel_tol_from_parameter
+            ? "parameter:edge_length_tolerance"
+            : "default:edge_length_tolerance";
+        PyObject *threshold_source_obj = PyUnicode_FromString(threshold_source);
+        if (threshold_source_obj) {
+            PyDict_SetItemString(diagnostics, "stop_threshold_source", threshold_source_obj);
+            Py_DECREF(threshold_source_obj);
         }
         attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
         Py_DECREF(diagnostics);

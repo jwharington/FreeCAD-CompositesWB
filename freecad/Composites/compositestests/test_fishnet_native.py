@@ -500,6 +500,8 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("residual_threshold", result["diagnostics"])
         self.assertIn("max_iterations", result["diagnostics"])
         self.assertIn("residual_history", result["diagnostics"])
+        self.assertIn("residual_norm_type", result["diagnostics"])
+        self.assertIn("stop_threshold_source", result["diagnostics"])
         self.assertGreaterEqual(len(result["diagnostics"]["residual_history"]), 2)
 
     def test_solver_metadata_reports_infeasible_for_empty_mesh(self):
