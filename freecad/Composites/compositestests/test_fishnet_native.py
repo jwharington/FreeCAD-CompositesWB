@@ -512,6 +512,31 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result.get("solver_status"), "error")
         self.assertIn("diagnostics", result)
 
+    def test_residual_history_is_finite_and_non_divergent(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "acp_energy_v1", "steps": 12, "fabric_spacing": 1.0},
+        )
+
+        self.assertTrue(result["valid"])
+        history = list(result.get("diagnostics", {}).get("residual_history", []))
+        self.assertGreaterEqual(len(history), 2)
+        self.assertTrue(all(math.isfinite(float(v)) for v in history))
+        start = max(float(history[0]), 1.0e-9)
+        self.assertLessEqual(max(float(v) for v in history), start * 10.0)
+        self.assertLessEqual(float(history[-1]), max(float(v) for v in history))
+
     def test_cylinder_patch_mesh_solves(self):
         xs = [0.0, 0.25, 0.5, 0.75, 1.0]
         ys = [0.0, 0.5, 1.0, 1.5]
