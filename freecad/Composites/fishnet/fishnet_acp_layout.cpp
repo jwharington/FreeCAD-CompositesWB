@@ -13,6 +13,7 @@
 
 #include "fishnet_acp_layout.hpp"
 #include "fishnet_diagnostics_api.hpp"
+#include "fishnet_kindrape_propagation.hpp"
 
 namespace fishnet_internal
 {
@@ -197,123 +198,22 @@ namespace fishnet_internal
                                    : infer_nominal_edge_length(nominal_edge_length, fabric_points, edges);
 
         std::vector<std::vector<int>> adjacency = build_vertex_adjacency(mesh_points.size(), edges);
-        const double nan = std::numeric_limits<double>::quiet_NaN();
-        std::vector<double> x_coord(mesh_points.size(), nan);
-        std::vector<double> y_coord(mesh_points.size(), nan);
-        x_coord[static_cast<size_t>(seed_index)] = 0.0;
-        y_coord[static_cast<size_t>(seed_index)] = 0.0;
+        std::vector<double> x_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
+        std::vector<double> y_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
 
-        std::deque<int> queue;
-        queue.push_back(seed_index);
+        run_kindrape_scheduler_skeleton(
+            local_points,
+            adjacency,
+            seed_index,
+            nominal,
+            summary.primary_axis,
+            summary.orthogonal_axis,
+            x_coord,
+            y_coord,
+            summary);
 
-        while (!queue.empty())
-        {
-            int cur = queue.front();
-            queue.pop_front();
-            if (cur < 0 || cur >= static_cast<int>(local_points.size()))
-            {
-                continue;
-            }
-            for (int nbr : adjacency[static_cast<size_t>(cur)])
-            {
-                if (nbr < 0 || nbr >= static_cast<int>(local_points.size()))
-                {
-                    continue;
-                }
-                Vec3 edge = local_points[static_cast<size_t>(nbr)] - local_points[static_cast<size_t>(cur)];
-                double elen = std::sqrt(edge.x * edge.x + edge.y * edge.y);
-                if (elen <= kVectorZeroEpsilon)
-                {
-                    continue;
-                }
-                Vec3 e2 = {edge.x / elen, edge.y / elen, 0.0};
-                double p_align = std::abs(dot(e2, summary.primary_axis));
-                double o_align = std::abs(dot(e2, summary.orthogonal_axis));
-                bool progressed = false;
-
-                if (p_align >= o_align && std::isnan(x_coord[static_cast<size_t>(nbr)]) && !std::isnan(x_coord[static_cast<size_t>(cur)]))
-                {
-                    double step = nominal > kVectorZeroEpsilon ? nominal : elen;
-                    double sign = dot(e2, summary.primary_axis) >= 0.0 ? 1.0 : -1.0;
-                    x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)] + sign * step;
-                    if (std::isnan(y_coord[static_cast<size_t>(nbr)]) && !std::isnan(y_coord[static_cast<size_t>(cur)]))
-                    {
-                        y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)];
-                    }
-                    ++summary.primary_assigned;
-                    progressed = true;
-                }
-
-                if (o_align > p_align && std::isnan(y_coord[static_cast<size_t>(nbr)]) && !std::isnan(y_coord[static_cast<size_t>(cur)]))
-                {
-                    double step = nominal > kVectorZeroEpsilon ? nominal : elen;
-                    double sign = dot(e2, summary.orthogonal_axis) >= 0.0 ? 1.0 : -1.0;
-                    y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)] + sign * step;
-                    if (std::isnan(x_coord[static_cast<size_t>(nbr)]) && !std::isnan(x_coord[static_cast<size_t>(cur)]))
-                    {
-                        x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)];
-                    }
-                    ++summary.orthogonal_assigned;
-                    progressed = true;
-                }
-
-                if (progressed)
-                {
-                    queue.push_back(nbr);
-                }
-            }
-        }
-
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (size_t i = 0; i < adjacency.size(); ++i)
-            {
-                if (!std::isnan(x_coord[i]) && !std::isnan(y_coord[i]))
-                {
-                    continue;
-                }
-                double x_sum = 0.0;
-                double y_sum = 0.0;
-                int x_count = 0;
-                int y_count = 0;
-                for (int nbr : adjacency[i])
-                {
-                    if (!std::isnan(x_coord[static_cast<size_t>(nbr)]))
-                    {
-                        x_sum += x_coord[static_cast<size_t>(nbr)];
-                        ++x_count;
-                    }
-                    if (!std::isnan(y_coord[static_cast<size_t>(nbr)]))
-                    {
-                        y_sum += y_coord[static_cast<size_t>(nbr)];
-                        ++y_count;
-                    }
-                }
-                if (std::isnan(x_coord[i]) && x_count > 0)
-                {
-                    x_coord[i] = x_sum / static_cast<double>(x_count);
-                    changed = true;
-                }
-                if (std::isnan(y_coord[i]) && y_count > 0)
-                {
-                    y_coord[i] = y_sum / static_cast<double>(y_count);
-                    changed = true;
-                }
-            }
-        }
-
-        Vec3 seed_local = local_points[static_cast<size_t>(seed_index)];
         for (size_t i = 0; i < fabric_points.size(); ++i)
         {
-            if (std::isnan(x_coord[i]) || std::isnan(y_coord[i]))
-            {
-                Vec3 d = local_points[i] - seed_local;
-                x_coord[i] = dot(d, summary.primary_axis);
-                y_coord[i] = dot(d, summary.orthogonal_axis);
-                ++summary.fill_assigned;
-            }
             fabric_points[i] = {x_coord[i], y_coord[i], 0.0};
         }
 

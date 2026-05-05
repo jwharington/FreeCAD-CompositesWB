@@ -17,8 +17,12 @@ namespace fishnet_internal
         int primary_assigned{0};
         int orthogonal_assigned{0};
         int fill_assigned{0};
+        int step1_assigned{0};
+        int step2_assigned{0};
+        int step3_assigned{0};
         Vec3 primary_axis{1.0, 0.0, 0.0};
         Vec3 orthogonal_axis{0.0, 1.0, 0.0};
+        std::vector<std::string> stage_trace;
     };
 
     struct AcpObjectiveSummary

@@ -502,17 +502,69 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("stop_threshold_source", result["diagnostics"])
         self.assertIn("performed_iterations", result["diagnostics"])
         self.assertIn("propagation_stages", result["diagnostics"])
+        self.assertIn("propagation_stage_trace", result["diagnostics"])
         self.assertIn("propagation_seed_index", result["diagnostics"])
+        self.assertIn("propagation_step1_assigned", result["diagnostics"])
+        self.assertIn("propagation_step2_assigned", result["diagnostics"])
+        self.assertIn("propagation_step3_assigned", result["diagnostics"])
         self.assertIn("primary_direction", result["diagnostics"])
         self.assertIn("orthogonal_direction", result["diagnostics"])
         self.assertIn("objective_model", result["diagnostics"])
         self.assertIn("objective_ud_coefficient", result["diagnostics"])
         self.assertIn("objective_thickness_correction", result["diagnostics"])
         self.assertEqual(result["diagnostics"]["propagation_stages"], "primary_orthogonal_fill")
+        self.assertEqual(result["diagnostics"]["propagation_stage_trace"], ["step1", "step2", "step3"])
         self.assertEqual(result["diagnostics"]["objective_model"], "woven")
         self.assertEqual(result["diagnostics"]["max_iterations"], 7)
         self.assertEqual(result["diagnostics"]["performed_iterations"], 7)
         self.assertEqual(len(result["diagnostics"]["residual_history"]), 8)
+
+    def test_acp_scheduler_stage_trace_is_deterministic(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 4),
+            (0, 4, 3),
+            (1, 2, 5),
+            (1, 5, 4),
+        ]
+
+        params = {
+            "algorithm": "acp_energy",
+            "steps": 9,
+            "fabric_spacing": 1.0,
+            "seed": 1,
+            "draping_direction": (1.0, 0.0, 0.0),
+        }
+        first = _fishnet.solve(mesh_points=points, mesh_faces=faces, parameters=params)
+        second = _fishnet.solve(mesh_points=points, mesh_faces=faces, parameters=params)
+
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
+
+        d0 = first.get("diagnostics", {})
+        d1 = second.get("diagnostics", {})
+        self.assertEqual(d0.get("propagation_stage_trace"), ["step1", "step2", "step3"])
+        self.assertEqual(d1.get("propagation_stage_trace"), ["step1", "step2", "step3"])
+        self.assertGreaterEqual(int(d0.get("propagation_step1_assigned", 0)), 1)
+        self.assertGreaterEqual(int(d0.get("propagation_step2_assigned", 0)), 0)
+        self.assertGreaterEqual(int(d0.get("propagation_step3_assigned", 0)), 0)
+        for key in (
+            "propagation_seed_index",
+            "propagation_step1_assigned",
+            "propagation_step2_assigned",
+            "propagation_step3_assigned",
+            "propagation_primary_assigned",
+            "propagation_orthogonal_assigned",
+            "propagation_fill_assigned",
+        ):
+            self.assertEqual(int(d0.get(key, -1)), int(d1.get(key, -1)))
 
     def test_acp_direction_and_ud_objective_are_reported(self):
         points = [

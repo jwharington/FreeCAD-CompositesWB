@@ -360,6 +360,9 @@ namespace fishnet_internal
             set_diag_long(diagnostics, "propagation_primary_assigned", acp_summary.primary_assigned);
             set_diag_long(diagnostics, "propagation_orthogonal_assigned", acp_summary.orthogonal_assigned);
             set_diag_long(diagnostics, "propagation_fill_assigned", acp_summary.fill_assigned);
+            set_diag_long(diagnostics, "propagation_step1_assigned", acp_summary.step1_assigned);
+            set_diag_long(diagnostics, "propagation_step2_assigned", acp_summary.step2_assigned);
+            set_diag_long(diagnostics, "propagation_step3_assigned", acp_summary.step3_assigned);
             if (PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis))
             {
                 PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);
@@ -413,6 +416,29 @@ namespace fishnet_internal
             set_diag_long(diagnostics, "objective_surface_spacing", profile.surface_spacing_mode ? 1L : 0L);
             set_diag_string(diagnostics, "objective_strategy", profile.acp_strategy.c_str());
             set_diag_string(diagnostics, "propagation_stages", "primary_orthogonal_fill");
+            if (!acp_summary.stage_trace.empty())
+            {
+                PyObject *trace_obj = PyList_New(static_cast<Py_ssize_t>(acp_summary.stage_trace.size()));
+                if (trace_obj)
+                {
+                    for (size_t i = 0; i < acp_summary.stage_trace.size(); ++i)
+                    {
+                        PyObject *value = PyUnicode_FromString(acp_summary.stage_trace[i].c_str());
+                        if (!value)
+                        {
+                            Py_DECREF(trace_obj);
+                            trace_obj = nullptr;
+                            break;
+                        }
+                        PyList_SET_ITEM(trace_obj, static_cast<Py_ssize_t>(i), value);
+                    }
+                    if (trace_obj)
+                    {
+                        PyDict_SetItemString(diagnostics, "propagation_stage_trace", trace_obj);
+                        Py_DECREF(trace_obj);
+                    }
+                }
+            }
             if (profile.surface_spacing_mode)
             {
                 if (point_count > 0 && surface_spacing_active_nodes > coverage_point_count)
