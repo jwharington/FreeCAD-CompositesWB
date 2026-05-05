@@ -77,6 +77,9 @@ namespace fishnet_internal
         long surface_spacing_frontier_accepts;
         long surface_spacing_candidate_quads;
         long surface_spacing_selected_quads;
+        long per_row_active_cols_min;
+        long per_row_active_cols_max;
+        double per_row_active_cols_mean;
     };
 
     long coverage_point_count_for_quads(const std::vector<std::vector<int>> &quad_list);
@@ -88,7 +91,10 @@ namespace fishnet_internal
         long &surface_spacing_frontier_pops,
         long &surface_spacing_frontier_accepts,
         long &surface_spacing_candidate_quads,
-        long &surface_spacing_selected_quads);
+        long &surface_spacing_selected_quads,
+        long &per_row_active_cols_min,
+        long &per_row_active_cols_max,
+        double &per_row_active_cols_mean);
 
     void set_diag_long(PyObject *diagnostics, const char *key, long value);
     void set_diag_double(PyObject *diagnostics, const char *key, double value);
@@ -117,7 +123,10 @@ namespace fishnet_internal
         long surface_spacing_frontier_pops,
         long surface_spacing_frontier_accepts,
         long surface_spacing_candidate_quads,
-        long surface_spacing_selected_quads);
+        long surface_spacing_selected_quads,
+        long per_row_active_cols_min,
+        long per_row_active_cols_max,
+        double per_row_active_cols_mean);
 
     void attach_result_diagnostics(
         PyObject *result,

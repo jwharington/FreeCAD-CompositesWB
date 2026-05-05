@@ -28,6 +28,9 @@ namespace fishnet_internal
         long surface_spacing_frontier_accepts{0};
         long surface_spacing_candidate_quads{0};
         long surface_spacing_selected_quads{0};
+        long per_row_active_cols_min{0};
+        long per_row_active_cols_max{0};
+        double per_row_active_cols_mean{0.0};
     };
 
     struct ExperimentalSolveStats

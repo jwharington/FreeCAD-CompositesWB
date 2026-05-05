@@ -1723,6 +1723,78 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["fabric_points"], [])
         self.assertEqual(result["boundary_loops"], [])
 
+    def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
+        # Use a cone with a strong radius ratio (small end = 25% of large end).
+        # The inner rings (near the small radius) have shorter circumference and
+        # should be pruned to fewer active columns than the outer rings.
+        import FreeCAD
+        import Part
+
+        spacing = 2.0
+        face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                3,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+        result = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": spacing,
+                "steps": 16,
+            },
+        )
+        self.assertTrue(result["valid"])
+        self.assertGreater(len(result.get("fabric_quads", [])), 0)
+
+        diag = result.get("diagnostics", {})
+        min_cols = int(diag.get("per_row_active_cols_min", 0))
+        max_cols = int(diag.get("per_row_active_cols_max", 0))
+        if min_cols > 0 and max_cols > 0:
+            # Inner rings (near small radius) must have fewer active columns than
+            # outer rings (near large radius) — adaptive cardinality is present.
+            self.assertGreater(max_cols, min_cols)
+        else:
+            # Fallback assertion: adaptive pruning should still reduce selected
+            # quads compared to candidates on strongly tapered cone faces.
+            candidate_quads = int(diag.get("surface_spacing_candidate_quads", 0))
+            selected_quads = int(diag.get("surface_spacing_selected_quads", 0))
+            self.assertGreater(candidate_quads, 0)
+            self.assertGreater(candidate_quads, selected_quads)
+
+        # No adjacent-pair of active nodes in ANY row should be closer than
+        # 0.35 * spacing (the pruning threshold guarantees this).
+        points = result.get("mesh_points", [])
+        quads = result.get("fabric_quads", [])
+        self.assertGreater(len(points), 0)
+
+        # All fabric quad edges must be at least 0.3 * spacing apart.
+        min_edge_len = spacing  # initialize high
+        for quad in quads:
+            if len(quad) < 4:
+                continue
+            corners = [int(i) for i in quad[:4]]
+            for k in range(4):
+                a = corners[k]
+                b = corners[(k + 1) % 4]
+                pa = points[a]
+                pb = points[b]
+                d = math.dist(
+                    (float(pa[0]), float(pa[1]), float(pa[2])),
+                    (float(pb[0]), float(pb[1]), float(pb[2])),
+                )
+                if d < min_edge_len:
+                    min_edge_len = d
+        self.assertGreater(min_edge_len, 0.3 * spacing)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

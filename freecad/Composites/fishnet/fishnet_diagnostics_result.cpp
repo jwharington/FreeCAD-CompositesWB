@@ -295,7 +295,10 @@ namespace fishnet_internal
         long surface_spacing_frontier_pops,
         long surface_spacing_frontier_accepts,
         long surface_spacing_candidate_quads,
-        long surface_spacing_selected_quads)
+        long surface_spacing_selected_quads,
+        long per_row_active_cols_min,
+        long per_row_active_cols_max,
+        double per_row_active_cols_mean)
     {
         if (!diagnostics || !PyDict_Check(diagnostics))
         {
@@ -468,6 +471,14 @@ namespace fishnet_internal
                 }
             }
         }
+
+        // Per-row column count diagnostics (variable cardinality / cone-adaptation).
+        if (per_row_active_cols_max > 0)
+        {
+            set_diag_long(diagnostics, "per_row_active_cols_min", per_row_active_cols_min);
+            set_diag_long(diagnostics, "per_row_active_cols_max", per_row_active_cols_max);
+            set_diag_double(diagnostics, "per_row_active_cols_mean", per_row_active_cols_mean);
+        }
     }
 
     void set_result_common_fields(
@@ -589,7 +600,10 @@ namespace fishnet_internal
         long &surface_spacing_frontier_pops,
         long &surface_spacing_frontier_accepts,
         long &surface_spacing_candidate_quads,
-        long &surface_spacing_selected_quads)
+        long &surface_spacing_selected_quads,
+        long &per_row_active_cols_min,
+        long &per_row_active_cols_max,
+        double &per_row_active_cols_mean)
     {
         surface_spacing_active_nodes = 0;
         surface_spacing_total_nodes = 0;
@@ -597,6 +611,13 @@ namespace fishnet_internal
         surface_spacing_frontier_accepts = 0;
         surface_spacing_candidate_quads = 0;
         surface_spacing_selected_quads = 0;
+        per_row_active_cols_min = 0;
+        per_row_active_cols_max = 0;
+        per_row_active_cols_mean = 0.0;
+
+        double per_row_mean_sum = 0.0;
+        long sample_count = 0;
+        bool first_sample = true;
         for (const auto &sample : samples)
         {
             surface_spacing_active_nodes += sample.surface_spacing_active_nodes;
@@ -605,6 +626,33 @@ namespace fishnet_internal
             surface_spacing_frontier_accepts += sample.surface_spacing_frontier_accepts;
             surface_spacing_candidate_quads += sample.surface_spacing_candidate_quads;
             surface_spacing_selected_quads += sample.surface_spacing_selected_quads;
+
+            if (sample.per_row_active_cols_max > 0)
+            {
+                if (first_sample)
+                {
+                    per_row_active_cols_min = sample.per_row_active_cols_min;
+                    per_row_active_cols_max = sample.per_row_active_cols_max;
+                    first_sample = false;
+                }
+                else
+                {
+                    if (sample.per_row_active_cols_min < per_row_active_cols_min)
+                    {
+                        per_row_active_cols_min = sample.per_row_active_cols_min;
+                    }
+                    if (sample.per_row_active_cols_max > per_row_active_cols_max)
+                    {
+                        per_row_active_cols_max = sample.per_row_active_cols_max;
+                    }
+                }
+                per_row_mean_sum += sample.per_row_active_cols_mean;
+                sample_count++;
+            }
+        }
+        if (sample_count > 0)
+        {
+            per_row_active_cols_mean = per_row_mean_sum / static_cast<double>(sample_count);
         }
     }
 
@@ -643,7 +691,10 @@ namespace fishnet_internal
                 input.surface_spacing_frontier_pops,
                 input.surface_spacing_frontier_accepts,
                 input.surface_spacing_candidate_quads,
-                input.surface_spacing_selected_quads);
+                input.surface_spacing_selected_quads,
+                input.per_row_active_cols_min,
+                input.per_row_active_cols_max,
+                input.per_row_active_cols_mean);
             attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
             Py_DECREF(diagnostics);
             return;

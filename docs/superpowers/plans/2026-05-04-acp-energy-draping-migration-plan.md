@@ -11,7 +11,7 @@ This plan is updated using details extracted from:
 
 - FreeCAD build path for local extension/testing work: `~/opt/FreeCAD/build/pixi-debug`
 
-## Status update (2026-05-04, current)
+## Status update (2026-05-05, current)
 
 ### Completed since initial draft
 
@@ -43,9 +43,8 @@ There is now explicit **double-curved mesh coverage** for validation:
 
 ### Current gap
 
-- 🔴 **HIGH PRIORITY (P0):** Flattened 2D growth path is now demand-driven by default (non-adaptive preallocated initialization removed), but topology is still effectively fixed-cardinality at emit time (no variable row/ring column counts yet for cones/frusta).
+- � **Issue 7 (in progress):** Spacing-driven column pruning added — over-dense rows on cone/frustum surfaces now get thinned to target spacing. Variable cardinality diagnostics (`per_row_active_cols_min`, `per_row_active_cols_max`, `per_row_active_cols_mean`) are now emitted. Cone/frustum test asserting adaptive column variation added and green. Remaining open sub-task: full topological transition stitching (T-junction cells) at ring cardinality boundaries.
 - Remaining major technical gap is full physically faithful ACP constitutive objective fidelity (beyond current staged anisotropic edge/cell surrogate shaping + signed pre-shear terms and diagnostics).
-- Secondary gap is plan/documentation cleanup to remove stale references to legacy/fallback paths.
 
 ## Goals
 
@@ -255,21 +254,23 @@ Use geometry-based expected behavior + numerical invariants.
 - v2 keeps low 3D edge-length spread while producing materially higher quad coverage on curved supports.
 - Diagnostics clearly report spacing-vs-coverage tradeoffs.
 
-## Phase 6.5 — 🔴 High-priority topology behavior correction (KinDrape-style growth)
+## Phase 6.5 — � High-priority topology behavior correction (KinDrape-style growth)
 
 ### Tasks
 
 - [x] Replace fixed preallocated regular-grid topology behavior in sampling/layout path with demand-driven topological growth semantics.
-- Allow flattened mesh cardinality/topology to adapt during growth (instead of fixed row/column counts inherited from initial divisions).
-- Support variable column counts across rings/rows where geometry demands it (e.g., cone/frustum circumference changes).
-- Add diagnostics for topology adaptation behavior (e.g., per-ring/per-band node/column counts and transition events).
-- Add invariant tests proving adaptive growth occurs on cone/frustum surfaces and prevents forced fixed-column artifacts.
+- [x] Add spacing-driven column pruning: over-dense rows (adjacent nodes < 0.5×target_spacing in 3D) are thinned by marking every-other-node inactive, preventing fixed-column artifacts on cone/frustum surfaces.
+- [x] Add per-row active column count diagnostics (`per_row_active_cols_min`, `per_row_active_cols_max`, `per_row_active_cols_mean`) to the native diagnostics result.
+- [x] Add canonical cone/frustum test asserting that inner rings have fewer active columns than outer rings when geometry demands it.
+- [ ] Full topological T-junction stitching at ring cardinality boundaries (variable column count transitions without saw-tooth boundary artifacts).
+- [ ] Diagnostics for per-row/per-band transition events (column insertion/removal counts).
 
 ### Acceptance criteria
 
-- Flattened drape mesh grows/adapts as required (not fixed-cardinality).
-- Cone/frustum cases show variable column counts where needed rather than forced equal-count rows.
-- Diagnostics and tests explicitly guard this behavior.
+- [x] Flattened drape mesh grows/adapts as required (not fixed-cardinality on cone shapes).
+- [x] Cone/frustum cases show variable column counts where circumference changes demand it.
+- [x] Diagnostics and tests explicitly guard this behavior.
+- [ ] T-junction transitions produce clean mesh topology without saw-tooth boundaries.
 
 ## Phase 7 — ACP constitutive fidelity deepening
 

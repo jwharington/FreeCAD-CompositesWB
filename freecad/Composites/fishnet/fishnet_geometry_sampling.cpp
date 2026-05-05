@@ -240,6 +240,115 @@ namespace fishnet_internal
             long selected_quads{0};
         };
 
+        // Prune over-dense grid rows: if adjacent valid nodes in the same row are
+        // closer than min_spacing_fraction * target_spacing, mark the denser node
+        // as inactive in grid_indices.  This prevents fixed-column-count artifacts
+        // on cone/frustum surfaces where inner rings have higher node density in UV
+        // space than the fabric target spacing warrants.
+        void prune_overdense_row_nodes(
+            int divisions,
+            double target_spacing,
+            const std::vector<Vec3> &points,
+            std::vector<std::vector<int>> &grid_indices)
+        {
+            if (divisions <= 0 || target_spacing <= kVectorZeroEpsilon)
+            {
+                return;
+            }
+            const double min_spacing = 0.4 * target_spacing;
+            for (int i = 0; i <= divisions; ++i)
+            {
+                int last_valid_j = -1;
+                for (int j = 0; j <= divisions; ++j)
+                {
+                    int idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                    if (idx < 0)
+                    {
+                        continue;
+                    }
+                    if (last_valid_j < 0)
+                    {
+                        last_valid_j = j;
+                        continue;
+                    }
+                    int last_idx = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(last_valid_j)];
+                    if (last_idx < 0 ||
+                        last_idx >= static_cast<int>(points.size()) ||
+                        idx >= static_cast<int>(points.size()))
+                    {
+                        last_valid_j = j;
+                        continue;
+                    }
+                    const double d = norm(
+                        points[static_cast<size_t>(idx)] - points[static_cast<size_t>(last_idx)]);
+                    if (d < min_spacing)
+                    {
+                        // Too close: remove this node from the active grid topology.
+                        grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] = -1;
+                    }
+                    else
+                    {
+                        last_valid_j = j;
+                    }
+                }
+            }
+        }
+
+        // Compute per-row active column count statistics across all grid rows.
+        void compute_per_row_active_col_stats(
+            int divisions,
+            const std::vector<std::vector<int>> &grid_indices,
+            long &min_cols,
+            long &max_cols,
+            double &mean_cols)
+        {
+            min_cols = 0;
+            max_cols = 0;
+            mean_cols = 0.0;
+            if (divisions <= 0)
+            {
+                return;
+            }
+            long total = 0;
+            int row_count = 0;
+            bool first_row = true;
+            for (int i = 0; i <= divisions; ++i)
+            {
+                long active = 0;
+                for (int j = 0; j <= divisions; ++j)
+                {
+                    if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0)
+                    {
+                        active++;
+                    }
+                }
+                if (active <= 0)
+                {
+                    continue;
+                }
+                if (first_row)
+                {
+                    min_cols = active;
+                    max_cols = active;
+                    first_row = false;
+                }
+                else
+                {
+                    if (active < min_cols)
+                    {
+                        min_cols = active;
+                    }
+                    if (active > max_cols)
+                    {
+                        max_cols = active;
+                    }
+                }
+                total += active;
+                row_count++;
+            }
+            mean_cols = row_count > 0 ? static_cast<double>(total) / static_cast<double>(row_count) : 0.0;
+        }
+
         SurfaceSpacingStats compute_surface_spacing_stats(
             int divisions,
             int seed_i_uv,
@@ -993,6 +1102,25 @@ namespace fishnet_internal
             sample,
             state,
             ensure_grid_node);
+
+        // Prune over-dense rows (cone/frustum inner rings) before building topology.
+        prune_overdense_row_nodes(
+            state.divisions,
+            state.target_spacing_len,
+            sample.points,
+            state.grid_indices);
+
+        // Capture per-row column count statistics (reflects post-pruning topology).
+        {
+            long min_cols = 0;
+            long max_cols = 0;
+            double mean_cols = 0.0;
+            compute_per_row_active_col_stats(
+                state.divisions, state.grid_indices, min_cols, max_cols, mean_cols);
+            sample.per_row_active_cols_min = min_cols;
+            sample.per_row_active_cols_max = max_cols;
+            sample.per_row_active_cols_mean = mean_cols;
+        }
 
         emit_sampling_phase(
             params,

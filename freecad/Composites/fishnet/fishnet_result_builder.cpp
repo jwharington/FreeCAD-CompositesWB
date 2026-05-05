@@ -883,6 +883,9 @@ namespace fishnet_internal
         long surface_spacing_frontier_accepts = 0;
         long surface_spacing_candidate_quads = 0;
         long surface_spacing_selected_quads = 0;
+        long per_row_active_cols_min = 0;
+        long per_row_active_cols_max = 0;
+        double per_row_active_cols_mean = 0.0;
         accumulate_surface_spacing_stats(
             input.samples,
             surface_spacing_active_nodes,
@@ -890,7 +893,10 @@ namespace fishnet_internal
             surface_spacing_frontier_pops,
             surface_spacing_frontier_accepts,
             surface_spacing_candidate_quads,
-            surface_spacing_selected_quads);
+            surface_spacing_selected_quads,
+            per_row_active_cols_min,
+            per_row_active_cols_max,
+            per_row_active_cols_mean);
         const long coverage_point_count = coverage_point_count_for_quads(input.quads);
 
         const SolverDiagnosticsInput diagnostics_input{
@@ -916,6 +922,9 @@ namespace fishnet_internal
             surface_spacing_frontier_accepts,
             surface_spacing_candidate_quads,
             surface_spacing_selected_quads,
+            per_row_active_cols_min,
+            per_row_active_cols_max,
+            per_row_active_cols_mean,
         };
         attach_result_diagnostics(result, params_copy, diagnostics_input);
     }
@@ -1111,6 +1120,9 @@ namespace fishnet_internal
             -1,
             -1,
             -1,
+            0,
+            0,
+            0.0,
         };
         attach_result_diagnostics(result, scope.params_copy(), diagnostics_input);
 
