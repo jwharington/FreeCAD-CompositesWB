@@ -2183,6 +2183,79 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["fabric_points"], [])
         self.assertEqual(result["boundary_loops"], [])
 
+    def test_invalid_mesh_without_faces_returns_face_error(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=[],
+            parameters={"algorithm": "acp_energy"},
+        )
+
+        self.assertFalse(result["valid"])
+        self.assertIn("at least one face", str(result.get("error", "")))
+        self.assertEqual(result.get("algorithm"), "acp_energy")
+        self.assertEqual(result.get("termination_reason"), "infeasible")
+
+    def test_geometry_like_input_with_none_parameters_defaults_to_acp_energy(self):
+        import FreeCAD
+        import Part
+
+        face = Part.makePlane(
+            6.0,
+            4.0,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        )
+
+        result = _fishnet.solve(face, parameters=None)
+
+        self.assertTrue(result["valid"])
+        self.assertEqual(result.get("algorithm"), "acp_energy")
+        diagnostics = result.get("diagnostics", {})
+        self.assertEqual(diagnostics.get("objective_strategy"), "woven")
+        self.assertEqual(diagnostics.get("propagation_stage_trace"), ["step1", "step2", "step3"])
+
+    def test_mesh_and_geometry_unsupported_algorithm_contract_match(self):
+        import FreeCAD
+        import Part
+
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        face = Part.makePlane(
+            2.0,
+            2.0,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        )
+
+        mesh_result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "deprecated_mode"},
+        )
+        geom_result = _fishnet.solve(
+            face,
+            parameters={"algorithm": "deprecated_mode"},
+        )
+
+        self.assertFalse(mesh_result["valid"])
+        self.assertFalse(geom_result["valid"])
+        self.assertIn("unsupported draping algorithm", str(mesh_result.get("error", "")))
+        self.assertIn("unsupported draping algorithm", str(geom_result.get("error", "")))
+
     def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
         # Use a cone with a strong radius ratio (small end = 25% of large end).
         # The inner rings (near the small radius) have shorter circumference and
