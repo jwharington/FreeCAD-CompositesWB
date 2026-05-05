@@ -513,6 +513,13 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("propagation_step2_nr_infeasible", result["diagnostics"])
         self.assertIn("propagation_step2_nr_initial_objective_mean", result["diagnostics"])
         self.assertIn("propagation_step2_nr_final_objective_mean", result["diagnostics"])
+        self.assertIn("propagation_pre_shear_active", result["diagnostics"])
+        self.assertIn("propagation_pre_shear_deg", result["diagnostics"])
+        self.assertIn("propagation_pre_shear_slope", result["diagnostics"])
+        self.assertIn("propagation_step3_pre_shear_adjust_count", result["diagnostics"])
+        self.assertIn("propagation_step3_pre_shear_adjust_mean", result["diagnostics"])
+        self.assertIn("propagation_step2_signed_shear_mean_deg", result["diagnostics"])
+        self.assertIn("propagation_step2_signed_shear_target_error_mean_deg", result["diagnostics"])
         self.assertIn("primary_direction", result["diagnostics"])
         self.assertIn("orthogonal_direction", result["diagnostics"])
         self.assertIn("objective_model", result["diagnostics"])
@@ -521,6 +528,9 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["propagation_stages"], "primary_orthogonal_fill")
         self.assertEqual(result["diagnostics"]["propagation_stage_trace"], ["step1", "step2", "step3"])
         self.assertEqual(result["diagnostics"]["objective_model"], "woven")
+        self.assertAlmostEqual(float(result["diagnostics"].get("objective_pre_shear_deg", 0.0)), 0.0, delta=1.0e-12)
+        self.assertAlmostEqual(float(result["diagnostics"].get("propagation_pre_shear_deg", 0.0)), 0.0, delta=1.0e-12)
+        self.assertEqual(int(result["diagnostics"].get("propagation_pre_shear_active", 1)), 0)
         self.assertEqual(result["diagnostics"]["max_iterations"], 7)
         self.assertEqual(result["diagnostics"]["performed_iterations"], 7)
         self.assertEqual(len(result["diagnostics"]["residual_history"]), 8)
@@ -575,12 +585,19 @@ class TestFishnetSolver(unittest.TestCase):
             "propagation_step2_nr_infeasible",
             "propagation_step2_nr_decrease_count",
             "propagation_step2_nr_iterations",
+            "propagation_pre_shear_active",
+            "propagation_step3_pre_shear_adjust_count",
         ):
             self.assertEqual(int(d0.get(key, -1)), int(d1.get(key, -1)))
 
         for key in (
             "propagation_step2_nr_initial_objective_mean",
             "propagation_step2_nr_final_objective_mean",
+            "propagation_pre_shear_deg",
+            "propagation_pre_shear_slope",
+            "propagation_step3_pre_shear_adjust_mean",
+            "propagation_step2_signed_shear_mean_deg",
+            "propagation_step2_signed_shear_target_error_mean_deg",
         ):
             self.assertAlmostEqual(float(d0.get(key, 0.0)), float(d1.get(key, 0.0)), delta=1.0e-12)
 
@@ -634,6 +651,88 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertTrue(math.isfinite(final_mean))
         self.assertLessEqual(final_mean, initial_mean + 1.0e-12)
         self.assertGreaterEqual(int(diag.get("propagation_step2_nr_decrease_count", 0)), 1)
+
+    def test_propagation_pre_shear_changes_step2_placement_with_signed_convention(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (0.0, 2.0, 0.0),
+            (1.0, 2.0, 0.0),
+            (2.0, 2.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 4),
+            (0, 4, 3),
+            (1, 2, 5),
+            (1, 5, 4),
+            (3, 4, 7),
+            (3, 7, 6),
+            (4, 5, 8),
+            (4, 8, 7),
+        ]
+
+        def run(pre_shear):
+            result = _fishnet.solve(
+                mesh_points=points,
+                mesh_faces=faces,
+                parameters={
+                    "algorithm": "acp_energy",
+                    "steps": 12,
+                    "fabric_spacing": 1.0,
+                    "seed": 4,
+                    "draping_direction": (1.0, 0.0, 0.0),
+                    "pre_shear_deg": pre_shear,
+                },
+            )
+            self.assertTrue(result["valid"])
+            diag = result.get("diagnostics", {})
+            self.assertAlmostEqual(float(diag.get("objective_pre_shear_deg", 0.0)), pre_shear, places=6)
+            self.assertAlmostEqual(float(diag.get("propagation_pre_shear_deg", 0.0)), pre_shear, places=6)
+            self.assertTrue(math.isfinite(float(diag.get("propagation_pre_shear_slope", 0.0))))
+            self.assertGreaterEqual(int(diag.get("propagation_step3_pre_shear_adjust_count", 0)), 0)
+            self.assertTrue(math.isfinite(float(diag.get("propagation_step3_pre_shear_adjust_mean", 0.0))))
+            if abs(pre_shear) > 1.0e-12:
+                self.assertEqual(int(diag.get("propagation_pre_shear_active", 0)), 1)
+                self.assertGreater(int(diag.get("propagation_step2_nr_attempts", 0)), 0)
+            else:
+                self.assertEqual(int(diag.get("propagation_pre_shear_active", 1)), 0)
+            return result, diag
+
+        neg, dneg = run(-15.0)
+        zero, dzero = run(0.0)
+        pos, dpos = run(15.0)
+
+        shear_neg = float(dneg.get("propagation_step2_signed_shear_mean_deg", 0.0))
+        shear_zero = float(dzero.get("propagation_step2_signed_shear_mean_deg", 0.0))
+        shear_pos = float(dpos.get("propagation_step2_signed_shear_mean_deg", 0.0))
+
+        self.assertAlmostEqual(shear_zero, 0.0, delta=1.0e-9)
+        self.assertGreater(shear_pos - shear_neg, 1.0)
+        self.assertGreater(abs(shear_neg), 1.0)
+        self.assertGreater(abs(shear_pos), 1.0)
+
+        zero_pts = zero.get("fabric_points", [])
+        neg_pts = neg.get("fabric_points", [])
+        pos_pts = pos.get("fabric_points", [])
+        self.assertEqual(len(zero_pts), len(neg_pts))
+        self.assertEqual(len(zero_pts), len(pos_pts))
+        max_delta_neg = max(
+            abs(float(neg_pts[i][1]) - float(zero_pts[i][1]))
+            for i in range(len(zero_pts))
+        )
+        max_delta_pos = max(
+            abs(float(pos_pts[i][1]) - float(zero_pts[i][1]))
+            for i in range(len(zero_pts))
+        )
+        self.assertGreater(max_delta_neg, 1.0e-6)
+        self.assertGreater(max_delta_pos, 1.0e-6)
+
+        self.assertTrue(math.isfinite(float(dpos.get("propagation_step2_signed_shear_target_error_mean_deg", 0.0))))
+        self.assertTrue(math.isfinite(float(dneg.get("propagation_step2_signed_shear_target_error_mean_deg", 0.0))))
 
     def test_acp_direction_and_ud_objective_are_reported(self):
         points = [

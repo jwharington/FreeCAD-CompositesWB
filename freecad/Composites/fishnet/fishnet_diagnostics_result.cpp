@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <unordered_set>
@@ -369,6 +370,43 @@ namespace fishnet_internal
             set_diag_long(diagnostics, "propagation_step2_nr_infeasible", acp_summary.step2_nr_infeasible);
             set_diag_long(diagnostics, "propagation_step2_nr_decrease_count", acp_summary.step2_nr_decrease_count);
             set_diag_long(diagnostics, "propagation_step2_nr_iterations", acp_summary.step2_nr_iterations);
+            set_diag_double(diagnostics, "propagation_pre_shear_deg", acp_summary.propagation_pre_shear_deg);
+            set_diag_double(diagnostics, "propagation_pre_shear_slope", acp_summary.propagation_pre_shear_slope);
+            set_diag_long(
+                diagnostics,
+                "propagation_pre_shear_active",
+                std::abs(acp_summary.propagation_pre_shear_deg) > 1.0e-12 ? 1L : 0L);
+            set_diag_long(diagnostics, "propagation_step3_pre_shear_adjust_count", acp_summary.propagation_step3_pre_shear_adjust_count);
+            if (acp_summary.propagation_step3_pre_shear_adjust_count > 0)
+            {
+                set_diag_double(
+                    diagnostics,
+                    "propagation_step3_pre_shear_adjust_mean",
+                    acp_summary.propagation_step3_pre_shear_adjust_sum /
+                        static_cast<double>(acp_summary.propagation_step3_pre_shear_adjust_count));
+            }
+            else
+            {
+                set_diag_double(diagnostics, "propagation_step3_pre_shear_adjust_mean", 0.0);
+            }
+            if (acp_summary.step2_nr_signed_shear_count > 0)
+            {
+                set_diag_double(
+                    diagnostics,
+                    "propagation_step2_signed_shear_mean_deg",
+                    acp_summary.step2_nr_signed_shear_sum_deg /
+                        static_cast<double>(acp_summary.step2_nr_signed_shear_count));
+                set_diag_double(
+                    diagnostics,
+                    "propagation_step2_signed_shear_target_error_mean_deg",
+                    acp_summary.step2_nr_signed_shear_target_error_sum_deg /
+                        static_cast<double>(acp_summary.step2_nr_signed_shear_count));
+            }
+            else
+            {
+                set_diag_double(diagnostics, "propagation_step2_signed_shear_mean_deg", 0.0);
+                set_diag_double(diagnostics, "propagation_step2_signed_shear_target_error_mean_deg", 0.0);
+            }
             if (acp_summary.step2_nr_attempts > 0)
             {
                 const double inv_attempts = 1.0 / static_cast<double>(acp_summary.step2_nr_attempts);

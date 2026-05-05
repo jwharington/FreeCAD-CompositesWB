@@ -14,6 +14,9 @@ namespace fishnet_internal
         int iterations{0};
         double objective_initial{0.0};
         double objective_final{0.0};
+        double signed_shear_initial_deg{0.0};
+        double signed_shear_final_deg{0.0};
+        double signed_shear_target_deg{0.0};
         Vec3 solved_point{0.0, 0.0, 0.0};
     };
 

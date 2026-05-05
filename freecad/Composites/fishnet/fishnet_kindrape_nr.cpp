@@ -181,6 +181,8 @@ namespace fishnet_internal
         }
         const double pre_shear_rad = std::clamp(target_pre_shear_deg, -45.0, 45.0) * (kPi / 180.0);
         const double target_shear_rad = std::clamp(base_shear + pre_shear_rad, -kHalfPi + 1.0e-6, kHalfPi - 1.0e-6);
+        result.signed_shear_initial_deg = base_shear * (180.0 / kPi);
+        result.signed_shear_target_deg = target_shear_rad * (180.0 / kPi);
 
         double theta = std::atan2(init_unit.y, init_unit.x);
         const double theta_init = theta;
@@ -260,6 +262,16 @@ namespace fishnet_internal
         }
 
         const Vec3 solved_unit = unit_from_angle(theta);
+        const double final_signed_shear_rad = signed_shear_from_vectors(solved_unit, ref_unit);
+        if (finite(final_signed_shear_rad))
+        {
+            result.signed_shear_final_deg = final_signed_shear_rad * (180.0 / kPi);
+        }
+        else
+        {
+            result.signed_shear_final_deg = result.signed_shear_initial_deg;
+        }
+
         result.solved_point = {
             current_point.x + nominal_edge_length * solved_unit.x,
             current_point.y + nominal_edge_length * solved_unit.y,

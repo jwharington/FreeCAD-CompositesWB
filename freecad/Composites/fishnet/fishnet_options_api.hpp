@@ -28,6 +28,13 @@ namespace fishnet_internal
         int step2_nr_iterations{0};
         double step2_nr_initial_objective_sum{0.0};
         double step2_nr_final_objective_sum{0.0};
+        int step2_nr_signed_shear_count{0};
+        double step2_nr_signed_shear_sum_deg{0.0};
+        double step2_nr_signed_shear_target_error_sum_deg{0.0};
+        double propagation_pre_shear_deg{0.0};
+        double propagation_pre_shear_slope{0.0};
+        int propagation_step3_pre_shear_adjust_count{0};
+        double propagation_step3_pre_shear_adjust_sum{0.0};
         Vec3 primary_axis{1.0, 0.0, 0.0};
         Vec3 orthogonal_axis{0.0, 1.0, 0.0};
         std::vector<std::string> stage_trace;

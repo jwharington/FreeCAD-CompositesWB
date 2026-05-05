@@ -164,6 +164,13 @@ namespace fishnet_internal
         summary.step2_nr_iterations = 0;
         summary.step2_nr_initial_objective_sum = 0.0;
         summary.step2_nr_final_objective_sum = 0.0;
+        summary.step2_nr_signed_shear_count = 0;
+        summary.step2_nr_signed_shear_sum_deg = 0.0;
+        summary.step2_nr_signed_shear_target_error_sum_deg = 0.0;
+        summary.propagation_pre_shear_deg = 0.0;
+        summary.propagation_pre_shear_slope = 0.0;
+        summary.propagation_step3_pre_shear_adjust_count = 0;
+        summary.propagation_step3_pre_shear_adjust_sum = 0.0;
 
         if (local_points.empty() ||
             local_points.size() != x_coord.size() ||
@@ -177,6 +184,14 @@ namespace fishnet_internal
         const double step = (std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)
                                 ? nominal_edge_length
                                 : 1.0;
+        constexpr double kDegToRad = 0.017453292519943295;
+        const double clamped_pre_shear_deg = std::clamp(target_pre_shear_deg, -45.0, 45.0);
+        const double clamped_pre_shear_rad = clamped_pre_shear_deg * kDegToRad;
+        const double pre_shear_slope = std::tan(clamped_pre_shear_rad);
+        const bool pre_shear_active = std::abs(clamped_pre_shear_deg) > 1.0e-12;
+        summary.propagation_pre_shear_deg = clamped_pre_shear_deg;
+        summary.propagation_pre_shear_slope = pre_shear_slope;
+
         const double nan = std::numeric_limits<double>::quiet_NaN();
 
         std::fill(x_coord.begin(), x_coord.end(), nan);
@@ -254,7 +269,7 @@ namespace fishnet_internal
                 const double primary_align = std::abs(dot(unit_edge, primary_axis));
                 const double orthogonal_align = std::abs(dot(unit_edge, orthogonal_axis));
 
-                if (std::abs(target_pre_shear_deg) <= 1.0e-12)
+                if (!pre_shear_active)
                 {
                     // Preserve pre-Slice-C deterministic behavior when no pre-shear target is requested.
                     if (primary_align >= orthogonal_align)
@@ -307,7 +322,7 @@ namespace fishnet_internal
                     reference_vec,
                     edge,
                     step,
-                    target_pre_shear_deg);
+                    clamped_pre_shear_deg);
 
                 ++summary.step2_nr_attempts;
                 summary.step2_nr_iterations += nr.iterations;
@@ -330,6 +345,10 @@ namespace fishnet_internal
                 {
                     ++summary.step2_nr_decrease_count;
                 }
+                ++summary.step2_nr_signed_shear_count;
+                summary.step2_nr_signed_shear_sum_deg += nr.signed_shear_final_deg;
+                summary.step2_nr_signed_shear_target_error_sum_deg +=
+                    std::abs(nr.signed_shear_final_deg - nr.signed_shear_target_deg);
 
                 x_coord[static_cast<size_t>(nbr)] = nr.solved_point.x;
                 y_coord[static_cast<size_t>(nbr)] = nr.solved_point.y;
@@ -403,6 +422,15 @@ namespace fishnet_internal
 
                 if (progressed)
                 {
+                    if (pre_shear_active && !is_nan(x_coord[i]) && !is_nan(y_coord[i]))
+                    {
+                        const double delta_primary = x_coord[i] - x_coord[static_cast<size_t>(seed_index)];
+                        const double adjustment = 0.15 * pre_shear_slope * delta_primary;
+                        y_coord[i] += adjustment;
+                        ++summary.propagation_step3_pre_shear_adjust_count;
+                        summary.propagation_step3_pre_shear_adjust_sum += adjustment;
+                    }
+
                     changed = true;
                     if (was_unassigned)
                     {
@@ -429,6 +457,14 @@ namespace fishnet_internal
             if (is_nan(y_coord[i]))
             {
                 y_coord[i] = dot(delta, orthogonal_axis);
+            }
+            if (pre_shear_active)
+            {
+                const double delta_primary = x_coord[i] - x_coord[static_cast<size_t>(seed_index)];
+                const double adjustment = 0.15 * pre_shear_slope * delta_primary;
+                y_coord[i] += adjustment;
+                ++summary.propagation_step3_pre_shear_adjust_count;
+                summary.propagation_step3_pre_shear_adjust_sum += adjustment;
             }
             if (was_unassigned)
             {
