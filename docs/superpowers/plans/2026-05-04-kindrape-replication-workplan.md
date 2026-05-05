@@ -481,6 +481,35 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 
 ### Slice E commit references
 - `10d070e` — `kindrape/slice-e/e0: harden diagnostics histories and transition telemetry`
+- `a5c716e` — `kindrape/slice-e/e1: update plan with Slice E status and gates`
+
+## Slice F (Phase 6) — validation suite + final stabilization status (2026-05-05)
+- ✅ Added canonical/reference-style validation harness utilities:
+  - `freecad/Composites/compositestests/kindrape_reference_harness.py`
+- ✅ Added canonical hemisphere helper for center/off-center seed validation:
+  - `make_hemisphere_mesh(...)` in `test_shapes.py`
+- ✅ Added Phase-6 native validation tests for:
+  - hemisphere center-seed determinism,
+  - hemisphere off-center-seed determinism + seed-index behavior,
+  - irregular-hole face diagnostics (recovered vs explicit transition failure),
+  - reference-style stage/transition signature stability.
+- ✅ Preserved deterministic scheduler/diagnostics contracts from Slices A-E.
+- 🟡 External KinDrape cross-tool numerical equivalence remains dependent on external reference script/data not present in-repo; current Slice-F checks are in-repo structural/reference-style + determinism validations.
+
+### Slice F gate summary (2026-05-05)
+- ✅ Native extension build: passed (`/home/jmw/opt/FreeCAD/.pixi/envs/default/bin/python setup.py build_ext --inplace`)
+- ✅ Targeted native Phase-6 tests passed (`6`):
+  - `test_hemisphere_center_seed_reference_metrics_are_deterministic`
+  - `test_hemisphere_offcenter_seed_changes_seed_index_and_stays_deterministic`
+  - `test_irregular_hole_face_reports_recovered_or_explicit_transition_failures`
+  - `test_reference_harness_stage_and_transition_signatures_stable_on_canonical_cases`
+  - `test_transition_event_history_and_row_transition_stats_are_deterministic`
+  - `test_acp_scheduler_stage_trace_is_deterministic`
+- ✅ Full native suite passed: `55/55`
+- ✅ Full integration suite passed: `15/15`
+
+### Slice F commit references
+- `fcca39f` — `kindrape/slice-f/f0: add phase6 canonical reference validation suite`
 
 ---
 
@@ -496,6 +525,6 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 ## Final handover checklist
 
 - [ ] All P0 phases complete (1,2,3,4,6).
-- [ ] P1 diagnostics hardening complete (5).
-- [ ] Full native + integration suites green.
+- [x] P1 diagnostics hardening complete (5).
+- [x] Full native + integration suites green.
 - [ ] Updated docs reflect final propagation/topology model and diagnostics contract.
