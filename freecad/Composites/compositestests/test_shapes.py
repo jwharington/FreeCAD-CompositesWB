@@ -96,3 +96,47 @@ def make_krogh_double_curved_bspline_face(step=0.025, x_range=(0.0, 0.5), y_rang
     if hasattr(shape, "Faces") and shape.Faces:
         return shape.Faces[0]
     return shape
+
+
+def make_irregular_spline_polygon_with_hole_face(scale=1.0):
+    """Build a planar irregular BSpline-bounded polygon face with one hole.
+
+    The returned shape is a single ``Part.Face`` with:
+      - one closed irregular BSpline outer wire
+      - one closed irregular BSpline inner wire (hole)
+
+    This is useful for testing trimmed/holed boundaries with non-linear edges.
+    """
+
+    import FreeCAD
+    import Part
+
+    s = float(scale)
+
+    outer_pts = [
+        FreeCAD.Vector(-4.5 * s, -1.0 * s, 0.0),
+        FreeCAD.Vector(-3.2 * s, 2.8 * s, 0.0),
+        FreeCAD.Vector(-0.3 * s, 3.7 * s, 0.0),
+        FreeCAD.Vector(2.6 * s, 2.0 * s, 0.0),
+        FreeCAD.Vector(4.1 * s, -0.9 * s, 0.0),
+        FreeCAD.Vector(2.0 * s, -3.6 * s, 0.0),
+        FreeCAD.Vector(-1.5 * s, -3.2 * s, 0.0),
+    ]
+
+    inner_pts = [
+        FreeCAD.Vector(-0.8 * s, -0.6 * s, 0.0),
+        FreeCAD.Vector(0.6 * s, -0.9 * s, 0.0),
+        FreeCAD.Vector(1.2 * s, 0.4 * s, 0.0),
+        FreeCAD.Vector(0.2 * s, 1.1 * s, 0.0),
+        FreeCAD.Vector(-1.0 * s, 0.5 * s, 0.0),
+    ]
+
+    outer_curve = Part.BSplineCurve()
+    outer_curve.interpolate(outer_pts, PeriodicFlag=True)
+    outer_wire = Part.Wire([outer_curve.toShape()])
+
+    inner_curve = Part.BSplineCurve()
+    inner_curve.interpolate(inner_pts, PeriodicFlag=True)
+    inner_wire = Part.Wire([inner_curve.toShape()])
+
+    return Part.Face([outer_wire, inner_wire])
