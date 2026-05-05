@@ -450,6 +450,37 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 
 ### Slice D commit references
 - `844e18e` — `kindrape/slice-d/d0: integrate propagation pre-shear kinematic diagnostics`
+- `559352b` — `kindrape/slice-d/d1: update plan with Slice D status and gates`
+
+## Slice E (Phase 5) — diagnostics + observability hardening status (2026-05-05)
+- ✅ Added generator telemetry histories for propagation introspection:
+  - `generator_objective_history`
+  - `generator_shear_history`
+- ✅ Added detailed transition telemetry:
+  - `transition_event_history`
+  - `per_row_transitions_in_counts`
+  - `per_row_transitions_out_counts`
+- ✅ Preserved deterministic scheduler behavior and existing Slice A/B/C/D diagnostics contract.
+- ✅ Hardened diagnostics consistency by synchronizing `residual_history` and `combined_objective_history` lengths before emission and keeping `performed_iterations` consistent.
+- ✅ Added/updated native tests for diagnostics presence, consistency, and deterministic transition telemetry behavior.
+
+### Slice E gate summary (2026-05-05)
+- ✅ Native extension build: passed (`/home/jmw/opt/FreeCAD/.pixi/envs/default/bin/python setup.py build_ext --inplace`)
+- ✅ Targeted native tests passed (`7`):
+  - `test_solver_metadata_is_reported`
+  - `test_acp_scheduler_stage_trace_is_deterministic`
+  - `test_step2_nr_objective_decreases_on_planar_generator_case`
+  - `test_propagation_pre_shear_changes_step2_placement_with_signed_convention`
+  - `test_cone_face_adaptive_topology_emits_transition_events`
+  - `test_adaptive_topology_deterministic_transition_counts`
+  - `test_transition_event_history_and_row_transition_stats_are_deterministic`
+- ✅ Full native suite passed: `51/51`
+- ✅ Relevant integration checks passed:
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_axially_sliced_cone_creates_ready_shell`
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_krogh_double_curved_bspline_creates_ready_shell`
+
+### Slice E commit references
+- `10d070e` — `kindrape/slice-e/e0: harden diagnostics histories and transition telemetry`
 
 ---
 
