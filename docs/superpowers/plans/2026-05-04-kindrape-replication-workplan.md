@@ -399,6 +399,30 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 
 ### Slice B commit references
 - `cbec7b2` — `kindrape/slice-b/b0: add deterministic step1-step2-step3 scheduler trace`
+- `40247fa` — `kindrape/slice-b/b1: update plan with Slice B status and gates`
+
+## Slice C (Phase 3) — generator-cell NR core status (2026-05-05)
+- ✅ Implemented Step-2 generator-cell NR core with guarded fallback behavior.
+- ✅ Added explicit NR/infeasibility diagnostics plumbing while preserving deterministic stage trace behavior from Slice B.
+- ✅ Preserved Slice-A adaptive-topology diagnostics contract.
+- ✅ Added native test coverage for NR objective decrease behavior on canonical planar generator case.
+
+### Slice C gate summary (2026-05-05)
+- ✅ Native extension build: passed (`/home/jmw/opt/FreeCAD/.pixi/envs/default/bin/python setup.py build_ext --inplace`)
+- ✅ Targeted native tests passed (`6`):
+  - `test_solver_metadata_is_reported`
+  - `test_acp_scheduler_stage_trace_is_deterministic`
+  - `test_step2_nr_objective_decreases_on_planar_generator_case`
+  - `test_acp_v2_surface_spacing_enforces_near_constant_3d_edge_lengths`
+  - `test_cone_face_adaptive_topology_emits_transition_events`
+  - `test_adaptive_topology_deterministic_transition_counts`
+- ✅ Full native suite passed: `49/49`
+- ✅ Relevant integration checks passed:
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_axially_sliced_cone_creates_ready_shell`
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_krogh_double_curved_bspline_creates_ready_shell`
+
+### Slice C commit references
+- `1ec944e` — `kindrape/slice-c/c0: integrate step2 generator NR core with guarded fallback`
 
 ---
 
