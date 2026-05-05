@@ -25,6 +25,7 @@ namespace fishnet_internal
         std::vector<std::array<int, 3>> mesh_faces;
 
         PyObject *params_copy{nullptr};
+        NormalizedParams normalized_params{};
         SolverAlgorithmProfile algorithm_profile{};
         bool acp_energy_mode{false};
 

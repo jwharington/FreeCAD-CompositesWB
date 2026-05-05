@@ -18,7 +18,7 @@ namespace fishnet_internal
         const std::vector<Vec3> &local_points,
         const Vec3 &x_axis,
         const Vec3 &y_axis,
-        PyObject *params);
+        const NormalizedParams *params);
     AcpPropagationSummary initialize_acp_layout(
         const std::vector<Vec3> &mesh_points,
         const std::vector<Vec3> &local_points,
@@ -26,7 +26,7 @@ namespace fishnet_internal
         const Vec3 &x_axis,
         const Vec3 &y_axis,
         double nominal_edge_length,
-        PyObject *params,
+        const NormalizedParams *params,
         std::vector<Vec3> &fabric_points);
     void build_acp_edge_objective(
         const std::vector<Vec3> &local_points,

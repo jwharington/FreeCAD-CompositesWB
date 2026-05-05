@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "fishnet_algorithm_types.hpp"
+#include "fishnet_options_api.hpp"
 
 namespace fishnet_internal {
 
@@ -27,6 +28,7 @@ struct GeometrySolverConfig {
 class DrapingAlgorithmPolicy {
 public:
     explicit DrapingAlgorithmPolicy(PyObject *params_copy);
+    explicit DrapingAlgorithmPolicy(const NormalizedParams &params);
 
     bool supported() const;
     PyObject *build_unsupported_result(PyObject *params_copy) const;
@@ -36,8 +38,12 @@ private:
 };
 
 GeometrySolverConfig build_geometry_solver_config(PyObject *params_copy, size_t native_face_count);
+GeometrySolverConfig build_geometry_solver_config(const NormalizedParams &params, size_t native_face_count);
 std::pair<double, bool> resolve_edge_rel_tolerance(PyObject *params_copy);
+std::pair<double, bool> resolve_edge_rel_tolerance(const NormalizedParams &params);
 int resolve_relax_iterations(PyObject *params_copy);
+int resolve_relax_iterations(const NormalizedParams &params);
 double read_nominal_edge_length(PyObject *params_copy);
+double read_nominal_edge_length(const NormalizedParams &params);
 
 } // namespace fishnet_internal

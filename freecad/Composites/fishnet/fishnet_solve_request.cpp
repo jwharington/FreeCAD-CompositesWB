@@ -17,6 +17,7 @@ namespace fishnet_internal
           mesh_points(std::move(other.mesh_points)),
           mesh_faces(std::move(other.mesh_faces)),
           params_copy(other.params_copy),
+          normalized_params(std::move(other.normalized_params)),
           algorithm_profile(std::move(other.algorithm_profile)),
           acp_energy_mode(other.acp_energy_mode)
     {
@@ -39,6 +40,7 @@ namespace fishnet_internal
         mesh_points = std::move(other.mesh_points);
         mesh_faces = std::move(other.mesh_faces);
         params_copy = other.params_copy;
+        normalized_params = std::move(other.normalized_params);
         algorithm_profile = std::move(other.algorithm_profile);
         acp_energy_mode = other.acp_energy_mode;
 
@@ -99,7 +101,8 @@ namespace fishnet_internal
             return false;
         }
 
-        request.algorithm_profile = solver_algorithm_profile_from_params(request.params_copy);
+        request.normalized_params = normalize_params(request.params_copy);
+        request.algorithm_profile = request.normalized_params.algorithm_profile;
         request.acp_energy_mode = request.algorithm_profile.acp_energy_mode;
 
         if (geometry_like(points_obj))

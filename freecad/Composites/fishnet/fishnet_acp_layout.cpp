@@ -18,40 +18,6 @@
 namespace fishnet_internal
 {
 
-    bool try_parse_param_vec3(PyObject *params, const char *key, Vec3 &out)
-    {
-        if (!params || !PyDict_Check(params) || !key)
-        {
-            return false;
-        }
-        PyObject *obj = PyDict_GetItemString(params, key);
-        if (!obj)
-        {
-            return false;
-        }
-        PyObject *seq = PySequence_Fast(obj, "vector parameter must be a sequence");
-        if (!seq)
-        {
-            PyErr_Clear();
-            return false;
-        }
-        bool ok = false;
-        if (PySequence_Fast_GET_SIZE(seq) >= 3)
-        {
-            PyObject **items = PySequence_Fast_ITEMS(seq);
-            out.x = PyFloat_AsDouble(items[0]);
-            out.y = PyFloat_AsDouble(items[1]);
-            out.z = PyFloat_AsDouble(items[2]);
-            ok = !PyErr_Occurred() && std::isfinite(out.x) && std::isfinite(out.y) && std::isfinite(out.z);
-        }
-        if (PyErr_Occurred())
-        {
-            PyErr_Clear();
-        }
-        Py_DECREF(seq);
-        return ok;
-    }
-
     std::vector<std::vector<int>> build_vertex_adjacency(
         size_t point_count,
         const std::vector<std::pair<int, int>> &edges)
@@ -103,10 +69,14 @@ namespace fishnet_internal
         const std::vector<Vec3> &local_points,
         const Vec3 &x_axis,
         const Vec3 &y_axis,
-        PyObject *params)
+        const NormalizedParams *params)
     {
         Vec3 requested_dir{};
-        bool has_requested = try_parse_param_vec3(params, "draping_direction", requested_dir);
+        const bool has_requested = params && params->has_draping_direction;
+        if (has_requested)
+        {
+            requested_dir = params->draping_direction;
+        }
         if (has_requested)
         {
             Vec3 projected = {
@@ -150,7 +120,7 @@ namespace fishnet_internal
         const Vec3 &x_axis,
         const Vec3 &y_axis,
         double nominal_edge_length,
-        PyObject *params,
+        const NormalizedParams *params,
         std::vector<Vec3> &fabric_points)
     {
         AcpPropagationSummary summary;
@@ -167,24 +137,18 @@ namespace fishnet_internal
         summary.orthogonal_axis = {-summary.primary_axis.y, summary.primary_axis.x, 0.0};
 
         int seed_index = 0;
-        if (params && PyDict_Check(params))
+        if (params)
         {
-            if (PyObject *seed_obj = PyDict_GetItemString(params, "seed"))
+            if (params->has_seed &&
+                params->seed >= 0 &&
+                params->seed < static_cast<int>(mesh_points.size()))
             {
-                long seed_long = PyLong_AsLong(seed_obj);
-                if (!PyErr_Occurred() && seed_long >= 0 && seed_long < static_cast<long>(mesh_points.size()))
-                {
-                    seed_index = static_cast<int>(seed_long);
-                }
-                else
-                {
-                    PyErr_Clear();
-                }
+                seed_index = params->seed;
             }
-            Vec3 seed_point{};
-            if (try_parse_param_vec3(params, "seed_point", seed_point))
+
+            if (params->has_seed_point)
             {
-                int nearest = nearest_point_index(mesh_points, seed_point);
+                int nearest = nearest_point_index(mesh_points, params->seed_point);
                 if (nearest >= 0)
                 {
                     seed_index = nearest;
@@ -201,7 +165,7 @@ namespace fishnet_internal
         std::vector<double> x_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
         std::vector<double> y_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
 
-        const double target_pre_shear_deg = param_double(params, "pre_shear_deg", 0.0);
+        const double target_pre_shear_deg = params ? params->pre_shear_deg : 0.0;
 
         run_kindrape_scheduler_skeleton(
             local_points,

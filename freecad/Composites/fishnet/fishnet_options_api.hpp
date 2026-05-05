@@ -90,10 +90,61 @@ namespace fishnet_internal
         std::string acp_strategy{"none"};
     };
 
+    struct NormalizedParams
+    {
+        SolverAlgorithmProfile algorithm_profile{};
+
+        int steps{0};
+        double fabric_spacing{0.0};
+        double max_length{0.0};
+
+        bool has_max_adjacent_normal_angle{false};
+        double max_adjacent_normal_angle{0.0};
+
+        bool has_max_local_fold_ratio{false};
+        double max_local_fold_ratio{0.0};
+
+        bool has_max_shear_angle_deg{false};
+        double max_shear_angle_deg{0.0};
+
+        bool has_surface_spacing_relax_iterations{false};
+        int surface_spacing_relax_iterations{0};
+
+        bool edge_length_tolerance_from_parameter{false};
+        double edge_length_tolerance{0.0};
+
+        std::string material_model{"woven"};
+        double ud_coefficient{0.0};
+        bool thickness_correction{false};
+
+        double objective_p_norm{6.0};
+        double pre_shear_deg{0.0};
+
+        bool has_objective_shear_weight{false};
+        double objective_shear_weight{1.0};
+
+        bool has_objective_fiber_weight{false};
+        double objective_fiber_weight{0.25};
+
+        bool has_objective_cell_gain{false};
+        double objective_cell_gain{0.0};
+
+        bool has_seed{false};
+        int seed{0};
+
+        bool has_seed_point{false};
+        Vec3 seed_point{0.0, 0.0, 0.0};
+
+        bool has_draping_direction{false};
+        Vec3 draping_direction{1.0, 0.0, 0.0};
+    };
+
     bool try_parse_param_vec3(PyObject *params, const char *key, Vec3 &out);
     double param_double(PyObject *params, const char *key, double fallback);
     bool param_bool(PyObject *params, const char *key, bool fallback);
     std::string param_string(PyObject *params, const char *key, const char *fallback);
+
+    NormalizedParams normalize_params(PyObject *params_copy);
 
     std::string solver_algorithm_from_params(PyObject *params_copy);
     SolverAlgorithmProfile solver_algorithm_profile_from_params(PyObject *params_copy);

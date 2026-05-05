@@ -160,7 +160,7 @@ namespace fishnet_internal
 
         void configure_acp_if_enabled(
             bool acp_energy_mode,
-            PyObject *params_copy,
+            const NormalizedParams &params,
             AcpPropagationSummary &acp_summary,
             AcpObjectiveSummary &objective_summary,
             std::vector<double> &edge_targets,
@@ -179,19 +179,19 @@ namespace fishnet_internal
                 x_axis_,
                 y_axis_,
                 nominal_edge_length_,
-                params_copy,
+                &params,
                 fabric_points_);
 
-            const std::string material_model = param_string(params_copy, "material_model", "woven");
-            const double ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
-            const bool thickness_correction = param_bool(params_copy, "thickness_correction", false);
-            const double objective_p_norm = param_double(params_copy, "objective_p_norm", 6.0);
+            const std::string material_model = params.material_model;
+            const double ud_coefficient = params.ud_coefficient;
+            const bool thickness_correction = params.thickness_correction;
+            const double objective_p_norm = params.objective_p_norm;
             objective_p_norm_ = objective_p_norm;
-            const double pre_shear_deg = param_double(params_copy, "pre_shear_deg", 0.0);
+            const double pre_shear_deg = params.pre_shear_deg;
             const bool ud_model = material_model == "ud" || material_model == "UD" || material_model == "unidirectional";
-            const double objective_shear_weight = param_double(params_copy, "objective_shear_weight", ud_model ? 0.6 : 1.0);
-            const double objective_fiber_weight = param_double(params_copy, "objective_fiber_weight", ud_model ? 1.0 : 0.25);
-            const double objective_cell_gain = param_double(params_copy, "objective_cell_gain", 0.0);
+            const double objective_shear_weight = params.has_objective_shear_weight ? params.objective_shear_weight : (ud_model ? 0.6 : 1.0);
+            const double objective_fiber_weight = params.has_objective_fiber_weight ? params.objective_fiber_weight : (ud_model ? 1.0 : 0.25);
+            const double objective_cell_gain = params.has_objective_cell_gain ? params.objective_cell_gain : 0.0;
             build_acp_edge_objective(
                 local_points_,
                 constrained_edges_,
@@ -299,7 +299,7 @@ namespace fishnet_internal
         double nominal_edge_length;
         int relax_iterations;
         bool acp_energy_mode;
-        PyObject *params_copy;
+        const NormalizedParams &normalized_params;
         const std::vector<Vec3> *seed_points; // nullptr → mesh path, &layout_points → geometry path
     };
 
@@ -336,7 +336,7 @@ namespace fishnet_internal
 
         layout_solver.configure_acp_if_enabled(
             p.acp_energy_mode,
-            p.params_copy,
+            p.normalized_params,
             out.acp_summary,
             out.objective_summary,
             out.edge_targets,
@@ -377,9 +377,9 @@ namespace fishnet_internal
             Py_XDECREF(params_copy_);
         }
 
-        GeometrySolveInputStatus prepare(PyObject *geometry_obj, PyObject *params_copy)
+        GeometrySolveInputStatus prepare(PyObject *geometry_obj, PyObject *params_copy, const NormalizedParams &normalized_params)
         {
-            if (!adopt_params_copy(params_copy))
+            if (!adopt_params_copy(params_copy, normalized_params))
             {
                 return GeometrySolveInputStatus::Error;
             }
@@ -457,7 +457,7 @@ namespace fishnet_internal
         }
 
     private:
-        bool adopt_params_copy(PyObject *params_copy)
+        bool adopt_params_copy(PyObject *params_copy, const NormalizedParams &normalized_params)
         {
             if (!params_copy)
             {
@@ -470,6 +470,7 @@ namespace fishnet_internal
                 return false;
             }
             params_copy_ = params_copy;
+            normalized_params_ = &normalized_params;
             return true;
         }
 
@@ -489,7 +490,9 @@ namespace fishnet_internal
 
         void build_config_and_sample()
         {
-            config_ = build_geometry_solver_config(params_copy_, native_faces_.size());
+            config_ = normalized_params_
+                          ? build_geometry_solver_config(*normalized_params_, native_faces_.size())
+                          : build_geometry_solver_config(params_copy_, native_faces_.size());
             sample_geometry_faces(
                 native_faces_,
                 config_,
@@ -503,6 +506,7 @@ namespace fishnet_internal
         }
 
         PyObject *params_copy_ = nullptr;
+        const NormalizedParams *normalized_params_ = nullptr;
         std::vector<PyObject *> py_faces_;
         std::vector<TopoDS_Face> native_faces_;
         GeometrySolverConfig config_;
@@ -522,13 +526,13 @@ namespace fishnet_internal
             const std::vector<std::array<int, 3>> &triangles,
             const std::vector<std::vector<int>> &quads,
             double nominal_spacing,
-            PyObject *params_copy)
+            const NormalizedParams &params)
             : loops_idx_(boundary_loops(triangles)),
               constrained_edges_(!quads.empty()
                                      ? perimeter_edges_from_quads(quads)
                                      : edges_from_triangles(triangles)),
               nominal_edge_length_(nominal_spacing),
-              relax_iterations_(resolve_relax_iterations(params_copy))
+              relax_iterations_(resolve_relax_iterations(params))
         {
         }
 
@@ -559,12 +563,12 @@ namespace fishnet_internal
         int relax_iterations_ = 0;
     };
 
-    static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_copy)
+    static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_copy, const NormalizedParams &normalized_params)
     {
         ensure_part_module_loaded();
 
         GeometrySolveInputContext input;
-        switch (input.prepare(geometry_obj, params_copy))
+        switch (input.prepare(geometry_obj, params_copy, normalized_params))
         {
         case GeometrySolveInputStatus::Error:
             return nullptr;
@@ -576,7 +580,7 @@ namespace fishnet_internal
             break;
         }
 
-        const DrapingAlgorithmPolicy algorithm_policy(input.params_copy());
+        const DrapingAlgorithmPolicy algorithm_policy(normalized_params);
         if (!algorithm_policy.supported())
         {
             return algorithm_policy.build_unsupported_result(input.release_params_copy());
@@ -603,7 +607,7 @@ namespace fishnet_internal
             triangles,
             input.quads(),
             nominal_spacing,
-            input.params_copy());
+            normalized_params);
 
         // Geometry adapter: seed from sampled layout_points.
         SolvePipelineOutput pipe = run_solve_pipeline({
@@ -619,7 +623,7 @@ namespace fishnet_internal
             topology.nominal_edge_length(),
             topology.relax_iterations(),
             acp_energy_mode,
-            input.params_copy(),
+            normalized_params,
             &input.layout_points(),
         });
 
@@ -661,14 +665,14 @@ namespace fishnet_internal
         MeshSolveTopology(
             const std::vector<Vec3> &points,
             const std::vector<std::array<int, 3>> &faces,
-            PyObject *params_copy)
+            const NormalizedParams &params)
             : fabric_quads_(extract_quads(faces, points)),
               loops_idx_(boundary_loops(faces)),
               constrained_edges_(!fabric_quads_.empty()
                                      ? perimeter_edges_from_quads(fabric_quads_)
                                      : edges_from_triangles(faces)),
-              nominal_edge_length_(read_nominal_edge_length(params_copy)),
-              relax_iterations_(resolve_relax_iterations(params_copy))
+              nominal_edge_length_(read_nominal_edge_length(params)),
+              relax_iterations_(resolve_relax_iterations(params))
         {
         }
 
@@ -715,10 +719,10 @@ namespace fishnet_internal
 
         if (request.input_kind == SolveInputKind::GeometryLike)
         {
-            return solve_geometry(request.geometry_obj, request.release_params_copy());
+            return solve_geometry(request.geometry_obj, request.release_params_copy(), request.normalized_params);
         }
 
-        const DrapingAlgorithmPolicy algorithm_policy(request.params_copy);
+        const DrapingAlgorithmPolicy algorithm_policy(request.normalized_params);
         if (!algorithm_policy.supported())
         {
             return algorithm_policy.build_unsupported_result(request.release_params_copy());
@@ -737,7 +741,7 @@ namespace fishnet_internal
         Vec3 normal{}, x_axis{}, y_axis{};
         build_basis(request.mesh_points, request.mesh_faces, normal, x_axis, y_axis);
 
-        MeshSolveTopology topology(request.mesh_points, request.mesh_faces, request.params_copy);
+        MeshSolveTopology topology(request.mesh_points, request.mesh_faces, request.normalized_params);
 
         // Mesh adapter: no pre-seeded layout points.
         SolvePipelineOutput pipe = run_solve_pipeline({
@@ -753,7 +757,7 @@ namespace fishnet_internal
             topology.nominal_edge_length(),
             topology.relax_iterations(),
             request.acp_energy_mode,
-            request.params_copy,
+            request.normalized_params,
             nullptr,
         });
 
