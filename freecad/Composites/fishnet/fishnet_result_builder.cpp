@@ -926,12 +926,6 @@ namespace fishnet_internal
 
     static PyObject *build_geometry_result_dict(const GeometryResultDictInput &input)
     {
-        PyObject *result = PyDict_New();
-        if (!result)
-        {
-            return nullptr;
-        }
-
         const WarpWeftBuildInput warp_weft_input{
             input.points,
             input.local_points,
@@ -945,12 +939,13 @@ namespace fishnet_internal
         };
         if (!build_warp_weft_outputs(warp_weft_input, warp_weft_output))
         {
-            Py_DECREF(result);
             return nullptr;
         }
 
-        set_result_common_fields(
-            result,
+        const ResultCompatibilityPayload payload{
+            true,
+            "",
+            input.params_copy,
             input.fabric_points_list,
             input.warp_weft_points_list,
             input.fabric_quads_list,
@@ -966,8 +961,8 @@ namespace fishnet_internal
             input.normal,
             input.x_axis,
             input.y_axis,
-            input.params_copy);
-        return result;
+        };
+        return build_result_from_compat_payload(payload, nullptr);
     }
 
     struct GeometryResultDiagnosticsInput
@@ -1214,31 +1209,6 @@ namespace fishnet_internal
         };
         EdgeDiagnosticsContext edge_context = append_edge_diagnostics_break(edge_input);
 
-        PyObject *result = PyDict_New();
-        if (!result)
-        {
-            return nullptr;
-        }
-
-        set_result_common_fields(
-            result,
-            scope.fabric_points_list(),
-            scope.fabric_points_list(),
-            scope.fabric_quads_list(),
-            scope.boundary_loops_list(),
-            scope.boundary_loops_list(),
-            scope.strains_list(),
-            scope.mesh_points_list(),
-            scope.mesh_faces_list(),
-            scope.face_frames_list(),
-            scope.orientation_breaks_list(),
-            scope.atlas_charts_list(),
-            input.origin,
-            input.normal,
-            input.x_axis,
-            input.y_axis,
-            scope.params_copy());
-
         const long coverage_point_count = coverage_point_count_for_quads(input.fabric_quads);
         static const std::vector<long> kEmptyPerRowCounts;
         static const std::vector<TransitionEventSample> kEmptyTransitionEventHistory;
@@ -1277,9 +1247,28 @@ namespace fishnet_internal
             kEmptyPerRowCounts,
             kEmptyTransitionEventHistory,
         };
-        attach_result_diagnostics(result, scope.params_copy(), diagnostics_input);
+        const ResultCompatibilityPayload payload{
+            true,
+            "",
+            scope.params_copy(),
+            scope.fabric_points_list(),
+            scope.fabric_points_list(),
+            scope.fabric_quads_list(),
+            scope.boundary_loops_list(),
+            scope.boundary_loops_list(),
+            scope.strains_list(),
+            scope.mesh_points_list(),
+            scope.mesh_faces_list(),
+            scope.face_frames_list(),
+            scope.orientation_breaks_list(),
+            scope.atlas_charts_list(),
+            input.origin,
+            input.normal,
+            input.x_axis,
+            input.y_axis,
+        };
 
-        return result;
+        return build_result_from_compat_payload(payload, &diagnostics_input);
     }
 
 } // namespace fishnet_internal

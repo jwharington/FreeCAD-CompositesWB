@@ -15,6 +15,7 @@
 #include "fishnet_diagnostics_api.hpp"
 #include "fishnet_options_api.hpp"
 #include "fishnet_python_util.hpp"
+#include "fishnet_result_api.hpp"
 
 namespace fishnet_internal
 {
@@ -858,6 +859,73 @@ namespace fishnet_internal
         }
 
         PyDict_SetItemString(result, "parameters", params_copy);
+    }
+
+    PyObject *build_result_from_compat_payload(
+        const ResultCompatibilityPayload &payload,
+        const SolverDiagnosticsInput *diagnostics_input)
+    {
+        PyObject *result = PyDict_New();
+        if (!result)
+        {
+            return nullptr;
+        }
+
+        if (payload.valid)
+        {
+            set_result_common_fields(
+                result,
+                payload.fabric_points,
+                payload.warp_weft_points,
+                payload.fabric_quads,
+                payload.boundary_loops,
+                payload.warp_weft_boundary_loops,
+                payload.strains,
+                payload.mesh_points,
+                payload.mesh_faces,
+                payload.face_frames,
+                payload.orientation_breaks,
+                payload.atlas_charts,
+                payload.origin,
+                payload.normal,
+                payload.x_axis,
+                payload.y_axis,
+                payload.params_copy);
+            if (diagnostics_input)
+            {
+                attach_result_diagnostics(result, payload.params_copy, *diagnostics_input);
+            }
+            return result;
+        }
+
+        PyDict_SetItemString(result, "valid", Py_False);
+        set_dict_string(result, "error", payload.error ? payload.error : "");
+        set_dict_empty_list(result, "fabric_points");
+        set_dict_empty_list(result, "warp_weft_points");
+        set_dict_empty_list(result, "fabric_quads");
+        set_dict_empty_list(result, "boundary_loops");
+        set_dict_empty_list(result, "warp_weft_boundary_loops");
+        set_dict_empty_list(result, "strains");
+        set_dict_empty_list(result, "mesh_points");
+        set_dict_empty_list(result, "mesh_faces");
+        set_dict_empty_list(result, "face_frames");
+        set_dict_empty_list(result, "orientation_breaks");
+        set_dict_empty_list(result, "atlas_charts");
+        if (payload.params_copy)
+        {
+            PyDict_SetItemString(result, "parameters", payload.params_copy);
+        }
+
+        if (diagnostics_input && payload.params_copy)
+        {
+            attach_result_diagnostics(result, payload.params_copy, *diagnostics_input);
+        }
+        else if (payload.params_copy)
+        {
+            attach_solver_metadata(result, payload.params_copy, "infeasible", false);
+        }
+
+        return result;
     }
 
     PyObject *build_empty_geometry_result(const char *error, PyObject *params_copy)
