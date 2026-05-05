@@ -122,6 +122,9 @@ fishnet_extension = Extension(
             "freecad", "Composites", "fishnet", "fishnet_kindrape_nr.cpp"
         ),
         os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_solve_request.cpp"
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_python_geometry.cpp"
         ),
         os.path.join(

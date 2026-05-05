@@ -48,6 +48,7 @@
 #include "fishnet_result_api.hpp"
 #include "fishnet_result_builder.hpp"
 #include "fishnet_sampling_api.hpp"
+#include "fishnet_solve_request.hpp"
 
 namespace fishnet_internal
 {
@@ -355,8 +356,6 @@ namespace fishnet_internal
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    static PyObject *copy_params_dict(PyObject *params_obj);
-
     enum class GeometrySolveInputStatus
     {
         Ok,
@@ -378,9 +377,9 @@ namespace fishnet_internal
             Py_XDECREF(params_copy_);
         }
 
-        GeometrySolveInputStatus prepare(PyObject *geometry_obj, PyObject *params_obj)
+        GeometrySolveInputStatus prepare(PyObject *geometry_obj, PyObject *params_copy)
         {
-            if (!prepare_params(params_obj))
+            if (!adopt_params_copy(params_copy))
             {
                 return GeometrySolveInputStatus::Error;
             }
@@ -458,10 +457,20 @@ namespace fishnet_internal
         }
 
     private:
-        bool prepare_params(PyObject *params_obj)
+        bool adopt_params_copy(PyObject *params_copy)
         {
-            params_copy_ = copy_params_dict(params_obj);
-            return params_copy_ != nullptr;
+            if (!params_copy)
+            {
+                PyErr_SetString(PyExc_RuntimeError, "internal solve request missing parameters");
+                return false;
+            }
+            if (!PyDict_Check(params_copy))
+            {
+                PyErr_SetString(PyExc_TypeError, "parameters must be a dict or None");
+                return false;
+            }
+            params_copy_ = params_copy;
+            return true;
         }
 
         GeometrySolveInputStatus collect_python_faces(PyObject *geometry_obj)
@@ -550,12 +559,12 @@ namespace fishnet_internal
         int relax_iterations_ = 0;
     };
 
-    static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_obj)
+    static PyObject *solve_geometry(PyObject *geometry_obj, PyObject *params_copy)
     {
         ensure_part_module_loaded();
 
         GeometrySolveInputContext input;
-        switch (input.prepare(geometry_obj, params_obj))
+        switch (input.prepare(geometry_obj, params_copy))
         {
         case GeometrySolveInputStatus::Error:
             return nullptr;
@@ -646,101 +655,6 @@ namespace fishnet_internal
         return build_geometry_result_object(result_input);
     }
 
-    static PyObject *copy_params_dict(PyObject *params_obj)
-    {
-        PyObject *params_copy = (!params_obj || params_obj == Py_None)
-                                    ? PyDict_New()
-                                    : PyDict_Copy(params_obj);
-        if (!params_copy)
-        {
-            return nullptr;
-        }
-        if (!PyDict_Check(params_copy))
-        {
-            Py_DECREF(params_copy);
-            PyErr_SetString(PyExc_TypeError, "parameters must be a dict or None");
-            return nullptr;
-        }
-        return params_copy;
-    }
-
-    class MeshSolveInputContext
-    {
-    public:
-        MeshSolveInputContext() = default;
-        MeshSolveInputContext(const MeshSolveInputContext &) = delete;
-        MeshSolveInputContext &operator=(const MeshSolveInputContext &) = delete;
-
-        ~MeshSolveInputContext()
-        {
-            Py_XDECREF(params_copy_);
-        }
-
-        bool prepare(PyObject *points_obj, PyObject *faces_obj, PyObject *params_obj)
-        {
-            if (!collect_mesh_points(points_obj, points_))
-            {
-                return false;
-            }
-            if (!collect_mesh_faces(faces_obj, points_.size(), faces_))
-            {
-                return false;
-            }
-            if (!prepare_params(params_obj))
-            {
-                return false;
-            }
-
-            resolve_algorithm_mode();
-            return true;
-        }
-
-        const std::vector<Vec3> &points() const
-        {
-            return points_;
-        }
-
-        const std::vector<std::array<int, 3>> &faces() const
-        {
-            return faces_;
-        }
-
-        bool acp_energy_mode() const
-        {
-            return acp_energy_mode_;
-        }
-
-        PyObject *params_copy() const
-        {
-            return params_copy_;
-        }
-
-        PyObject *release_params_copy()
-        {
-            PyObject *released = params_copy_;
-            params_copy_ = nullptr;
-            return released;
-        }
-
-    private:
-        bool prepare_params(PyObject *params_obj)
-        {
-            params_copy_ = copy_params_dict(params_obj);
-            return params_copy_ != nullptr;
-        }
-
-        void resolve_algorithm_mode()
-        {
-            const SolverAlgorithmProfile profile = solver_algorithm_profile_from_params(params_copy_);
-            acp_energy_mode_ = profile.acp_energy_mode;
-        }
-
-        std::vector<Vec3> points_;
-        std::vector<std::array<int, 3>> faces_;
-        PyObject *params_copy_ = nullptr;
-        bool acp_energy_mode_ = false;
-    };
-
     class MeshSolveTopology
     {
     public:
@@ -793,52 +707,42 @@ namespace fishnet_internal
 
     static PyObject *solve_impl(PyObject *, PyObject *args, PyObject *kwargs)
     {
-        static const char *kwlist[] = {"mesh_points", "mesh_faces", "parameters", nullptr};
-        PyObject *points_obj = nullptr;
-        PyObject *faces_obj = Py_None;
-        PyObject *params_obj = Py_None;
-
-        if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O|OO", const_cast<char **>(kwlist), &points_obj, &faces_obj, &params_obj))
+        SolveRequest request;
+        if (!parse_solve_request(args, kwargs, request))
         {
             return nullptr;
         }
 
-        if (geometry_like(points_obj))
+        if (request.input_kind == SolveInputKind::GeometryLike)
         {
-            return solve_geometry(points_obj, params_obj);
+            return solve_geometry(request.geometry_obj, request.release_params_copy());
         }
 
-        MeshSolveInputContext input;
-        if (!input.prepare(points_obj, faces_obj, params_obj))
-        {
-            return nullptr;
-        }
-
-        const DrapingAlgorithmPolicy algorithm_policy(input.params_copy());
+        const DrapingAlgorithmPolicy algorithm_policy(request.params_copy);
         if (!algorithm_policy.supported())
         {
-            return algorithm_policy.build_unsupported_result(input.release_params_copy());
+            return algorithm_policy.build_unsupported_result(request.release_params_copy());
         }
 
-        if (input.points().empty())
+        if (request.mesh_points.empty())
         {
-            return build_empty_geometry_result("fishnet solver needs at least one point", input.release_params_copy());
+            return build_empty_geometry_result("fishnet solver needs at least one point", request.release_params_copy());
         }
-        if (input.faces().empty())
+        if (request.mesh_faces.empty())
         {
-            return build_empty_geometry_result("fishnet solver needs at least one face", input.release_params_copy());
+            return build_empty_geometry_result("fishnet solver needs at least one face", request.release_params_copy());
         }
 
-        Vec3 origin = centroid(input.points());
+        Vec3 origin = centroid(request.mesh_points);
         Vec3 normal{}, x_axis{}, y_axis{};
-        build_basis(input.points(), input.faces(), normal, x_axis, y_axis);
+        build_basis(request.mesh_points, request.mesh_faces, normal, x_axis, y_axis);
 
-        MeshSolveTopology topology(input.points(), input.faces(), input.params_copy());
+        MeshSolveTopology topology(request.mesh_points, request.mesh_faces, request.params_copy);
 
         // Mesh adapter: no pre-seeded layout points.
         SolvePipelineOutput pipe = run_solve_pipeline({
-            input.points(),
-            input.faces(),
+            request.mesh_points,
+            request.mesh_faces,
             topology.fabric_quads(),
             topology.constrained_edges(),
             topology.loops_idx(),
@@ -848,16 +752,16 @@ namespace fishnet_internal
             y_axis,
             topology.nominal_edge_length(),
             topology.relax_iterations(),
-            input.acp_energy_mode(),
-            input.params_copy(),
+            request.acp_energy_mode,
+            request.params_copy,
             nullptr,
         });
 
         const MeshResultBuildInput result_input{
-            input.release_params_copy(),
-            input.acp_energy_mode(),
-            input.points(),
-            input.faces(),
+            request.release_params_copy(),
+            request.acp_energy_mode,
+            request.mesh_points,
+            request.mesh_faces,
             pipe.fabric_points,
             topology.fabric_quads(),
             pipe.loops_pts,
