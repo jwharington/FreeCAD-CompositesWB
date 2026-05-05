@@ -423,6 +423,33 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 
 ### Slice C commit references
 - `1ec944e` — `kindrape/slice-c/c0: integrate step2 generator NR core with guarded fallback`
+- `dba5812` — `kindrape/slice-c/c1: update plan with Slice C status and gates`
+
+## Slice D (Phase 4) — pre-shear propagation-time kinematic status (2026-05-05)
+- ✅ Integrated `pre_shear_deg` into propagation-time placement behavior (Step-2/Step-3), not only objective shaping.
+- ✅ Preserved deterministic Stage 1/2/3 scheduling and Slice-B stage trace behavior.
+- ✅ Added split propagation vs objective diagnostics for pre-shear observability.
+- ✅ Extended NR/propagation telemetry with signed Step-2 shear tracking and target-error summaries.
+- ✅ Added native test coverage validating propagation-side pre-shear effect and signed convention behavior.
+
+### Slice D gate summary (2026-05-05)
+- ✅ Native extension build: passed (`/home/jmw/opt/FreeCAD/.pixi/envs/default/bin/python setup.py build_ext --inplace`)
+- ✅ Targeted native tests passed (`8`):
+  - `test_solver_metadata_is_reported`
+  - `test_acp_scheduler_stage_trace_is_deterministic`
+  - `test_step2_nr_objective_decreases_on_planar_generator_case`
+  - `test_propagation_pre_shear_changes_step2_placement_with_signed_convention`
+  - `test_acp_preshear_sign_convention_is_consistent_on_bias_families`
+  - `test_acp_v2_surface_spacing_enforces_near_constant_3d_edge_lengths`
+  - `test_cone_face_adaptive_topology_emits_transition_events`
+  - `test_adaptive_topology_deterministic_transition_counts`
+- ✅ Full native suite passed: `50/50`
+- ✅ Relevant integration checks passed:
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_axially_sliced_cone_creates_ready_shell`
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_krogh_double_curved_bspline_creates_ready_shell`
+
+### Slice D commit references
+- `844e18e` — `kindrape/slice-d/d0: integrate propagation pre-shear kinematic diagnostics`
 
 ---
 
