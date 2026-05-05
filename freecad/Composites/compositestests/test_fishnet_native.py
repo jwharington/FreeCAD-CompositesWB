@@ -520,6 +520,8 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("propagation_step3_pre_shear_adjust_mean", result["diagnostics"])
         self.assertIn("propagation_step2_signed_shear_mean_deg", result["diagnostics"])
         self.assertIn("propagation_step2_signed_shear_target_error_mean_deg", result["diagnostics"])
+        self.assertIn("generator_objective_history", result["diagnostics"])
+        self.assertIn("generator_shear_history", result["diagnostics"])
         self.assertIn("primary_direction", result["diagnostics"])
         self.assertIn("orthogonal_direction", result["diagnostics"])
         self.assertIn("objective_model", result["diagnostics"])
@@ -534,6 +536,14 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(result["diagnostics"]["max_iterations"], 7)
         self.assertEqual(result["diagnostics"]["performed_iterations"], 7)
         self.assertEqual(len(result["diagnostics"]["residual_history"]), 8)
+        self.assertEqual(
+            len(result["diagnostics"].get("residual_history", [])),
+            len(result["diagnostics"].get("combined_objective_history", [])),
+        )
+        self.assertEqual(
+            int(result["diagnostics"].get("performed_iterations", -1)),
+            len(result["diagnostics"].get("residual_history", [])) - 1,
+        )
 
     def test_acp_scheduler_stage_trace_is_deterministic(self):
         points = [
@@ -695,9 +705,12 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertTrue(math.isfinite(float(diag.get("propagation_pre_shear_slope", 0.0))))
             self.assertGreaterEqual(int(diag.get("propagation_step3_pre_shear_adjust_count", 0)), 0)
             self.assertTrue(math.isfinite(float(diag.get("propagation_step3_pre_shear_adjust_mean", 0.0))))
+            attempts = int(diag.get("propagation_step2_nr_attempts", 0))
+            self.assertEqual(len(diag.get("generator_objective_history", [])), attempts)
+            self.assertEqual(len(diag.get("generator_shear_history", [])), attempts)
             if abs(pre_shear) > 1.0e-12:
                 self.assertEqual(int(diag.get("propagation_pre_shear_active", 0)), 1)
-                self.assertGreater(int(diag.get("propagation_step2_nr_attempts", 0)), 0)
+                self.assertGreater(attempts, 0)
             else:
                 self.assertEqual(int(diag.get("propagation_pre_shear_active", 1)), 0)
             return result, diag
@@ -2134,6 +2147,68 @@ class TestFishnetSolver(unittest.TestCase):
         ):
             self.assertEqual(int(d0.get(key, 0)), int(d1.get(key, 0)))
         self.assertEqual(list(d0.get("per_row_counts", [])), list(d1.get("per_row_counts", [])))
+
+    def test_transition_event_history_and_row_transition_stats_are_deterministic(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                3,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        params = {
+            "algorithm": "acp_energy",
+            "acp_strategy": "surface_spacing",
+            "fabric_spacing": 2.0,
+            "steps": 20,
+            "seed_point": (12.0, 0.0, 2.0),
+            "draping_direction": (1.0, 0.0, 0.0),
+        }
+        first = _fishnet.solve(face, parameters=params)
+        second = _fishnet.solve(face, parameters=params)
+
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
+
+        d0 = first.get("diagnostics", {})
+        d1 = second.get("diagnostics", {})
+
+        events0 = list(d0.get("transition_event_history", []))
+        events1 = list(d1.get("transition_event_history", []))
+        self.assertGreater(len(events0), 0)
+        self.assertEqual(events0, events1)
+
+        for event in events0:
+            self.assertIn("from_row", event)
+            self.assertIn("to_row", event)
+            self.assertIn("from_count", event)
+            self.assertIn("to_count", event)
+            self.assertIn("delta", event)
+            self.assertIn("kind", event)
+            self.assertIn("success", event)
+            self.assertIn("reason", event)
+            self.assertIn(str(event.get("kind", "")), {"split", "merge", "none"})
+
+        in_counts0 = [int(v) for v in d0.get("per_row_transitions_in_counts", [])]
+        out_counts0 = [int(v) for v in d0.get("per_row_transitions_out_counts", [])]
+        in_counts1 = [int(v) for v in d1.get("per_row_transitions_in_counts", [])]
+        out_counts1 = [int(v) for v in d1.get("per_row_transitions_out_counts", [])]
+
+        self.assertGreater(len(in_counts0), 0)
+        self.assertEqual(len(in_counts0), len(out_counts0))
+        self.assertEqual(in_counts0, in_counts1)
+        self.assertEqual(out_counts0, out_counts1)
+        self.assertEqual(sum(in_counts0), int(d0.get("topology_transition_count", -1)))
+        self.assertEqual(sum(out_counts0), int(d0.get("topology_transition_count", -1)))
 
     def test_transition_failure_is_explicitly_reported(self):
         import FreeCAD

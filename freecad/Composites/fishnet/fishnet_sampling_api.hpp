@@ -3,6 +3,7 @@
 #include <Python.h>
 
 #include <array>
+#include <string>
 #include <vector>
 
 #include <TopoDS_Face.hxx>
@@ -11,6 +12,19 @@
 
 namespace fishnet_internal
 {
+
+    struct TransitionEventSample
+    {
+        int sample_index{-1};
+        int from_row{-1};
+        int to_row{-1};
+        int from_count{0};
+        int to_count{0};
+        int delta{0};
+        std::string kind{"none"};
+        bool success{true};
+        std::string reason;
+    };
 
     struct FaceSample
     {
@@ -36,6 +50,9 @@ namespace fishnet_internal
         long topology_merge_count{0};
         long topology_transition_fail_count{0};
         std::vector<long> per_row_counts;
+        std::vector<long> per_row_transitions_in_counts;
+        std::vector<long> per_row_transitions_out_counts;
+        std::vector<TransitionEventSample> transition_event_history;
     };
 
     struct ExperimentalSolveStats

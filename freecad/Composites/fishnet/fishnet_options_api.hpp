@@ -38,6 +38,8 @@ namespace fishnet_internal
         Vec3 primary_axis{1.0, 0.0, 0.0};
         Vec3 orthogonal_axis{0.0, 1.0, 0.0};
         std::vector<std::string> stage_trace;
+        std::vector<double> generator_objective_history;
+        std::vector<double> generator_shear_history;
     };
 
     struct AcpObjectiveSummary

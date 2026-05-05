@@ -8,6 +8,7 @@
 #include <cstring>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "fishnet_algorithm_types.hpp"
@@ -304,7 +305,10 @@ namespace fishnet_internal
         long topology_split_count,
         long topology_merge_count,
         long topology_transition_fail_count,
-        const std::vector<long> &per_row_counts)
+        const std::vector<long> &per_row_counts,
+        const std::vector<long> &per_row_transitions_in_counts,
+        const std::vector<long> &per_row_transitions_out_counts,
+        const std::vector<TransitionEventSample> &transition_event_history)
     {
         if (!diagnostics || !PyDict_Check(diagnostics))
         {
@@ -325,14 +329,56 @@ namespace fishnet_internal
         set_diag_double(diagnostics, "residual_threshold", rel_tol);
         set_diag_long(diagnostics, "max_iterations", max_iterations);
 
-        const long performed_iterations = residual_history.empty() ? 0 : static_cast<long>(residual_history.size() - 1);
+        const size_t residual_len = residual_history.size();
+        const size_t combined_len = combined_objective_history.size();
+        size_t synced_len = 0;
+        if (residual_len > 0 && combined_len > 0)
+        {
+            synced_len = std::min(residual_len, combined_len);
+        }
+        else
+        {
+            synced_len = std::max(residual_len, combined_len);
+        }
+
+        std::vector<double> residual_history_synced;
+        std::vector<double> combined_history_synced;
+        if (synced_len > 0)
+        {
+            if (residual_len > 0)
+            {
+                residual_history_synced.assign(residual_history.begin(), residual_history.begin() + static_cast<long>(std::min(residual_len, synced_len)));
+            }
+            if (combined_len > 0)
+            {
+                combined_history_synced.assign(combined_objective_history.begin(), combined_objective_history.begin() + static_cast<long>(std::min(combined_len, synced_len)));
+            }
+            if (residual_history_synced.empty())
+            {
+                residual_history_synced.resize(synced_len, max_rel_error);
+            }
+            if (combined_history_synced.empty())
+            {
+                combined_history_synced = residual_history_synced;
+            }
+            if (residual_history_synced.size() < synced_len)
+            {
+                residual_history_synced.resize(synced_len, residual_history_synced.back());
+            }
+            if (combined_history_synced.size() < synced_len)
+            {
+                combined_history_synced.resize(synced_len, combined_history_synced.back());
+            }
+        }
+
+        const long performed_iterations = residual_history_synced.empty() ? 0 : static_cast<long>(residual_history_synced.size() - 1);
         set_diag_long(diagnostics, "performed_iterations", performed_iterations);
-        if (PyObject *residual_history_obj = build_double_list(residual_history))
+        if (PyObject *residual_history_obj = build_double_list(residual_history_synced))
         {
             PyDict_SetItemString(diagnostics, "residual_history", residual_history_obj);
             Py_DECREF(residual_history_obj);
         }
-        if (PyObject *combined_objective_history_obj = build_double_list(combined_objective_history))
+        if (PyObject *combined_objective_history_obj = build_double_list(combined_history_synced))
         {
             PyDict_SetItemString(diagnostics, "combined_objective_history", combined_objective_history_obj);
             Py_DECREF(combined_objective_history_obj);
@@ -500,6 +546,16 @@ namespace fishnet_internal
                     }
                 }
             }
+            if (PyObject *generator_objective_history_obj = build_double_list(acp_summary.generator_objective_history))
+            {
+                PyDict_SetItemString(diagnostics, "generator_objective_history", generator_objective_history_obj);
+                Py_DECREF(generator_objective_history_obj);
+            }
+            if (PyObject *generator_shear_history_obj = build_double_list(acp_summary.generator_shear_history))
+            {
+                PyDict_SetItemString(diagnostics, "generator_shear_history", generator_shear_history_obj);
+                Py_DECREF(generator_shear_history_obj);
+            }
             if (profile.surface_spacing_mode)
             {
                 if (point_count > 0 && surface_spacing_active_nodes > coverage_point_count)
@@ -606,6 +662,133 @@ namespace fishnet_internal
                 {
                     PyDict_SetItemString(diagnostics, "per_row_counts", per_row_counts_obj);
                     Py_DECREF(per_row_counts_obj);
+                }
+            }
+        }
+
+        if (!per_row_transitions_in_counts.empty())
+        {
+            PyObject *in_obj = PyList_New(static_cast<Py_ssize_t>(per_row_transitions_in_counts.size()));
+            if (in_obj)
+            {
+                for (size_t i = 0; i < per_row_transitions_in_counts.size(); ++i)
+                {
+                    PyObject *value = PyLong_FromLong(per_row_transitions_in_counts[i]);
+                    if (!value)
+                    {
+                        Py_DECREF(in_obj);
+                        in_obj = nullptr;
+                        break;
+                    }
+                    PyList_SET_ITEM(in_obj, static_cast<Py_ssize_t>(i), value);
+                }
+                if (in_obj)
+                {
+                    PyDict_SetItemString(diagnostics, "per_row_transitions_in_counts", in_obj);
+                    Py_DECREF(in_obj);
+                }
+            }
+        }
+
+        if (!per_row_transitions_out_counts.empty())
+        {
+            PyObject *out_obj = PyList_New(static_cast<Py_ssize_t>(per_row_transitions_out_counts.size()));
+            if (out_obj)
+            {
+                for (size_t i = 0; i < per_row_transitions_out_counts.size(); ++i)
+                {
+                    PyObject *value = PyLong_FromLong(per_row_transitions_out_counts[i]);
+                    if (!value)
+                    {
+                        Py_DECREF(out_obj);
+                        out_obj = nullptr;
+                        break;
+                    }
+                    PyList_SET_ITEM(out_obj, static_cast<Py_ssize_t>(i), value);
+                }
+                if (out_obj)
+                {
+                    PyDict_SetItemString(diagnostics, "per_row_transitions_out_counts", out_obj);
+                    Py_DECREF(out_obj);
+                }
+            }
+        }
+
+        if (!transition_event_history.empty())
+        {
+            PyObject *events_obj = PyList_New(static_cast<Py_ssize_t>(transition_event_history.size()));
+            if (events_obj)
+            {
+                bool ok = true;
+                for (size_t i = 0; i < transition_event_history.size(); ++i)
+                {
+                    const TransitionEventSample &event = transition_event_history[i];
+                    PyObject *event_obj = PyDict_New();
+                    if (!event_obj)
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    PyObject *sample_index_obj = PyLong_FromLong(event.sample_index);
+                    PyObject *from_row_obj = PyLong_FromLong(event.from_row);
+                    PyObject *to_row_obj = PyLong_FromLong(event.to_row);
+                    PyObject *from_count_obj = PyLong_FromLong(event.from_count);
+                    PyObject *to_count_obj = PyLong_FromLong(event.to_count);
+                    PyObject *delta_obj = PyLong_FromLong(event.delta);
+                    PyObject *kind_obj = PyUnicode_FromString(event.kind.c_str());
+                    PyObject *success_obj = event.success ? Py_True : Py_False;
+                    Py_INCREF(success_obj);
+                    PyObject *reason_obj = PyUnicode_FromString(event.reason.c_str());
+
+                    if (!sample_index_obj || !from_row_obj || !to_row_obj || !from_count_obj || !to_count_obj ||
+                        !delta_obj || !kind_obj || !reason_obj)
+                    {
+                        Py_XDECREF(sample_index_obj);
+                        Py_XDECREF(from_row_obj);
+                        Py_XDECREF(to_row_obj);
+                        Py_XDECREF(from_count_obj);
+                        Py_XDECREF(to_count_obj);
+                        Py_XDECREF(delta_obj);
+                        Py_XDECREF(kind_obj);
+                        Py_XDECREF(success_obj);
+                        Py_XDECREF(reason_obj);
+                        Py_DECREF(event_obj);
+                        ok = false;
+                        break;
+                    }
+
+                    PyDict_SetItemString(event_obj, "sample_index", sample_index_obj);
+                    PyDict_SetItemString(event_obj, "from_row", from_row_obj);
+                    PyDict_SetItemString(event_obj, "to_row", to_row_obj);
+                    PyDict_SetItemString(event_obj, "from_count", from_count_obj);
+                    PyDict_SetItemString(event_obj, "to_count", to_count_obj);
+                    PyDict_SetItemString(event_obj, "delta", delta_obj);
+                    PyDict_SetItemString(event_obj, "kind", kind_obj);
+                    PyDict_SetItemString(event_obj, "success", success_obj);
+                    PyDict_SetItemString(event_obj, "reason", reason_obj);
+
+                    Py_DECREF(sample_index_obj);
+                    Py_DECREF(from_row_obj);
+                    Py_DECREF(to_row_obj);
+                    Py_DECREF(from_count_obj);
+                    Py_DECREF(to_count_obj);
+                    Py_DECREF(delta_obj);
+                    Py_DECREF(kind_obj);
+                    Py_DECREF(success_obj);
+                    Py_DECREF(reason_obj);
+
+                    PyList_SET_ITEM(events_obj, static_cast<Py_ssize_t>(i), event_obj);
+                }
+
+                if (ok)
+                {
+                    PyDict_SetItemString(diagnostics, "transition_event_history", events_obj);
+                    Py_DECREF(events_obj);
+                }
+                else
+                {
+                    Py_DECREF(events_obj);
                 }
             }
         }
@@ -738,7 +921,10 @@ namespace fishnet_internal
         long &topology_split_count,
         long &topology_merge_count,
         long &topology_transition_fail_count,
-        std::vector<long> &per_row_counts)
+        std::vector<long> &per_row_counts,
+        std::vector<long> &per_row_transitions_in_counts,
+        std::vector<long> &per_row_transitions_out_counts,
+        std::vector<TransitionEventSample> &transition_event_history)
     {
         surface_spacing_active_nodes = 0;
         surface_spacing_total_nodes = 0;
@@ -754,12 +940,16 @@ namespace fishnet_internal
         topology_merge_count = 0;
         topology_transition_fail_count = 0;
         per_row_counts.clear();
+        per_row_transitions_in_counts.clear();
+        per_row_transitions_out_counts.clear();
+        transition_event_history.clear();
 
         double per_row_mean_sum = 0.0;
         long sample_count = 0;
         bool first_sample = true;
-        for (const auto &sample : samples)
+        for (size_t sample_idx = 0; sample_idx < samples.size(); ++sample_idx)
         {
+            const auto &sample = samples[sample_idx];
             surface_spacing_active_nodes += sample.surface_spacing_active_nodes;
             surface_spacing_total_nodes += sample.surface_spacing_total_nodes;
             surface_spacing_frontier_pops += sample.surface_spacing_frontier_pops;
@@ -776,6 +966,20 @@ namespace fishnet_internal
                 {
                     per_row_counts.push_back(count);
                 }
+            }
+            for (long count : sample.per_row_transitions_in_counts)
+            {
+                per_row_transitions_in_counts.push_back(count);
+            }
+            for (long count : sample.per_row_transitions_out_counts)
+            {
+                per_row_transitions_out_counts.push_back(count);
+            }
+            for (const auto &event : sample.transition_event_history)
+            {
+                TransitionEventSample out = event;
+                out.sample_index = static_cast<int>(sample_idx);
+                transition_event_history.push_back(std::move(out));
             }
 
             if (sample.per_row_active_cols_max > 0)
@@ -850,7 +1054,10 @@ namespace fishnet_internal
                 input.topology_split_count,
                 input.topology_merge_count,
                 input.topology_transition_fail_count,
-                input.per_row_counts);
+                input.per_row_counts,
+                input.per_row_transitions_in_counts,
+                input.per_row_transitions_out_counts,
+                input.transition_event_history);
             attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
             Py_DECREF(diagnostics);
             return;

@@ -1005,6 +1005,9 @@ namespace fishnet_internal
         long topology_merge_count = 0;
         long topology_transition_fail_count = 0;
         std::vector<long> per_row_counts;
+        std::vector<long> per_row_transitions_in_counts;
+        std::vector<long> per_row_transitions_out_counts;
+        std::vector<TransitionEventSample> transition_event_history;
         accumulate_surface_spacing_stats(
             input.samples,
             surface_spacing_active_nodes,
@@ -1020,7 +1023,10 @@ namespace fishnet_internal
             topology_split_count,
             topology_merge_count,
             topology_transition_fail_count,
-            per_row_counts);
+            per_row_counts,
+            per_row_transitions_in_counts,
+            per_row_transitions_out_counts,
+            transition_event_history);
         const long coverage_point_count = coverage_point_count_for_cells(input.quads, input.triangles);
 
         const SolverDiagnosticsInput diagnostics_input{
@@ -1054,6 +1060,9 @@ namespace fishnet_internal
             topology_merge_count,
             topology_transition_fail_count,
             per_row_counts,
+            per_row_transitions_in_counts,
+            per_row_transitions_out_counts,
+            transition_event_history,
         };
         attach_result_diagnostics(result, params_copy, diagnostics_input);
     }
@@ -1232,6 +1241,7 @@ namespace fishnet_internal
 
         const long coverage_point_count = coverage_point_count_for_quads(input.fabric_quads);
         static const std::vector<long> kEmptyPerRowCounts;
+        static const std::vector<TransitionEventSample> kEmptyTransitionEventHistory;
         const SolverDiagnosticsInput diagnostics_input{
             -1,
             static_cast<long>(input.points.size()),
@@ -1263,6 +1273,9 @@ namespace fishnet_internal
             0,
             0,
             kEmptyPerRowCounts,
+            kEmptyPerRowCounts,
+            kEmptyPerRowCounts,
+            kEmptyTransitionEventHistory,
         };
         attach_result_diagnostics(result, scope.params_copy(), diagnostics_input);
 

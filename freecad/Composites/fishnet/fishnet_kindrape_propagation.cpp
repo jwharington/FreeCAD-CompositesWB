@@ -171,6 +171,8 @@ namespace fishnet_internal
         summary.propagation_pre_shear_slope = 0.0;
         summary.propagation_step3_pre_shear_adjust_count = 0;
         summary.propagation_step3_pre_shear_adjust_sum = 0.0;
+        summary.generator_objective_history.clear();
+        summary.generator_shear_history.clear();
 
         if (local_points.empty() ||
             local_points.size() != x_coord.size() ||
@@ -328,6 +330,15 @@ namespace fishnet_internal
                 summary.step2_nr_iterations += nr.iterations;
                 summary.step2_nr_initial_objective_sum += nr.objective_initial;
                 summary.step2_nr_final_objective_sum += nr.objective_final;
+                summary.generator_objective_history.push_back(nr.objective_final);
+                if (nr.infeasible || !nr.success)
+                {
+                    summary.generator_shear_history.push_back(std::numeric_limits<double>::quiet_NaN());
+                }
+                else
+                {
+                    summary.generator_shear_history.push_back(nr.signed_shear_final_deg);
+                }
                 if (nr.converged)
                 {
                     ++summary.step2_nr_converged;

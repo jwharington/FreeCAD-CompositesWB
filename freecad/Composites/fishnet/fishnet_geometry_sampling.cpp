@@ -1054,6 +1054,43 @@ namespace fishnet_internal
             sample.per_row_active_cols_mean,
             sample.per_row_counts);
 
+        sample.per_row_transitions_in_counts.clear();
+        sample.per_row_transitions_out_counts.clear();
+        sample.per_row_transitions_in_counts.reserve(topology.row_stats.size());
+        sample.per_row_transitions_out_counts.reserve(topology.row_stats.size());
+        for (const auto &row_stats : topology.row_stats)
+        {
+            sample.per_row_transitions_in_counts.push_back(static_cast<long>(row_stats.transitions_in));
+            sample.per_row_transitions_out_counts.push_back(static_cast<long>(row_stats.transitions_out));
+        }
+
+        sample.transition_event_history.clear();
+        sample.transition_event_history.reserve(topology.transition_events.size());
+        for (const auto &event : topology.transition_events)
+        {
+            TransitionEventSample out;
+            out.from_row = event.from_row;
+            out.to_row = event.to_row;
+            out.from_count = event.from_count;
+            out.to_count = event.to_count;
+            out.delta = event.delta;
+            out.success = event.success;
+            out.reason = event.reason;
+            switch (event.kind)
+            {
+            case TransitionKind::Split:
+                out.kind = "split";
+                break;
+            case TransitionKind::Merge:
+                out.kind = "merge";
+                break;
+            default:
+                out.kind = "none";
+                break;
+            }
+            sample.transition_event_history.push_back(std::move(out));
+        }
+
         if (params.surface_spacing_refine)
         {
             prune_short_edge_surface_spacing_quads(

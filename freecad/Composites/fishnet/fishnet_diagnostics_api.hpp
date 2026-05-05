@@ -85,6 +85,9 @@ namespace fishnet_internal
         long topology_merge_count;
         long topology_transition_fail_count;
         const std::vector<long> &per_row_counts;
+        const std::vector<long> &per_row_transitions_in_counts;
+        const std::vector<long> &per_row_transitions_out_counts;
+        const std::vector<TransitionEventSample> &transition_event_history;
     };
 
     long coverage_point_count_for_quads(const std::vector<std::vector<int>> &quad_list);
@@ -104,7 +107,10 @@ namespace fishnet_internal
         long &topology_split_count,
         long &topology_merge_count,
         long &topology_transition_fail_count,
-        std::vector<long> &per_row_counts);
+        std::vector<long> &per_row_counts,
+        std::vector<long> &per_row_transitions_in_counts,
+        std::vector<long> &per_row_transitions_out_counts,
+        std::vector<TransitionEventSample> &transition_event_history);
 
     void set_diag_long(PyObject *diagnostics, const char *key, long value);
     void set_diag_double(PyObject *diagnostics, const char *key, double value);
@@ -141,7 +147,10 @@ namespace fishnet_internal
         long topology_split_count,
         long topology_merge_count,
         long topology_transition_fail_count,
-        const std::vector<long> &per_row_counts);
+        const std::vector<long> &per_row_counts,
+        const std::vector<long> &per_row_transitions_in_counts,
+        const std::vector<long> &per_row_transitions_out_counts,
+        const std::vector<TransitionEventSample> &transition_event_history);
 
     void attach_result_diagnostics(
         PyObject *result,
