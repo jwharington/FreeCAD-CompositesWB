@@ -34,7 +34,14 @@ _plotting = _load_plotting_module()
 save_native_fishnet_plot = _plotting.save_native_fishnet_plot
 save_single_face_comparison_plot = _plotting.save_single_face_comparison_plot
 
-from freecad.Composites.compositestests.test_shapes import make_krogh_double_curved_mesh
+from freecad.Composites.compositestests.kindrape_reference_harness import (
+    summarize_reference_metrics,
+)
+from freecad.Composites.compositestests.test_shapes import (
+    make_hemisphere_mesh,
+    make_irregular_spline_polygon_with_hole_face,
+    make_krogh_double_curved_mesh,
+)
 
 
 def _load_fishnet_module():
@@ -1080,6 +1087,226 @@ class TestFishnetSolver(unittest.TestCase):
         diag = result.get("diagnostics", {})
         self.assertEqual(diag.get("objective_model"), "woven")
         self.assertTrue(math.isfinite(float(diag.get("final_residual", 0.0))))
+
+    def test_hemisphere_center_seed_reference_metrics_are_deterministic(self):
+        points, faces = make_hemisphere_mesh(radius=10.0, lat_steps=8, lon_steps=16)
+
+        params = {
+            "algorithm": "acp_energy",
+            "steps": 20,
+            "fabric_spacing": 2.0,
+            "seed_point": (0.0, 0.0, 10.0),
+            "draping_direction": (1.0, 0.0, 0.0),
+        }
+        first = _fishnet.solve(mesh_points=points, mesh_faces=faces, parameters=params)
+        second = _fishnet.solve(mesh_points=points, mesh_faces=faces, parameters=params)
+
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
+        self.assertGreater(len(first.get("fabric_quads", [])), 0)
+
+        m0 = summarize_reference_metrics(first)
+        m1 = summarize_reference_metrics(second)
+
+        self.assertEqual(m0["stage_trace"], ["step1", "step2", "step3"])
+        for key in (
+            "transition_count",
+            "split_count",
+            "merge_count",
+            "transition_fail_count",
+            "seed_index",
+            "step1_assigned",
+            "step2_assigned",
+            "step3_assigned",
+            "generator_objective_history_len",
+            "generator_shear_history_len",
+            "step2_nr_attempts",
+            "quad_count",
+            "point_count",
+        ):
+            self.assertEqual(m0[key], m1[key])
+
+        self.assertEqual(m0["per_row_counts"], m1["per_row_counts"])
+        self.assertEqual(m0["per_row_transitions_in_counts"], m1["per_row_transitions_in_counts"])
+        self.assertEqual(m0["per_row_transitions_out_counts"], m1["per_row_transitions_out_counts"])
+        self.assertEqual(m0["transition_event_history"], m1["transition_event_history"])
+        self.assertAlmostEqual(m0["coverage_point_ratio"], m1["coverage_point_ratio"], delta=1.0e-12)
+        self.assertAlmostEqual(m0["edge_mean"], m1["edge_mean"], delta=1.0e-12)
+        self.assertAlmostEqual(m0["edge_spread"], m1["edge_spread"], delta=1.0e-12)
+
+    def test_hemisphere_offcenter_seed_changes_seed_index_and_stays_deterministic(self):
+        points, faces = make_hemisphere_mesh(radius=10.0, lat_steps=8, lon_steps=16)
+
+        center = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 20,
+                "fabric_spacing": 2.0,
+                "seed_point": (0.0, 0.0, 10.0),
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+        off_a = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 20,
+                "fabric_spacing": 2.0,
+                "seed_point": (7.0, 0.0, 7.0),
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+        off_b = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 20,
+                "fabric_spacing": 2.0,
+                "seed_point": (7.0, 0.0, 7.0),
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+
+        self.assertTrue(center["valid"])
+        self.assertTrue(off_a["valid"])
+        self.assertTrue(off_b["valid"])
+
+        m_center = summarize_reference_metrics(center)
+        m_off_a = summarize_reference_metrics(off_a)
+        m_off_b = summarize_reference_metrics(off_b)
+
+        self.assertEqual(m_center["stage_trace"], ["step1", "step2", "step3"])
+        self.assertEqual(m_off_a["stage_trace"], ["step1", "step2", "step3"])
+        self.assertNotEqual(m_center["seed_index"], m_off_a["seed_index"])
+
+        for key in (
+            "seed_index",
+            "step1_assigned",
+            "step2_assigned",
+            "step3_assigned",
+            "quad_count",
+            "point_count",
+        ):
+            self.assertEqual(m_off_a[key], m_off_b[key])
+        self.assertEqual(m_off_a["transition_event_history"], m_off_b["transition_event_history"])
+        self.assertAlmostEqual(m_off_a["edge_mean"], m_off_b["edge_mean"], delta=1.0e-12)
+        self.assertAlmostEqual(m_off_a["edge_spread"], m_off_b["edge_spread"], delta=1.0e-12)
+
+    def test_irregular_hole_face_reports_recovered_or_explicit_transition_failures(self):
+        face = make_irregular_spline_polygon_with_hole_face(scale=1.0)
+
+        first = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": 0.8,
+                "steps": 24,
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+        second = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": 0.8,
+                "steps": 24,
+                "draping_direction": (1.0, 0.0, 0.0),
+            },
+        )
+
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
+        self.assertGreater(len(first.get("fabric_quads", [])), 0)
+        self.assertGreaterEqual(len(first.get("warp_weft_boundary_loops", [])), 2)
+
+        d0 = first.get("diagnostics", {})
+        d1 = second.get("diagnostics", {})
+        self.assertEqual(d0.get("propagation_stage_trace"), ["step1", "step2", "step3"])
+        self.assertEqual(d0.get("propagation_stage_trace"), d1.get("propagation_stage_trace"))
+        self.assertGreater(float(d0.get("coverage_point_ratio", 0.0)), 0.5)
+
+        fail_count = int(d0.get("topology_transition_fail_count", 0))
+        events = list(d0.get("transition_event_history", []))
+        if fail_count > 0:
+            self.assertTrue(any((not bool(e.get("success", True))) and str(e.get("reason", "")) for e in events))
+
+    def test_reference_harness_stage_and_transition_signatures_stable_on_canonical_cases(self):
+        import FreeCAD
+        import Part
+
+        cone_face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                3,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        krogh_points, krogh_faces = make_krogh_double_curved_mesh(step=0.05)
+
+        scenarios = [
+            (
+                "cone_surface_spacing",
+                lambda: _fishnet.solve(
+                    cone_face,
+                    parameters={
+                        "algorithm": "acp_energy",
+                        "acp_strategy": "surface_spacing",
+                        "fabric_spacing": 2.0,
+                        "steps": 20,
+                        "seed_point": (12.0, 0.0, 2.0),
+                        "draping_direction": (1.0, 0.0, 0.0),
+                    },
+                ),
+                True,
+            ),
+            (
+                "krogh_double_curved_mesh",
+                lambda: _fishnet.solve(
+                    mesh_points=krogh_points,
+                    mesh_faces=krogh_faces,
+                    parameters={
+                        "algorithm": "acp_energy",
+                        "steps": 16,
+                        "fabric_spacing": 0.05,
+                        "seed_point": (0.25, 0.25, 0.0),
+                        "draping_direction": (0.0, 1.0, 0.0),
+                    },
+                ),
+                False,
+            ),
+        ]
+
+        for _name, run_case, expects_transitions in scenarios:
+            first = run_case()
+            second = run_case()
+            self.assertTrue(first["valid"])
+            self.assertTrue(second["valid"])
+
+            m0 = summarize_reference_metrics(first)
+            m1 = summarize_reference_metrics(second)
+            self.assertEqual(m0["stage_trace"], ["step1", "step2", "step3"])
+            self.assertEqual(m0["stage_trace"], m1["stage_trace"])
+            self.assertEqual(m0["transition_count"], m1["transition_count"])
+            self.assertEqual(m0["transition_event_history"], m1["transition_event_history"])
+            self.assertEqual(m0["per_row_counts"], m1["per_row_counts"])
+            self.assertAlmostEqual(m0["coverage_point_ratio"], m1["coverage_point_ratio"], delta=1.0e-12)
+
+            if expects_transitions:
+                self.assertGreater(m0["transition_count"], 0)
+            else:
+                self.assertEqual(m0["transition_count"], 0)
 
     def test_acp_multiface_seam_continuity_sweep_on_axial_cone(self):
         shape = _make_truncated_half_cone_curved_shape()

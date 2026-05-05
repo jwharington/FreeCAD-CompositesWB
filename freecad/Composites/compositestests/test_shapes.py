@@ -3,6 +3,8 @@
 
 """Reusable analytical test shapes for draping tests."""
 
+import math
+
 
 def krogh_double_curved_z(x, y):
     """Analytical double-curved surface from Krogh et al. (2021), Section 4.1.
@@ -96,6 +98,54 @@ def make_krogh_double_curved_bspline_face(step=0.025, x_range=(0.0, 0.5), y_rang
     if hasattr(shape, "Faces") and shape.Faces:
         return shape.Faces[0]
     return shape
+
+
+def make_hemisphere_mesh(radius=10.0, lat_steps=8, lon_steps=16):
+    """Return a triangulated open-hemisphere mesh (z >= 0).
+
+    The mesh contains a single top pole and regular latitude rings down to the
+    equator, making it suitable for deterministic seed/heading comparisons.
+    """
+
+    r = float(radius)
+    lat_steps = max(2, int(lat_steps))
+    lon_steps = max(6, int(lon_steps))
+
+    points = [(0.0, 0.0, r)]
+    rings = []
+    for i in range(1, lat_steps + 1):
+        theta = (0.5 * math.pi) * (float(i) / float(lat_steps))
+        ring = []
+        for j in range(lon_steps):
+            phi = (2.0 * math.pi) * (float(j) / float(lon_steps))
+            x = r * math.sin(theta) * math.cos(phi)
+            y = r * math.sin(theta) * math.sin(phi)
+            z = r * math.cos(theta)
+            ring.append(len(points))
+            points.append((float(x), float(y), float(z)))
+        rings.append(ring)
+
+    faces = []
+
+    first_ring = rings[0]
+    for j in range(lon_steps):
+        a = 0
+        b = first_ring[j]
+        c = first_ring[(j + 1) % lon_steps]
+        faces.append((a, b, c))
+
+    for ri in range(len(rings) - 1):
+        ring_a = rings[ri]
+        ring_b = rings[ri + 1]
+        for j in range(lon_steps):
+            a = ring_a[j]
+            b = ring_b[j]
+            c = ring_b[(j + 1) % lon_steps]
+            d = ring_a[(j + 1) % lon_steps]
+            faces.append((a, b, c))
+            faces.append((a, c, d))
+
+    return points, faces
 
 
 def make_irregular_spline_polygon_with_hole_face(scale=1.0):
