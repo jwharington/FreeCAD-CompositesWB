@@ -298,7 +298,12 @@ namespace fishnet_internal
         long surface_spacing_selected_quads,
         long per_row_active_cols_min,
         long per_row_active_cols_max,
-        double per_row_active_cols_mean)
+        double per_row_active_cols_mean,
+        long topology_transition_count,
+        long topology_split_count,
+        long topology_merge_count,
+        long topology_transition_fail_count,
+        const std::vector<long> &per_row_counts)
     {
         if (!diagnostics || !PyDict_Check(diagnostics))
         {
@@ -410,6 +415,15 @@ namespace fishnet_internal
             set_diag_string(diagnostics, "propagation_stages", "primary_orthogonal_fill");
             if (profile.surface_spacing_mode)
             {
+                if (point_count > 0 && surface_spacing_active_nodes > coverage_point_count)
+                {
+                    set_diag_long(diagnostics, "coverage_point_count", surface_spacing_active_nodes);
+                    set_diag_double(
+                        diagnostics,
+                        "coverage_point_ratio",
+                        static_cast<double>(surface_spacing_active_nodes) / static_cast<double>(point_count));
+                }
+
                 if (surface_spacing_active_nodes >= 0)
                 {
                     set_diag_long(diagnostics, "surface_spacing_active_nodes", surface_spacing_active_nodes);
@@ -478,6 +492,35 @@ namespace fishnet_internal
             set_diag_long(diagnostics, "per_row_active_cols_min", per_row_active_cols_min);
             set_diag_long(diagnostics, "per_row_active_cols_max", per_row_active_cols_max);
             set_diag_double(diagnostics, "per_row_active_cols_mean", per_row_active_cols_mean);
+        }
+
+        set_diag_long(diagnostics, "topology_transition_count", topology_transition_count);
+        set_diag_long(diagnostics, "topology_split_count", topology_split_count);
+        set_diag_long(diagnostics, "topology_merge_count", topology_merge_count);
+        set_diag_long(diagnostics, "topology_transition_fail_count", topology_transition_fail_count);
+
+        if (!per_row_counts.empty())
+        {
+            PyObject *per_row_counts_obj = PyList_New(static_cast<Py_ssize_t>(per_row_counts.size()));
+            if (per_row_counts_obj)
+            {
+                for (size_t i = 0; i < per_row_counts.size(); ++i)
+                {
+                    PyObject *value = PyLong_FromLong(per_row_counts[i]);
+                    if (!value)
+                    {
+                        Py_DECREF(per_row_counts_obj);
+                        per_row_counts_obj = nullptr;
+                        break;
+                    }
+                    PyList_SET_ITEM(per_row_counts_obj, static_cast<Py_ssize_t>(i), value);
+                }
+                if (per_row_counts_obj)
+                {
+                    PyDict_SetItemString(diagnostics, "per_row_counts", per_row_counts_obj);
+                    Py_DECREF(per_row_counts_obj);
+                }
+            }
         }
     }
 
@@ -603,7 +646,12 @@ namespace fishnet_internal
         long &surface_spacing_selected_quads,
         long &per_row_active_cols_min,
         long &per_row_active_cols_max,
-        double &per_row_active_cols_mean)
+        double &per_row_active_cols_mean,
+        long &topology_transition_count,
+        long &topology_split_count,
+        long &topology_merge_count,
+        long &topology_transition_fail_count,
+        std::vector<long> &per_row_counts)
     {
         surface_spacing_active_nodes = 0;
         surface_spacing_total_nodes = 0;
@@ -614,6 +662,11 @@ namespace fishnet_internal
         per_row_active_cols_min = 0;
         per_row_active_cols_max = 0;
         per_row_active_cols_mean = 0.0;
+        topology_transition_count = 0;
+        topology_split_count = 0;
+        topology_merge_count = 0;
+        topology_transition_fail_count = 0;
+        per_row_counts.clear();
 
         double per_row_mean_sum = 0.0;
         long sample_count = 0;
@@ -626,6 +679,17 @@ namespace fishnet_internal
             surface_spacing_frontier_accepts += sample.surface_spacing_frontier_accepts;
             surface_spacing_candidate_quads += sample.surface_spacing_candidate_quads;
             surface_spacing_selected_quads += sample.surface_spacing_selected_quads;
+            topology_transition_count += sample.topology_transition_count;
+            topology_split_count += sample.topology_split_count;
+            topology_merge_count += sample.topology_merge_count;
+            topology_transition_fail_count += sample.topology_transition_fail_count;
+            for (long count : sample.per_row_counts)
+            {
+                if (count > 0)
+                {
+                    per_row_counts.push_back(count);
+                }
+            }
 
             if (sample.per_row_active_cols_max > 0)
             {
@@ -694,7 +758,12 @@ namespace fishnet_internal
                 input.surface_spacing_selected_quads,
                 input.per_row_active_cols_min,
                 input.per_row_active_cols_max,
-                input.per_row_active_cols_mean);
+                input.per_row_active_cols_mean,
+                input.topology_transition_count,
+                input.topology_split_count,
+                input.topology_merge_count,
+                input.topology_transition_fail_count,
+                input.per_row_counts);
             attach_solver_metadata(result, params_copy, termination_reason, converged, diagnostics);
             Py_DECREF(diagnostics);
             return;

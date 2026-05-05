@@ -31,6 +31,11 @@ namespace fishnet_internal
         long per_row_active_cols_min{0};
         long per_row_active_cols_max{0};
         double per_row_active_cols_mean{0.0};
+        long topology_transition_count{0};
+        long topology_split_count{0};
+        long topology_merge_count{0};
+        long topology_transition_fail_count{0};
+        std::vector<long> per_row_counts;
     };
 
     struct ExperimentalSolveStats

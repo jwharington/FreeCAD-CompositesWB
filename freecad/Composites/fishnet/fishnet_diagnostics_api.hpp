@@ -80,6 +80,11 @@ namespace fishnet_internal
         long per_row_active_cols_min;
         long per_row_active_cols_max;
         double per_row_active_cols_mean;
+        long topology_transition_count;
+        long topology_split_count;
+        long topology_merge_count;
+        long topology_transition_fail_count;
+        const std::vector<long> &per_row_counts;
     };
 
     long coverage_point_count_for_quads(const std::vector<std::vector<int>> &quad_list);
@@ -94,7 +99,12 @@ namespace fishnet_internal
         long &surface_spacing_selected_quads,
         long &per_row_active_cols_min,
         long &per_row_active_cols_max,
-        double &per_row_active_cols_mean);
+        double &per_row_active_cols_mean,
+        long &topology_transition_count,
+        long &topology_split_count,
+        long &topology_merge_count,
+        long &topology_transition_fail_count,
+        std::vector<long> &per_row_counts);
 
     void set_diag_long(PyObject *diagnostics, const char *key, long value);
     void set_diag_double(PyObject *diagnostics, const char *key, double value);
@@ -126,7 +136,12 @@ namespace fishnet_internal
         long surface_spacing_selected_quads,
         long per_row_active_cols_min,
         long per_row_active_cols_max,
-        double per_row_active_cols_mean);
+        double per_row_active_cols_mean,
+        long topology_transition_count,
+        long topology_split_count,
+        long topology_merge_count,
+        long topology_transition_fail_count,
+        const std::vector<long> &per_row_counts);
 
     void attach_result_diagnostics(
         PyObject *result,

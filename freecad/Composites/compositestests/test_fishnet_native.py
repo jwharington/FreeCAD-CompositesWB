@@ -1795,6 +1795,158 @@ class TestFishnetSolver(unittest.TestCase):
                     min_edge_len = d
         self.assertGreater(min_edge_len, 0.3 * spacing)
 
+    def test_cone_face_adaptive_topology_emits_transition_events(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                3,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        result = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": 2.0,
+                "steps": 20,
+            },
+        )
+
+        self.assertTrue(result["valid"])
+        diag = result.get("diagnostics", {})
+        self.assertGreater(int(diag.get("topology_transition_count", 0)), 0)
+        self.assertGreater(
+            int(diag.get("topology_split_count", 0)) + int(diag.get("topology_merge_count", 0)),
+            0,
+        )
+
+        per_row_counts = [int(v) for v in diag.get("per_row_counts", [])]
+        self.assertGreater(len(per_row_counts), 0)
+        self.assertGreater(max(per_row_counts), min(per_row_counts))
+
+    def test_frustum_cardinality_changes_are_stitched_without_overlap(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                14,
+                6,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        result = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": 2.0,
+                "steps": 20,
+            },
+        )
+
+        self.assertTrue(result["valid"])
+        points = [tuple(float(c) for c in p[:3]) for p in result.get("mesh_points", [])]
+        quads = [tuple(int(i) for i in q[:4]) for q in result.get("fabric_quads", []) if len(q) >= 4]
+        self.assertGreater(len(quads), 0)
+        self.assertEqual(_quad_component_count(quads), 1)
+
+        for i in range(len(quads)):
+            for j in range(i + 1, len(quads)):
+                if len(set(quads[i]).intersection(quads[j])) >= 2:
+                    continue
+                self.assertFalse(_quads_overlap_strict_3d(points, quads[i], quads[j]))
+
+    def test_adaptive_topology_deterministic_transition_counts(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                3,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        params = {
+            "algorithm": "acp_energy",
+            "acp_strategy": "surface_spacing",
+            "fabric_spacing": 2.0,
+            "steps": 20,
+            "seed_point": (12.0, 0.0, 2.0),
+            "draping_direction": (1.0, 0.0, 0.0),
+        }
+        first = _fishnet.solve(face, parameters=params)
+        second = _fishnet.solve(face, parameters=params)
+
+        self.assertTrue(first["valid"])
+        self.assertTrue(second["valid"])
+
+        d0 = first.get("diagnostics", {})
+        d1 = second.get("diagnostics", {})
+        for key in (
+            "topology_transition_count",
+            "topology_split_count",
+            "topology_merge_count",
+            "topology_transition_fail_count",
+        ):
+            self.assertEqual(int(d0.get(key, 0)), int(d1.get(key, 0)))
+        self.assertEqual(list(d0.get("per_row_counts", [])), list(d1.get("per_row_counts", [])))
+
+    def test_transition_failure_is_explicitly_reported(self):
+        import FreeCAD
+        import Part
+
+        face = next(
+            f
+            for f in Part.makeCone(
+                12,
+                1,
+                24,
+                FreeCAD.Vector(0, 0, 0),
+                FreeCAD.Vector(0, 0, 1),
+                180,
+            ).Faces
+            if hasattr(f.Surface, "Radius") or hasattr(f.Surface, "Apex")
+        )
+
+        result = _fishnet.solve(
+            face,
+            parameters={
+                "algorithm": "acp_energy",
+                "acp_strategy": "surface_spacing",
+                "fabric_spacing": 1.0,
+                "steps": 20,
+            },
+        )
+
+        self.assertTrue(result["valid"])
+        diag = result.get("diagnostics", {})
+        self.assertGreater(int(diag.get("topology_transition_count", 0)), 0)
+        self.assertGreater(int(diag.get("topology_transition_fail_count", 0)), 0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

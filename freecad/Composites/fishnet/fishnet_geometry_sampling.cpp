@@ -33,6 +33,7 @@
 
 #include "fishnet_boundary_atlas.hpp"
 #include "fishnet_layout_geometry_api.hpp"
+#include "fishnet_kindrape_topology.hpp"
 #include "fishnet_sampling_api.hpp"
 #include "fishnet_sampling_grid_module.hpp"
 #include "fishnet_surface_queries.hpp"
@@ -147,86 +148,154 @@ namespace fishnet_internal
             }
         }
 
-        void append_grid_topology(
-            std::vector<std::array<int, 3>> &triangles,
-            std::vector<std::vector<int>> &quads,
-            int divisions,
-            const std::vector<std::vector<int>> &grid_indices)
-        {
-            for (int i = 0; i < divisions; ++i)
-            {
-                for (int j = 0; j < divisions; ++j)
-                {
-                    int a = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
-                    int b = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j)];
-                    int c = grid_indices[static_cast<size_t>(i + 1)][static_cast<size_t>(j + 1)];
-                    int d = grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j + 1)];
-                    if (std::min({a, b, c, d}) < 0)
-                    {
-                        continue;
-                    }
-                    triangles.push_back({a, b, c});
-                    triangles.push_back({a, c, d});
-                    quads.push_back({a, b, c, d});
-                }
-            }
-        }
-
         void prune_short_edge_surface_spacing_quads(
             std::vector<std::array<int, 3>> &triangles,
             std::vector<std::vector<int>> &quads,
             const std::vector<Vec3> &points,
             double target_spacing)
         {
-            if (quads.empty() || points.empty() || target_spacing <= kVectorZeroEpsilon)
+            if (points.empty() || target_spacing <= kVectorZeroEpsilon)
             {
                 return;
             }
 
             const double min_allowed_edge = std::max(0.35 * target_spacing, 1.0e-9);
-            std::vector<std::vector<int>> filtered;
-            filtered.reserve(quads.size());
-
-            for (const auto &quad : quads)
+            const double max_allowed_edge = std::max(1.22 * target_spacing, min_allowed_edge);
+            auto edge_length_ok = [&](int a, int b)
             {
-                if (quad.size() < 4)
+                if (a < 0 || b < 0 ||
+                    a >= static_cast<int>(points.size()) ||
+                    b >= static_cast<int>(points.size()))
                 {
-                    continue;
+                    return false;
                 }
-                const int a = quad[0];
-                const int b = quad[1];
-                const int c = quad[2];
-                const int d = quad[3];
-                if (std::min({a, b, c, d}) < 0 ||
-                    std::max({a, b, c, d}) >= static_cast<int>(points.size()))
-                {
-                    continue;
-                }
+                const double len = norm(points[static_cast<size_t>(b)] - points[static_cast<size_t>(a)]);
+                return len + 1.0e-12 >= min_allowed_edge &&
+                       len <= max_allowed_edge + 1.0e-12;
+            };
 
-                const double l_ab = norm(points[static_cast<size_t>(b)] - points[static_cast<size_t>(a)]);
-                const double l_bc = norm(points[static_cast<size_t>(c)] - points[static_cast<size_t>(b)]);
-                const double l_cd = norm(points[static_cast<size_t>(d)] - points[static_cast<size_t>(c)]);
-                const double l_da = norm(points[static_cast<size_t>(a)] - points[static_cast<size_t>(d)]);
-                const double min_edge = std::min({l_ab, l_bc, l_cd, l_da});
-                if (min_edge + 1.0e-12 < min_allowed_edge)
+            if (!quads.empty())
+            {
+                std::vector<std::vector<int>> filtered_quads;
+                filtered_quads.reserve(quads.size());
+                for (const auto &quad : quads)
                 {
-                    continue;
+                    if (quad.size() < 4)
+                    {
+                        continue;
+                    }
+                    const int a = quad[0];
+                    const int b = quad[1];
+                    const int c = quad[2];
+                    const int d = quad[3];
+                    if (edge_length_ok(a, b) &&
+                        edge_length_ok(b, c) &&
+                        edge_length_ok(c, d) &&
+                        edge_length_ok(d, a))
+                    {
+                        filtered_quads.push_back({a, b, c, d});
+                    }
                 }
-                filtered.push_back({a, b, c, d});
+                quads.swap(filtered_quads);
             }
 
-            if (filtered.size() == quads.size())
+            // Keep the original triangle set so adaptive transition triangles remain
+            // available for coverage diagnostics and topology observability. Quads are
+            // still filtered by edge guards for surface-spacing strictness.
+            (void)triangles;
+        }
+
+        bool quad_within_shear_limit(
+            const std::vector<Vec3> &points,
+            const std::vector<int> &quad,
+            double max_shear_angle)
+        {
+            if (quad.size() < 4 ||
+                !std::isfinite(max_shear_angle) ||
+                max_shear_angle < 0.0)
+            {
+                return true;
+            }
+
+            const int a = quad[0];
+            const int b = quad[1];
+            const int c = quad[2];
+            const int d = quad[3];
+            if (std::min({a, b, c, d}) < 0 ||
+                std::max({a, b, c, d}) >= static_cast<int>(points.size()))
+            {
+                return false;
+            }
+
+            const std::array<int, 4> ids{{a, b, c, d}};
+            constexpr double kRightAngle = 1.5707963267948966;
+            for (int k = 0; k < 4; ++k)
+            {
+                const Vec3 &prev = points[static_cast<size_t>(ids[static_cast<size_t>((k + 3) % 4)])];
+                const Vec3 &curr = points[static_cast<size_t>(ids[static_cast<size_t>(k)])];
+                const Vec3 &next = points[static_cast<size_t>(ids[static_cast<size_t>((k + 1) % 4)])];
+
+                const Vec3 e0 = prev - curr;
+                const Vec3 e1 = next - curr;
+                const double n0 = norm(e0);
+                const double n1 = norm(e1);
+                if (n0 <= kVectorZeroEpsilon || n1 <= kVectorZeroEpsilon)
+                {
+                    return false;
+                }
+
+                const double cos_angle = std::clamp(dot(e0, e1) / (n0 * n1), -1.0, 1.0);
+                const double angle = std::acos(cos_angle);
+                const double shear = std::fabs(kRightAngle - angle);
+                if (shear > max_shear_angle + 1.0e-9)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        void prune_default_mode_high_shear_quads(
+            std::vector<std::array<int, 3>> &triangles,
+            std::vector<std::vector<int>> &quads,
+            const std::vector<Vec3> &points,
+            double max_shear_angle)
+        {
+            if (quads.empty() || points.empty())
+            {
+                return;
+            }
+            if (!std::isfinite(max_shear_angle) || max_shear_angle < 0.0)
+            {
+                max_shear_angle = 0.5235987755982988;
+            }
+
+            std::vector<std::vector<int>> filtered_quads;
+            filtered_quads.reserve(quads.size());
+            for (const auto &quad : quads)
+            {
+                if (quad_within_shear_limit(points, quad, max_shear_angle))
+                {
+                    filtered_quads.push_back(quad);
+                }
+            }
+
+            if (filtered_quads.size() == quads.size())
             {
                 return;
             }
 
-            quads.swap(filtered);
+            quads.swap(filtered_quads);
             triangles.clear();
             triangles.reserve(quads.size() * 2);
             for (const auto &quad : quads)
             {
-                triangles.push_back({quad[0], quad[1], quad[2]});
-                triangles.push_back({quad[0], quad[2], quad[3]});
+                if (quad.size() >= 4)
+                {
+                    triangles.push_back({quad[0], quad[1], quad[2]});
+                    triangles.push_back({quad[0], quad[2], quad[3]});
+                }
             }
         }
 
@@ -255,7 +324,7 @@ namespace fishnet_internal
             {
                 return;
             }
-            const double min_spacing = 0.4 * target_spacing;
+            const double min_spacing = 0.0;
             for (int i = 0; i <= divisions; ++i)
             {
                 int last_valid_j = -1;
@@ -292,61 +361,6 @@ namespace fishnet_internal
                     }
                 }
             }
-        }
-
-        // Compute per-row active column count statistics across all grid rows.
-        void compute_per_row_active_col_stats(
-            int divisions,
-            const std::vector<std::vector<int>> &grid_indices,
-            long &min_cols,
-            long &max_cols,
-            double &mean_cols)
-        {
-            min_cols = 0;
-            max_cols = 0;
-            mean_cols = 0.0;
-            if (divisions <= 0)
-            {
-                return;
-            }
-            long total = 0;
-            int row_count = 0;
-            bool first_row = true;
-            for (int i = 0; i <= divisions; ++i)
-            {
-                long active = 0;
-                for (int j = 0; j <= divisions; ++j)
-                {
-                    if (grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0)
-                    {
-                        active++;
-                    }
-                }
-                if (active <= 0)
-                {
-                    continue;
-                }
-                if (first_row)
-                {
-                    min_cols = active;
-                    max_cols = active;
-                    first_row = false;
-                }
-                else
-                {
-                    if (active < min_cols)
-                    {
-                        min_cols = active;
-                    }
-                    if (active > max_cols)
-                    {
-                        max_cols = active;
-                    }
-                }
-                total += active;
-                row_count++;
-            }
-            mean_cols = row_count > 0 ? static_cast<double>(total) / static_cast<double>(row_count) : 0.0;
         }
 
         SurfaceSpacingStats compute_surface_spacing_stats(
@@ -1009,7 +1023,36 @@ namespace fishnet_internal
         FaceSample &sample,
         const SamplingGridState &state)
     {
-        append_grid_topology(sample.triangles, sample.quads, state.divisions, state.grid_indices);
+        const AdaptiveTopologyBuildOptions topology_options{
+            params.surface_spacing_refine,
+            1,
+        };
+        const AdaptiveTopology topology = build_adaptive_topology_from_grid(
+            state.divisions,
+            state.grid_indices,
+            topology_options);
+        emit_adaptive_topology(topology, sample.triangles, sample.quads);
+
+        if (!params.surface_spacing_refine)
+        {
+            prune_default_mode_high_shear_quads(
+                sample.triangles,
+                sample.quads,
+                sample.points,
+                params.max_shear_angle);
+        }
+
+        sample.topology_transition_count = static_cast<long>(topology.transition_events.size());
+        sample.topology_split_count = topology.split_count;
+        sample.topology_merge_count = topology.merge_count;
+        sample.topology_transition_fail_count = topology.transition_fail_count;
+
+        summarize_per_row_counts(
+            topology,
+            sample.per_row_active_cols_min,
+            sample.per_row_active_cols_max,
+            sample.per_row_active_cols_mean,
+            sample.per_row_counts);
 
         if (params.surface_spacing_refine)
         {
@@ -1103,23 +1146,15 @@ namespace fishnet_internal
             state,
             ensure_grid_node);
 
-        // Prune over-dense rows (cone/frustum inner rings) before building topology.
-        prune_overdense_row_nodes(
-            state.divisions,
-            state.target_spacing_len,
-            sample.points,
-            state.grid_indices);
-
-        // Capture per-row column count statistics (reflects post-pruning topology).
+        if (params.surface_spacing_refine)
         {
-            long min_cols = 0;
-            long max_cols = 0;
-            double mean_cols = 0.0;
-            compute_per_row_active_col_stats(
-                state.divisions, state.grid_indices, min_cols, max_cols, mean_cols);
-            sample.per_row_active_cols_min = min_cols;
-            sample.per_row_active_cols_max = max_cols;
-            sample.per_row_active_cols_mean = mean_cols;
+            // Prune over-dense rows (cone/frustum inner rings) for surface-spacing mode
+            // before building adaptive topology.
+            prune_overdense_row_nodes(
+                state.divisions,
+                state.target_spacing_len,
+                sample.points,
+                state.grid_indices);
         }
 
         emit_sampling_phase(
