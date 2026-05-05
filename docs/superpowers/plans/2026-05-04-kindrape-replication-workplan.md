@@ -377,7 +377,28 @@ Land a minimal adaptive-topology kernel and diagnostics plumbing **without** cha
 
 ### Slice A commit references
 - `db619c5` — `kindrape/slice-a/a6: adaptive topology cutover + blocker stabilization`
-- `HEAD (a7)` — `kindrape/slice-a/a7: finalize Slice A plan status and gate summary`
+- `0ac6988` — `kindrape/slice-a/a7: finalize Slice A plan status and gate summary`
+
+## Slice B (Phase 2) — scheduler skeleton status (2026-05-05)
+- ✅ Implemented deterministic scheduler skeleton with explicit `step1`/`step2`/`step3` stage tracing.
+- ✅ Added stage-count diagnostics:
+  - `propagation_step1_assigned`
+  - `propagation_step2_assigned`
+  - `propagation_step3_assigned`
+  - `propagation_stage_trace`
+- ✅ Added deterministic trace tests in native suite.
+- ✅ Preserved Slice-A adaptive-topology diagnostics contract.
+
+### Slice B gate summary (2026-05-05)
+- ✅ Native extension build: passed (`/home/jmw/opt/FreeCAD/.pixi/envs/default/bin/python setup.py build_ext --inplace`)
+- ✅ Targeted native scheduler/diagnostics tests: passed (`9`)
+- ✅ Full native suite passed: `48/48`
+- ✅ Relevant integration checks passed:
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_axially_sliced_cone_creates_ready_shell`
+  - `TestFreeCADIntegration.test_composite_shell_fishnet_krogh_double_curved_bspline_creates_ready_shell`
+
+### Slice B commit references
+- `cbec7b2` — `kindrape/slice-b/b0: add deterministic step1-step2-step3 scheduler trace`
 
 ---
 
