@@ -363,6 +363,29 @@ namespace fishnet_internal
             set_diag_long(diagnostics, "propagation_step1_assigned", acp_summary.step1_assigned);
             set_diag_long(diagnostics, "propagation_step2_assigned", acp_summary.step2_assigned);
             set_diag_long(diagnostics, "propagation_step3_assigned", acp_summary.step3_assigned);
+            set_diag_long(diagnostics, "propagation_step2_nr_attempts", acp_summary.step2_nr_attempts);
+            set_diag_long(diagnostics, "propagation_step2_nr_converged", acp_summary.step2_nr_converged);
+            set_diag_long(diagnostics, "propagation_step2_nr_fallback_count", acp_summary.step2_nr_fallback_count);
+            set_diag_long(diagnostics, "propagation_step2_nr_infeasible", acp_summary.step2_nr_infeasible);
+            set_diag_long(diagnostics, "propagation_step2_nr_decrease_count", acp_summary.step2_nr_decrease_count);
+            set_diag_long(diagnostics, "propagation_step2_nr_iterations", acp_summary.step2_nr_iterations);
+            if (acp_summary.step2_nr_attempts > 0)
+            {
+                const double inv_attempts = 1.0 / static_cast<double>(acp_summary.step2_nr_attempts);
+                set_diag_double(
+                    diagnostics,
+                    "propagation_step2_nr_initial_objective_mean",
+                    acp_summary.step2_nr_initial_objective_sum * inv_attempts);
+                set_diag_double(
+                    diagnostics,
+                    "propagation_step2_nr_final_objective_mean",
+                    acp_summary.step2_nr_final_objective_sum * inv_attempts);
+            }
+            else
+            {
+                set_diag_double(diagnostics, "propagation_step2_nr_initial_objective_mean", 0.0);
+                set_diag_double(diagnostics, "propagation_step2_nr_final_objective_mean", 0.0);
+            }
             if (PyObject *primary_axis_obj = build_vec3_tuple(acp_summary.primary_axis))
             {
                 PyDict_SetItemString(diagnostics, "primary_direction", primary_axis_obj);

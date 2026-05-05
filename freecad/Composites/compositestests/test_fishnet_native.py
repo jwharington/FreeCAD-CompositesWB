@@ -507,6 +507,12 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertIn("propagation_step1_assigned", result["diagnostics"])
         self.assertIn("propagation_step2_assigned", result["diagnostics"])
         self.assertIn("propagation_step3_assigned", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_attempts", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_converged", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_fallback_count", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_infeasible", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_initial_objective_mean", result["diagnostics"])
+        self.assertIn("propagation_step2_nr_final_objective_mean", result["diagnostics"])
         self.assertIn("primary_direction", result["diagnostics"])
         self.assertIn("orthogonal_direction", result["diagnostics"])
         self.assertIn("objective_model", result["diagnostics"])
@@ -563,8 +569,71 @@ class TestFishnetSolver(unittest.TestCase):
             "propagation_primary_assigned",
             "propagation_orthogonal_assigned",
             "propagation_fill_assigned",
+            "propagation_step2_nr_attempts",
+            "propagation_step2_nr_converged",
+            "propagation_step2_nr_fallback_count",
+            "propagation_step2_nr_infeasible",
+            "propagation_step2_nr_decrease_count",
+            "propagation_step2_nr_iterations",
         ):
             self.assertEqual(int(d0.get(key, -1)), int(d1.get(key, -1)))
+
+        for key in (
+            "propagation_step2_nr_initial_objective_mean",
+            "propagation_step2_nr_final_objective_mean",
+        ):
+            self.assertAlmostEqual(float(d0.get(key, 0.0)), float(d1.get(key, 0.0)), delta=1.0e-12)
+
+    def test_step2_nr_objective_decreases_on_planar_generator_case(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (0.0, 2.0, 0.0),
+            (1.0, 2.0, 0.0),
+            (2.0, 2.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 4),
+            (0, 4, 3),
+            (1, 2, 5),
+            (1, 5, 4),
+            (3, 4, 7),
+            (3, 7, 6),
+            (4, 5, 8),
+            (4, 8, 7),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "acp_energy",
+                "steps": 10,
+                "fabric_spacing": 1.0,
+                "seed": 4,
+                "draping_direction": (1.0, 0.0, 0.0),
+                "pre_shear_deg": 12.0,
+            },
+        )
+
+        self.assertTrue(result["valid"])
+        diag = result.get("diagnostics", {})
+        attempts = int(diag.get("propagation_step2_nr_attempts", 0))
+        self.assertGreater(attempts, 0)
+        self.assertGreaterEqual(int(diag.get("propagation_step2_nr_converged", 0)), 0)
+        self.assertGreaterEqual(int(diag.get("propagation_step2_nr_fallback_count", 0)), 0)
+        self.assertGreaterEqual(int(diag.get("propagation_step2_nr_infeasible", 0)), 0)
+
+        initial_mean = float(diag.get("propagation_step2_nr_initial_objective_mean", 0.0))
+        final_mean = float(diag.get("propagation_step2_nr_final_objective_mean", 0.0))
+        self.assertTrue(math.isfinite(initial_mean))
+        self.assertTrue(math.isfinite(final_mean))
+        self.assertLessEqual(final_mean, initial_mean + 1.0e-12)
+        self.assertGreaterEqual(int(diag.get("propagation_step2_nr_decrease_count", 0)), 1)
 
     def test_acp_direction_and_ud_objective_are_reported(self):
         points = [

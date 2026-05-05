@@ -20,6 +20,14 @@ namespace fishnet_internal
         int step1_assigned{0};
         int step2_assigned{0};
         int step3_assigned{0};
+        int step2_nr_attempts{0};
+        int step2_nr_converged{0};
+        int step2_nr_fallback_count{0};
+        int step2_nr_infeasible{0};
+        int step2_nr_decrease_count{0};
+        int step2_nr_iterations{0};
+        double step2_nr_initial_objective_sum{0.0};
+        double step2_nr_final_objective_sum{0.0};
         Vec3 primary_axis{1.0, 0.0, 0.0};
         Vec3 orthogonal_axis{0.0, 1.0, 0.0};
         std::vector<std::string> stage_trace;

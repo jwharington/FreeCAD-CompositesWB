@@ -13,6 +13,7 @@ namespace fishnet_internal
         const std::vector<std::vector<int>> &adjacency,
         int seed_index,
         double nominal_edge_length,
+        double target_pre_shear_deg,
         const Vec3 &primary_axis,
         const Vec3 &orthogonal_axis,
         std::vector<double> &x_coord,

@@ -6,6 +6,8 @@
 #include <deque>
 #include <limits>
 
+#include "fishnet_kindrape_nr.hpp"
+
 namespace fishnet_internal
 {
 
@@ -87,6 +89,52 @@ namespace fishnet_internal
             return best_nbr;
         }
 
+        int choose_step2_reference_neighbor(
+            const std::vector<Vec3> &local_points,
+            const std::vector<std::vector<int>> &adjacency,
+            const std::vector<double> &x_coord,
+            const std::vector<double> &y_coord,
+            int current,
+            int target,
+            const Vec3 &orthogonal_axis)
+        {
+            if (current < 0 || current >= static_cast<int>(adjacency.size()))
+            {
+                return -1;
+            }
+
+            int best = -1;
+            double best_score = -std::numeric_limits<double>::infinity();
+            for (int nbr : adjacency[static_cast<size_t>(current)])
+            {
+                if (nbr < 0 || nbr >= static_cast<int>(local_points.size()) || nbr == target)
+                {
+                    continue;
+                }
+                if (!has_full_coordinates(x_coord, y_coord, nbr))
+                {
+                    continue;
+                }
+
+                const Vec3 edge = local_points[static_cast<size_t>(nbr)] - local_points[static_cast<size_t>(current)];
+                const double len = std::sqrt(edge.x * edge.x + edge.y * edge.y);
+                if (len <= kVectorZeroEpsilon)
+                {
+                    continue;
+                }
+                const Vec3 unit_edge{edge.x / len, edge.y / len, 0.0};
+                const double score = std::abs(dot(unit_edge, orthogonal_axis));
+                if (score > best_score + 1.0e-12 ||
+                    (std::abs(score - best_score) <= 1.0e-12 && (best < 0 || nbr < best)))
+                {
+                    best = nbr;
+                    best_score = score;
+                }
+            }
+
+            return best;
+        }
+
     } // namespace
 
     void run_kindrape_scheduler_skeleton(
@@ -94,6 +142,7 @@ namespace fishnet_internal
         const std::vector<std::vector<int>> &adjacency,
         int seed_index,
         double nominal_edge_length,
+        double target_pre_shear_deg,
         const Vec3 &primary_axis,
         const Vec3 &orthogonal_axis,
         std::vector<double> &x_coord,
@@ -107,6 +156,14 @@ namespace fishnet_internal
         summary.primary_assigned = 0;
         summary.orthogonal_assigned = 0;
         summary.fill_assigned = 0;
+        summary.step2_nr_attempts = 0;
+        summary.step2_nr_converged = 0;
+        summary.step2_nr_fallback_count = 0;
+        summary.step2_nr_infeasible = 0;
+        summary.step2_nr_decrease_count = 0;
+        summary.step2_nr_iterations = 0;
+        summary.step2_nr_initial_objective_sum = 0.0;
+        summary.step2_nr_final_objective_sum = 0.0;
 
         if (local_points.empty() ||
             local_points.size() != x_coord.size() ||
@@ -156,7 +213,7 @@ namespace fishnet_internal
             summary.step1_assigned = 2;
         }
 
-        // Step 2: deterministic generator traversal skeleton (queue-based).
+        // Step 2: deterministic generator traversal skeleton with local NR solve.
         summary.stage_trace.push_back("step2");
         std::deque<int> queue;
         queue.push_back(seed_index);
@@ -180,14 +237,16 @@ namespace fishnet_internal
                 {
                     continue;
                 }
-
-                const bool was_unassigned = is_unassigned(x_coord, y_coord, nbr);
-                bool progressed = false;
+                if (!has_full_coordinates(x_coord, y_coord, cur) || !is_unassigned(x_coord, y_coord, nbr))
+                {
+                    continue;
+                }
 
                 Vec3 edge = local_points[static_cast<size_t>(nbr)] - local_points[static_cast<size_t>(cur)];
                 const double edge_length = std::sqrt(edge.x * edge.x + edge.y * edge.y);
                 if (edge_length <= kVectorZeroEpsilon)
                 {
+                    ++summary.step2_nr_infeasible;
                     continue;
                 }
 
@@ -195,43 +254,96 @@ namespace fishnet_internal
                 const double primary_align = std::abs(dot(unit_edge, primary_axis));
                 const double orthogonal_align = std::abs(dot(unit_edge, orthogonal_axis));
 
-                if (primary_align >= orthogonal_align &&
-                    !is_nan(x_coord[static_cast<size_t>(cur)]) &&
-                    is_nan(x_coord[static_cast<size_t>(nbr)]))
+                if (std::abs(target_pre_shear_deg) <= 1.0e-12)
                 {
-                    const double sign = dot(unit_edge, primary_axis) >= 0.0 ? 1.0 : -1.0;
-                    x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)] + sign * step;
-                    if (is_nan(y_coord[static_cast<size_t>(nbr)]) && !is_nan(y_coord[static_cast<size_t>(cur)]))
+                    // Preserve pre-Slice-C deterministic behavior when no pre-shear target is requested.
+                    if (primary_align >= orthogonal_align)
                     {
+                        const double sign = dot(unit_edge, primary_axis) >= 0.0 ? 1.0 : -1.0;
+                        x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)] + sign * step;
                         y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)];
+                        ++summary.primary_assigned;
                     }
-                    ++summary.primary_assigned;
-                    progressed = true;
-                }
-
-                if (orthogonal_align > primary_align &&
-                    !is_nan(y_coord[static_cast<size_t>(cur)]) &&
-                    is_nan(y_coord[static_cast<size_t>(nbr)]))
-                {
-                    const double sign = dot(unit_edge, orthogonal_axis) >= 0.0 ? 1.0 : -1.0;
-                    y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)] + sign * step;
-                    if (is_nan(x_coord[static_cast<size_t>(nbr)]) && !is_nan(x_coord[static_cast<size_t>(cur)]))
+                    else
                     {
+                        const double sign = dot(unit_edge, orthogonal_axis) >= 0.0 ? 1.0 : -1.0;
+                        y_coord[static_cast<size_t>(nbr)] = y_coord[static_cast<size_t>(cur)] + sign * step;
                         x_coord[static_cast<size_t>(nbr)] = x_coord[static_cast<size_t>(cur)];
+                        ++summary.orthogonal_assigned;
                     }
-                    ++summary.orthogonal_assigned;
-                    progressed = true;
-                }
-
-                if (!progressed)
-                {
+                    ++summary.step2_assigned;
+                    queue.push_back(nbr);
                     continue;
                 }
 
-                if (was_unassigned)
+                const int ref_nbr = choose_step2_reference_neighbor(
+                    local_points,
+                    adjacency,
+                    x_coord,
+                    y_coord,
+                    cur,
+                    nbr,
+                    orthogonal_axis);
+                if (ref_nbr < 0)
                 {
-                    ++summary.step2_assigned;
+                    ++summary.step2_nr_infeasible;
+                    continue;
                 }
+
+                const Vec3 current_point{
+                    x_coord[static_cast<size_t>(cur)],
+                    y_coord[static_cast<size_t>(cur)],
+                    0.0,
+                };
+                const Vec3 ref_point{
+                    x_coord[static_cast<size_t>(ref_nbr)],
+                    y_coord[static_cast<size_t>(ref_nbr)],
+                    0.0,
+                };
+                const Vec3 reference_vec = ref_point - current_point;
+
+                const Step2NrSolveResult nr = solve_step2_generator_cell_nr(
+                    current_point,
+                    reference_vec,
+                    edge,
+                    step,
+                    target_pre_shear_deg);
+
+                ++summary.step2_nr_attempts;
+                summary.step2_nr_iterations += nr.iterations;
+                summary.step2_nr_initial_objective_sum += nr.objective_initial;
+                summary.step2_nr_final_objective_sum += nr.objective_final;
+                if (nr.converged)
+                {
+                    ++summary.step2_nr_converged;
+                }
+                if (nr.used_fallback)
+                {
+                    ++summary.step2_nr_fallback_count;
+                }
+                if (nr.infeasible || !nr.success)
+                {
+                    ++summary.step2_nr_infeasible;
+                    continue;
+                }
+                if (nr.objective_final <= nr.objective_initial + 1.0e-12)
+                {
+                    ++summary.step2_nr_decrease_count;
+                }
+
+                x_coord[static_cast<size_t>(nbr)] = nr.solved_point.x;
+                y_coord[static_cast<size_t>(nbr)] = nr.solved_point.y;
+                ++summary.step2_assigned;
+
+                if (primary_align >= orthogonal_align)
+                {
+                    ++summary.primary_assigned;
+                }
+                else
+                {
+                    ++summary.orthogonal_assigned;
+                }
+
                 queue.push_back(nbr);
             }
         }

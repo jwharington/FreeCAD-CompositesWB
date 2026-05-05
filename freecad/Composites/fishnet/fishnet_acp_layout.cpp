@@ -201,11 +201,14 @@ namespace fishnet_internal
         std::vector<double> x_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
         std::vector<double> y_coord(mesh_points.size(), std::numeric_limits<double>::quiet_NaN());
 
+        const double target_pre_shear_deg = param_double(params, "pre_shear_deg", 0.0);
+
         run_kindrape_scheduler_skeleton(
             local_points,
             adjacency,
             seed_index,
             nominal,
+            target_pre_shear_deg,
             summary.primary_axis,
             summary.orthogonal_axis,
             x_coord,
