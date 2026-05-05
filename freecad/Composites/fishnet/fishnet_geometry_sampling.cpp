@@ -36,6 +36,7 @@
 #include "fishnet_kindrape_topology.hpp"
 #include "fishnet_sampling_api.hpp"
 #include "fishnet_sampling_grid_module.hpp"
+#include "fishnet_sampling_pipeline.hpp"
 #include "fishnet_surface_queries.hpp"
 #include "fishnet_surface_relaxation.hpp"
 #include "fishnet_sampling_node_update.hpp"
@@ -1170,21 +1171,29 @@ namespace fishnet_internal
         };
         SamplingGridState state;
 
-        initialize_sampling_phase(params, sample, state);
-
-        auto ensure_grid_node = [&](int i, int j)
+        SamplingPhaseSeams seams;
+        seams.initialize = [&]()
         {
-            return ensure_grid_node_at(params, state, i, j, sample.points);
+            initialize_sampling_phase(params, sample, state);
         };
-
-        run_sampling_growth_phase(
-            params,
-            sample,
-            state,
-            ensure_grid_node);
-
-        if (params.surface_spacing_refine)
+        seams.grow = [&]()
         {
+            auto ensure_grid_node = [&](int i, int j)
+            {
+                return ensure_grid_node_at(params, state, i, j, sample.points);
+            };
+            run_sampling_growth_phase(
+                params,
+                sample,
+                state,
+                ensure_grid_node);
+        };
+        seams.stitch = [&]()
+        {
+            if (!params.surface_spacing_refine)
+            {
+                return;
+            }
             // Prune over-dense rows (cone/frustum inner rings) for surface-spacing mode
             // before building adaptive topology.
             prune_overdense_row_nodes(
@@ -1192,12 +1201,16 @@ namespace fishnet_internal
                 state.target_spacing_len,
                 sample.points,
                 state.grid_indices);
-        }
+        };
+        seams.emit = [&]()
+        {
+            emit_sampling_phase(
+                params,
+                sample,
+                state);
+        };
 
-        emit_sampling_phase(
-            params,
-            sample,
-            state);
+        run_sampling_pipeline(seams);
 
         return sample;
     }

@@ -110,6 +110,9 @@ fishnet_extension = Extension(
             "fishnet_sampling_node_update.cpp",
         ),
         os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_sampling_pipeline.cpp"
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_geometry_sampling.cpp"
         ),
         os.path.join(
