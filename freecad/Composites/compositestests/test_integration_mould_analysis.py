@@ -345,6 +345,44 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         )
         self.assertFalse(result["split_strategy_diagnostics"][0]["selected"])
 
+    def test_mould_split_strategy_prefers_later_pass_over_earlier_warning(self):
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        shape = self._make_mould_reference_box()
+        original_evaluate_attempt = mould_analysis_module._evaluate_split_strategy_attempt
+
+        def warning_then_pass(shape_arg, strategy):
+            attempt = original_evaluate_attempt(shape_arg, strategy)
+            if strategy["rank"] == 1:
+                attempt["status"] = "Warning"
+                attempt["reason"] = "injected warning"
+                attempt["validation"] = {
+                    "status": "Warning",
+                    "summary": "Validation warning: injected",
+                    "checks": ["WARN: injected warning"],
+                }
+            else:
+                attempt["status"] = "Pass"
+                attempt["reason"] = "injected pass"
+                attempt["validation"] = {
+                    "status": "Pass",
+                    "summary": "Validation pass: injected",
+                    "checks": ["PASS: injected pass"],
+                }
+            return attempt
+
+        with mock.patch.object(
+            mould_analysis_module,
+            "_evaluate_split_strategy_attempt",
+            side_effect=warning_then_pass,
+        ):
+            result = mould_analysis_module.analyze_source_shape(shape)
+
+        self.assertGreaterEqual(len(result["split_strategy_attempts"]), 2)
+        self.assertEqual(result["split_strategy_attempts"][0]["status"], "Warning")
+        self.assertEqual(result["split_strategy_attempts"][1]["status"], "Pass")
+        self.assertTrue(result["split_strategy_diagnostics"][1]["selected"])
+
     def test_mould_backface_ratio_is_geometry_sensitive_for_box(self):
         from freecad.Composites.tools.mould_analysis import _backface_area_ratio
 

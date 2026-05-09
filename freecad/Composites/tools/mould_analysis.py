@@ -447,12 +447,11 @@ def _plan_split_strategies(ranked, limit=MAX_SPLIT_STRATEGIES):
     return strategies
 
 
-def _evaluate_split_strategy_attempt(
-    shape,
-    strategy,
-    undercut_count,
-    draft_violation_count,
-):
+def _evaluate_split_strategy_attempt(shape, strategy):
+    profile, violations = _direction_profile_and_violations(shape, strategy["direction"])
+    undercut_count = len(violations)
+    draft_violation_count = len(violations)
+
     parting = propose_parting_surface(shape, strategy["direction"])
     mould_halves = make_mould_halves(
         shape,
@@ -479,6 +478,10 @@ def _evaluate_split_strategy_attempt(
 
     return {
         "strategy": strategy,
+        "profile": profile,
+        "violations": violations,
+        "undercut_count": undercut_count,
+        "draft_violation_count": draft_violation_count,
         "parting": parting,
         "mould_halves": mould_halves,
         "validation": validation,
@@ -487,29 +490,27 @@ def _evaluate_split_strategy_attempt(
     }
 
 
-def _evaluate_split_strategy_attempts(
-    shape,
-    strategies,
-    undercut_count,
-    draft_violation_count,
-):
+def _evaluate_split_strategy_attempts(shape, strategies):
     attempts = []
     selected_attempt = None
+    best_attempt = None
 
     for strategy in strategies:
-        attempt = _evaluate_split_strategy_attempt(
-            shape,
-            strategy,
-            undercut_count,
-            draft_violation_count,
-        )
+        attempt = _evaluate_split_strategy_attempt(shape, strategy)
         attempts.append(attempt)
-        if selected_attempt is None and attempt["status"] != "Fail":
+
+        if best_attempt is None:
+            best_attempt = attempt
+
+        if attempt["status"] == "Pass":
             selected_attempt = attempt
             break
 
-    if selected_attempt is None and attempts:
-        selected_attempt = attempts[0]
+        if selected_attempt is None and attempt["status"] == "Warning":
+            selected_attempt = attempt
+
+    if selected_attempt is None:
+        selected_attempt = best_attempt
 
     return selected_attempt, attempts
 
@@ -556,6 +557,8 @@ def _split_strategy_attempt_diagnostics(attempts):
                 "direction": strategy["direction_label"],
                 "status": attempt["status"],
                 "reason": attempt["reason"],
+                "undercut_count": attempt["undercut_count"],
+                "draft_violation_count": attempt["draft_violation_count"],
                 "parting_status": attempt["parting"]["status"],
                 "mould_halves_status": attempt["mould_halves"]["status"],
                 "validation_summary": attempt["validation"]["summary"],
@@ -739,6 +742,12 @@ def _profile_violations(profile, area_growth_tolerance=0.05):
             )
         previous_area = area
     return violations
+
+
+def _direction_profile_and_violations(shape, direction):
+    profile = _slice_area_profile(shape, direction)
+    violations = _profile_violations(profile)
+    return profile, violations
 
 
 def _format_violation_regions(violations):
@@ -1306,30 +1315,9 @@ def analyze_source_shape(
         preferred_direction_diagnostics
     )
 
-    profile = _slice_area_profile(effective_shape, draw_direction)
-    violations = _profile_violations(profile)
-    undercut_count = len(violations)
-    draft_violation_count = len(violations)
-    undercut_regions = _format_violation_regions(violations)
-    draft_violation_regions = _format_violation_regions(violations)
-    undercut_summary = (
-        f"{undercut_count} possible undercut band(s): "
-        f"{_format_violations(violations)}"
-        if undercut_count
-        else "No undercuts detected by the heuristic profile."
-    )
-    draft_violation_summary = (
-        f"{draft_violation_count} possible draft violation(s): "
-        f"{_format_violations(violations)}"
-        if draft_violation_count
-        else "No draft violations detected by the heuristic profile."
-    )
-
     selected_attempt, split_strategy_attempts = _evaluate_split_strategy_attempts(
         effective_shape,
         split_strategies,
-        undercut_count,
-        draft_violation_count,
     )
     if selected_attempt is None:
         fallback_parting = propose_parting_surface(
@@ -1343,6 +1331,10 @@ def analyze_source_shape(
         )
         selected_attempt = {
             "strategy": selected_split_strategy,
+            "profile": [],
+            "violations": [],
+            "undercut_count": 0,
+            "draft_violation_count": 0,
             "parting": fallback_parting,
             "mould_halves": fallback_mould_halves,
             "validation": {
@@ -1356,6 +1348,24 @@ def analyze_source_shape(
         split_strategy_attempts = [selected_attempt]
 
     selected_split_strategy = selected_attempt["strategy"]
+    selected_violations = selected_attempt["violations"]
+    undercut_count = selected_attempt["undercut_count"]
+    draft_violation_count = selected_attempt["draft_violation_count"]
+    undercut_regions = _format_violation_regions(selected_violations)
+    draft_violation_regions = _format_violation_regions(selected_violations)
+    undercut_summary = (
+        f"{undercut_count} possible undercut band(s): "
+        f"{_format_violations(selected_violations)}"
+        if undercut_count
+        else "No undercuts detected by the heuristic profile."
+    )
+    draft_violation_summary = (
+        f"{draft_violation_count} possible draft violation(s): "
+        f"{_format_violations(selected_violations)}"
+        if draft_violation_count
+        else "No draft violations detected by the heuristic profile."
+    )
+
     parting = selected_attempt["parting"]
     mould_halves = selected_attempt["mould_halves"]
     validation = selected_attempt["validation"]
