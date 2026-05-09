@@ -942,18 +942,26 @@ def validate_mould_result(
         else:
             checks.append(f"{prefix}: {label}")
 
+    def shape_is_non_null_and_valid(shape):
+        if getattr(shape, "isNull", lambda: True)():
+            return False
+        try:
+            return bool(shape.isValid())
+        except Exception:
+            return True
+
     add_check(parting_surface_status == "Ready", "parting surface generated")
     add_check(mould_halves_status == "Ready", "mould halves generated")
     add_check(
-        not getattr(parting_surface_shape, "isNull", lambda: True)(),
+        shape_is_non_null_and_valid(parting_surface_shape),
         "parting surface shape is valid",
     )
     add_check(
-        not getattr(mould_half_a_shape, "isNull", lambda: True)(),
+        shape_is_non_null_and_valid(mould_half_a_shape),
         "first mould half shape is valid",
     )
     add_check(
-        not getattr(mould_half_b_shape, "isNull", lambda: True)(),
+        shape_is_non_null_and_valid(mould_half_b_shape),
         "second mould half shape is valid",
     )
     add_check(

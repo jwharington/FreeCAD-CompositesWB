@@ -323,6 +323,39 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             )
         )
 
+    def test_slice_d_d1_null_parting_surface_forces_fail(self):
+        import Part
+
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        shape = self._make_mould_reference_box()
+        original_propose_parting_surface = mould_analysis_module.propose_parting_surface
+
+        def null_parting_surface(shape_arg, direction):
+            proposal = original_propose_parting_surface(shape_arg, direction)
+            proposal = dict(proposal)
+            proposal["shape"] = Part.Shape()
+            proposal["summary"] = "Injected null parting surface for Slice D d1"
+            return proposal
+
+        with mock.patch.object(
+            mould_analysis_module,
+            "propose_parting_surface",
+            side_effect=null_parting_surface,
+        ):
+            result = mould_analysis_module.analyze_source_shape(shape)
+
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["validation_status"], "Fail")
+        self.assertEqual(result["parting_surface_status"], "Ready")
+        self.assertTrue(result["parting_surface_shape"].isNull())
+        self.assertTrue(
+            any(
+                check.startswith("FAIL: parting surface shape is valid")
+                for check in result["validation_checks"]
+            )
+        )
+
     def test_mould_split_strategy_attempts_continue_after_exception(self):
         from freecad.Composites.tools import mould_analysis as mould_analysis_module
 
