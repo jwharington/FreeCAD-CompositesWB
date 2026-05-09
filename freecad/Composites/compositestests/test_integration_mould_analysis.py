@@ -171,6 +171,30 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 self.assertIn("normalization", result["summary"].lower())
                 self.assertTrue(result["normalization_reason_flags"])
 
+    def test_slice_e_e1_convex_baseline_general_shape_is_ready(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = self._make_mould_reference_box()
+        result = analyze_source_shape(shape)
+
+        self.assertIn(result["status"], ("Ready", "Warning"))
+        self.assertNotEqual(result["status"], "Fail")
+
+        self.assertEqual(result["parting_surface_status"], "Ready")
+        self.assertEqual(result["mould_halves_status"], "Ready")
+        self.assertIsNotNone(result["parting_surface_shape"])
+        self.assertIsNotNone(result["mould_half_a_shape"])
+        self.assertIsNotNone(result["mould_half_b_shape"])
+        self.assertFalse(result["parting_surface_shape"].isNull())
+        self.assertFalse(result["mould_half_a_shape"].isNull())
+        self.assertFalse(result["mould_half_b_shape"].isNull())
+
+        self.assertIn(result["validation_status"], ("Pass", "Warning"))
+        self.assertTrue(result["validation_checks"])
+
+        self.assertIn("normalization", result["summary"].lower())
+        self.assertIn("split_strategy=selected=", result["summary"])
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
