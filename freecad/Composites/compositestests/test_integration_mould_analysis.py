@@ -487,6 +487,108 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             expected_fail_payload["reason_codes"],
         )
 
+    def test_slice_d_d5_preview_children_remain_coherent_across_fail_and_recovery(self):
+        import Part
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP, is_mould_analysis
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        def assert_preview_shape_coherent(status, preview_obj, *, allow_degraded=False):
+            if status in ("Ready", "Warning") or (allow_degraded and status == "Degraded"):
+                self.assertFalse(preview_obj.Shape.isNull())
+            elif status == "Fail":
+                self.assertTrue(preview_obj.Shape.isNull())
+
+        doc_name = "CompositesMouldSliceDd5PreviewCoherenceIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            self.assertTrue(is_mould_analysis(obj))
+            self.assertIn(obj.AnalysisStatus, ("Ready", "Warning"))
+            self.assertIn(obj.ValidationStatus, ("Pass", "Warning"))
+
+            parting_preview = obj.PartingSurface
+            half_a_preview = obj.MouldHalfA
+            half_b_preview = obj.MouldHalfB
+
+            self.assertIsNotNone(parting_preview)
+            self.assertIsNotNone(half_a_preview)
+            self.assertIsNotNone(half_b_preview)
+
+            self.assertFalse(parting_preview.Shape.isNull())
+            self.assertFalse(half_a_preview.Shape.isNull())
+            self.assertFalse(half_b_preview.Shape.isNull())
+
+            original_propose_parting_surface = mould_analysis_module.propose_parting_surface
+
+            def fail_null_parting_surface(shape_arg, direction):
+                proposal = dict(original_propose_parting_surface(shape_arg, direction))
+                proposal["status"] = "Fail"
+                proposal["summary"] = "Injected fail/null parting surface for Slice D d5"
+                proposal["curve_summary"] = "Injected fail/null parting surface for Slice D d5"
+                proposal["shape"] = Part.Shape()
+                proposal["surface_area"] = 0.0
+                return proposal
+
+            with mock.patch.object(
+                mould_analysis_module,
+                "propose_parting_surface",
+                side_effect=fail_null_parting_surface,
+            ):
+                doc.recompute()
+
+            self.assertEqual(obj.AnalysisStatus, "Fail")
+            self.assertEqual(obj.ValidationStatus, "Fail")
+            self.assertEqual(obj.PartingSurfaceStatus, "Fail")
+            self.assertTrue(obj.PartingSurface.Shape.isNull())
+            assert_preview_shape_coherent(obj.PartingSurfaceStatus, obj.PartingSurface)
+            assert_preview_shape_coherent(
+                obj.MouldHalvesStatus,
+                obj.MouldHalfA,
+                allow_degraded=True,
+            )
+            assert_preview_shape_coherent(
+                obj.MouldHalvesStatus,
+                obj.MouldHalfB,
+                allow_degraded=True,
+            )
+
+            self.assertIs(obj.PartingSurface, parting_preview)
+            self.assertIs(obj.MouldHalfA, half_a_preview)
+            self.assertIs(obj.MouldHalfB, half_b_preview)
+
+            doc.recompute()
+
+            self.assertIn(obj.AnalysisStatus, ("Ready", "Warning"))
+            self.assertIn(obj.ValidationStatus, ("Pass", "Warning"))
+            self.assertIs(obj.PartingSurface, parting_preview)
+            self.assertIs(obj.MouldHalfA, half_a_preview)
+            self.assertIs(obj.MouldHalfB, half_b_preview)
+
+            assert_preview_shape_coherent(obj.PartingSurfaceStatus, obj.PartingSurface)
+            assert_preview_shape_coherent(
+                obj.MouldHalvesStatus,
+                obj.MouldHalfA,
+                allow_degraded=True,
+            )
+            assert_preview_shape_coherent(
+                obj.MouldHalvesStatus,
+                obj.MouldHalfB,
+                allow_degraded=True,
+            )
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
     def test_mould_split_strategy_attempts_continue_after_exception(self):
         from freecad.Composites.tools import mould_analysis as mould_analysis_module
 
