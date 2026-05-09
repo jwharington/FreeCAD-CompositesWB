@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Active execution (Slice C complete; Slice D next)  
+**Status:** Active execution (Slice D complete; Slice E next)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -37,10 +37,17 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `c3` `cfd4b0a`: per-strategy undercut/draft scoring for attempt evaluation and selection,
   - `c4` `f116371`: complete deterministic planner diagnostics including scored alternatives and explicit selection reasoning.
 
+- **Slice D (P0): completed through d5 checkpoints**
+  - `d1` `e9756fb`: hard-fail null parting geometry (`test_slice_d_d1_null_parting_surface_forces_fail`),
+  - `d2` `ecff2ad`: hard-fail null mould half geometry (`test_slice_d_d2_null_mould_half_forces_fail`),
+  - `d3` `e51356a`: degraded-but-usable split classified as `Warning` with explicit warning reason (`test_slice_d_d3_degraded_split_classifies_warning_with_reason`),
+  - `d4` `e7e60f6`: structured deterministic validation reason payload (`validation_reasons`, `validation_reason_codes`) (`test_slice_d_d4_structured_reason_codes_are_present_and_stable`),
+  - `d5` `bb7b7bc`: preview child coherence across fail→recovery recompute (`test_slice_d_d5_preview_children_remain_coherent_across_fail_and_recovery`).
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**33 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**38 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -222,4 +229,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Start **Slice D** by hardening split-generation validation semantics (strict null-shape failure handling, structured warning/fail reasons, and preview-object consistency on degraded states) while preserving current external `MouldAnalysis` property names.
+Start **Slice E** by expanding general-shape fixtures/assertions (including degraded/fail semantic checks on complex geometry) while preserving current external `MouldAnalysis` property names.
