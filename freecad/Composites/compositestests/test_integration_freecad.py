@@ -284,7 +284,10 @@ class TestFreeCADIntegration(unittest.TestCase):
 
         self.assertIn("hint_thickness_present", result["normalization_reason_flags"])
         self.assertIn("hint_laminate_present", result["normalization_reason_flags"])
-        self.assertIn("thickness_hint_mm=0.750", result["normalization_summary"])
+        self.assertIn(
+            "thickness_hint=valid(0.750 mm via Thickness)",
+            result["normalization_summary"],
+        )
         self.assertIn("laminate_hint=Fem::MaterialMechanicalLaminate", result["normalization_summary"])
         self.assertTrue(
             any(
@@ -325,6 +328,129 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertTrue(
             any("normalization" in check.lower() for check in result["validation_checks"])
         )
+
+    def test_mould_analysis_shell_thickness_hint_attempt_recorded(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _ThicknessHintSource:
+            Name = "ThicknessHintSource"
+            Thickness = 2.5
+
+        face = Part.makeBox(12, 16, 20).Faces[0]
+        open_shell = Part.Shell([face])
+        result = analyze_source_shape(open_shell, source_obj=_ThicknessHintSource())
+
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertIn(
+            "shell_thickness_envelope_attempted",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn(
+            "shell_thickness_envelope_succeeded",
+            result["normalization_reason_flags"],
+        )
+        self.assertNotIn(
+            "shell_thickness_envelope_skipped_missing_numeric_thickness",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn("thickness envelope attempted", result["normalization_summary"].lower())
+
+    def test_mould_analysis_shell_laminate_only_skips_thickness_envelope(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _LaminateProxy:
+            Type = "Fem::MaterialMechanicalLaminate"
+
+        class _LaminateRef:
+            Proxy = _LaminateProxy()
+
+        class _LaminateOnlySource:
+            Name = "LaminateOnlySource"
+            Laminate = _LaminateRef()
+
+        face = Part.makeBox(10, 14, 18).Faces[0]
+        open_shell = Part.Shell([face])
+        result = analyze_source_shape(open_shell, source_obj=_LaminateOnlySource())
+
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertIn("hint_laminate_present", result["normalization_reason_flags"])
+        self.assertIn(
+            "shell_laminate_only_no_numeric_thickness",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn(
+            "shell_thickness_envelope_skipped_missing_numeric_thickness",
+            result["normalization_reason_flags"],
+        )
+        self.assertNotIn(
+            "shell_thickness_envelope_attempted",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn("thickness envelope skipped", result["normalization_summary"].lower())
+
+    def test_mould_analysis_shell_invalid_non_positive_thickness_skips_envelope(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _NonPositiveThicknessSource:
+            Name = "NonPositiveThicknessSource"
+            Thickness = 0.0
+
+        face = Part.makeBox(10, 14, 18).Faces[0]
+        open_shell = Part.Shell([face])
+        result = analyze_source_shape(open_shell, source_obj=_NonPositiveThicknessSource())
+
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertIn(
+            "hint_thickness_invalid_non_positive",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn(
+            "shell_thickness_envelope_skipped_invalid_numeric_thickness",
+            result["normalization_reason_flags"],
+        )
+        self.assertNotIn(
+            "shell_thickness_envelope_attempted",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn("invalid_non_positive", result["normalization_summary"])
+
+    def test_mould_analysis_shell_invalid_non_numeric_thickness_skips_envelope(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _NonNumericThicknessSource:
+            Name = "NonNumericThicknessSource"
+            Thickness = "nan"
+
+        face = Part.makeBox(10, 14, 18).Faces[0]
+        open_shell = Part.Shell([face])
+        result = analyze_source_shape(open_shell, source_obj=_NonNumericThicknessSource())
+
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertIn(
+            "hint_thickness_invalid_non_numeric",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn(
+            "shell_thickness_envelope_skipped_invalid_numeric_thickness",
+            result["normalization_reason_flags"],
+        )
+        self.assertNotIn(
+            "hint_thickness_present",
+            result["normalization_reason_flags"],
+        )
+        self.assertNotIn(
+            "shell_thickness_envelope_attempted",
+            result["normalization_reason_flags"],
+        )
+        self.assertIn("invalid_non_numeric", result["normalization_summary"])
 
     def test_mould_analysis_shell_source_recompute_no_crash(self):
         import Part

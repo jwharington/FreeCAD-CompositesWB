@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import math
+
 from FreeCAD import Vector
 import Part
 
@@ -77,6 +79,9 @@ def _extract_normalization_hints(source_obj):
     hints = {
         "source_name": "",
         "thickness_mm": None,
+        "thickness_hint_state": "missing",
+        "thickness_hint_source": "",
+        "thickness_invalid_detail": "",
         "has_laminate": False,
         "laminate_type": "",
     }
@@ -85,6 +90,8 @@ def _extract_normalization_hints(source_obj):
 
     hints["source_name"] = str(getattr(source_obj, "Name", "") or "")
 
+    invalid_state = None
+    invalid_detail = ""
     for prop_name in (
         "Thickness",
         "thickness",
@@ -93,11 +100,32 @@ def _extract_normalization_hints(source_obj):
     ):
         if not hasattr(source_obj, prop_name):
             continue
-        thickness_mm = _quantity_to_mm(getattr(source_obj, prop_name, None))
+        thickness_value = getattr(source_obj, prop_name, None)
+        thickness_mm = _quantity_to_mm(thickness_value)
         if thickness_mm is None:
+            if invalid_state is None:
+                invalid_state = "invalid_non_numeric"
+                invalid_detail = prop_name
             continue
+        if not math.isfinite(thickness_mm):
+            if invalid_state is None:
+                invalid_state = "invalid_non_numeric"
+                invalid_detail = prop_name
+            continue
+        if thickness_mm <= 0.0:
+            if invalid_state is None:
+                invalid_state = "invalid_non_positive"
+                invalid_detail = prop_name
+            continue
+
         hints["thickness_mm"] = thickness_mm
+        hints["thickness_hint_state"] = "valid"
+        hints["thickness_hint_source"] = prop_name
         break
+
+    if hints["thickness_hint_state"] != "valid" and invalid_state is not None:
+        hints["thickness_hint_state"] = invalid_state
+        hints["thickness_invalid_detail"] = invalid_detail
 
     for prop_name in ("Laminate", "LaminateRef", "Layup", "Stack"):
         if not hasattr(source_obj, prop_name):
@@ -124,19 +152,36 @@ def _extract_normalization_hints(source_obj):
 
 def _normalization_hint_reason_flags(hints):
     flags = []
-    if hints.get("thickness_mm") is not None:
+    thickness_state = hints.get("thickness_hint_state", "missing")
+    if thickness_state == "valid":
         flags.append("hint_thickness_present")
+    elif thickness_state == "invalid_non_positive":
+        flags.append("hint_thickness_invalid_non_positive")
+    elif thickness_state == "invalid_non_numeric":
+        flags.append("hint_thickness_invalid_non_numeric")
+
     if hints.get("has_laminate"):
         flags.append("hint_laminate_present")
     return flags
 
 
 def _normalization_hint_summary(hints):
+    thickness_state = hints.get("thickness_hint_state", "missing")
     thickness_mm = hints.get("thickness_mm")
-    if thickness_mm is None:
-        thickness_summary = "thickness_hint_mm=none"
+
+    if thickness_state == "valid" and thickness_mm is not None:
+        thickness_source = hints.get("thickness_hint_source") or "unknown"
+        thickness_summary = (
+            f"thickness_hint=valid({thickness_mm:.3f} mm via {thickness_source})"
+        )
+    elif thickness_state == "invalid_non_positive":
+        detail = hints.get("thickness_invalid_detail") or "unknown"
+        thickness_summary = f"thickness_hint=invalid_non_positive(via {detail})"
+    elif thickness_state == "invalid_non_numeric":
+        detail = hints.get("thickness_invalid_detail") or "unknown"
+        thickness_summary = f"thickness_hint=invalid_non_numeric(via {detail})"
     else:
-        thickness_summary = f"thickness_hint_mm={thickness_mm:.3f}"
+        thickness_summary = "thickness_hint=missing"
 
     if hints.get("has_laminate"):
         laminate_type = hints.get("laminate_type") or "unknown"
@@ -145,7 +190,6 @@ def _normalization_hint_summary(hints):
         laminate_summary = "laminate_hint=none"
 
     return f"{thickness_summary}, {laminate_summary}"
-
 
 def _format_vector(vec):
     return f"({vec.x:.3f}, {vec.y:.3f}, {vec.z:.3f})"
@@ -663,6 +707,57 @@ def normalize_source_shape(shape, hints=None):
 
     if shape_type == "Shell":
         reason_flags = []
+        thickness_hint_state = hints.get("thickness_hint_state", "missing")
+        thickness_mm = hints.get("thickness_mm")
+        thickness_envelope_shape = None
+        thickness_envelope_note = ""
+
+        if thickness_mm is not None and thickness_mm > 0.0:
+            reason_flags.append("shell_thickness_envelope_attempted")
+            try:
+                candidate = _bbox_proxy_solid(
+                    shape,
+                    padding_hint_mm=thickness_mm,
+                )
+                if not candidate.isNull():
+                    thickness_envelope_shape = candidate
+                    reason_flags.append("shell_thickness_envelope_succeeded")
+                    thickness_envelope_note = (
+                        f"thickness envelope attempted with numeric thickness hint {thickness_mm:.3f} mm and succeeded"
+                    )
+                else:
+                    reason_flags.append("shell_thickness_envelope_failed")
+                    thickness_envelope_note = (
+                        f"thickness envelope attempted with numeric thickness hint {thickness_mm:.3f} mm but returned null"
+                    )
+            except Exception:
+                reason_flags.append("shell_thickness_envelope_failed")
+                thickness_envelope_note = (
+                    f"thickness envelope attempted with numeric thickness hint {thickness_mm:.3f} mm but raised conversion error"
+                )
+        else:
+            if thickness_hint_state == "invalid_non_positive":
+                reason_flags.append("shell_thickness_envelope_skipped_invalid_numeric_thickness")
+                thickness_envelope_note = (
+                    "thickness envelope skipped due to non-positive numeric thickness hint"
+                )
+            elif thickness_hint_state == "invalid_non_numeric":
+                reason_flags.append("shell_thickness_envelope_skipped_invalid_numeric_thickness")
+                thickness_envelope_note = (
+                    "thickness envelope skipped due to non-numeric thickness hint"
+                )
+            else:
+                reason_flags.append("shell_thickness_envelope_skipped_missing_numeric_thickness")
+                thickness_envelope_note = (
+                    "thickness envelope skipped due to missing numeric thickness hint"
+                )
+
+            if (
+                "hint_laminate_present" in hint_flags
+                and "hint_thickness_present" not in hint_flags
+            ):
+                reason_flags.append("shell_laminate_only_no_numeric_thickness")
+
         is_closed = getattr(shape, "isClosed", lambda: False)()
         if not is_closed:
             reason_flags.append("shell_open_requires_envelope")
@@ -675,11 +770,13 @@ def normalize_source_shape(shape, hints=None):
                 ):
                     if "hint_thickness_present" in hint_flags or "hint_laminate_present" in hint_flags:
                         shell_summary = (
-                            "Normalization approximate: shell converted to effective solid envelope using available source-object hints."
+                            "Normalization approximate: shell converted to effective solid envelope using available source-object hints; "
+                            f"{thickness_envelope_note}."
                         )
                     else:
                         shell_summary = (
-                            "Normalization approximate: shell converted to effective solid envelope without explicit thickness/laminate metadata."
+                            "Normalization approximate: shell converted to effective solid envelope without explicit thickness/laminate metadata; "
+                            f"{thickness_envelope_note}."
                         )
                     return build_result(
                         NORMALIZATION_CONFIDENCE_APPROXIMATE,
@@ -692,11 +789,18 @@ def normalize_source_shape(shape, hints=None):
             except Exception:
                 reason_flags.append("shell_solid_conversion_failed")
 
-        try:
-            proxy = _bbox_proxy_solid(
-                shape,
-                padding_hint_mm=hints.get("thickness_mm"),
+        if thickness_envelope_shape is not None:
+            return build_result(
+                NORMALIZATION_CONFIDENCE_APPROXIMATE,
+                "shell",
+                "Normalization approximate: shell replaced with thickness-based conservative envelope fallback; "
+                f"{thickness_envelope_note}.",
+                reason_flags + ["shell_thickness_envelope_used"],
+                _safe_copy_shape(thickness_envelope_shape),
             )
+
+        try:
+            proxy = _bbox_proxy_solid(shape)
             if not proxy.isNull():
                 missing_metadata_flag = []
                 if "hint_thickness_present" not in hint_flags and "hint_laminate_present" not in hint_flags:
@@ -704,7 +808,8 @@ def normalize_source_shape(shape, hints=None):
                 return build_result(
                     NORMALIZATION_CONFIDENCE_APPROXIMATE,
                     "shell",
-                    "Normalization approximate: shell replaced with conservative bounding proxy solid.",
+                    "Normalization approximate: shell replaced with conservative bounding proxy solid; "
+                    f"{thickness_envelope_note}.",
                     reason_flags + ["shell_proxy_bbox"] + missing_metadata_flag,
                     proxy,
                 )
@@ -715,7 +820,8 @@ def normalize_source_shape(shape, hints=None):
         return build_result(
             NORMALIZATION_CONFIDENCE_FAIL,
             "shell",
-            "Normalization failed: shell source could not be converted to an effective solid.",
+            "Normalization failed: shell source could not be converted to an effective solid; "
+            f"{thickness_envelope_note}.",
             reason_flags + ["shell_unrecoverable"],
             Part.Shape(),
         )
