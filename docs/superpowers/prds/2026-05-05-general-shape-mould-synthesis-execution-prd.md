@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Execution complete (Slices A-G complete)  
+**Status:** Execution complete (Slices A-L complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -62,10 +62,35 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `g2` `74b1760`: concave/overhang multipart recommendation diagnostics with deterministic region signatures (`test_slice_g_g2_concave_warning_recommends_multipart_with_deterministic_regions`),
   - `g3` `184a746`: explicit normalization-fail decomposition contract with validation-code region signatures (`test_slice_g_g3_normalization_fail_decomposition_contract_is_explicit`).
 
+- **Slice H (P1): completed through h3 checkpoints**
+  - `h1`: multipart execution contract payload (`multipart_execution_status`, `multipart_execution_summary`, `multipart_execution_attempts`, `multipart_piece_count`) with external property stability guard (`test_slice_h_h1_multipart_execution_contract_is_exposed_and_property_names_stable`),
+  - `h2`: bounded multipart prototype execution (max one extra split; max ~3 pieces) for concave warning/fail scenarios with deterministic attempt payload (`test_slice_h_h2_concave_warning_executes_bounded_multipart_prototype_deterministically`),
+  - `h3`: explicit normalization-fail multipart execution skip contract (`not_attempted`) (`test_slice_h_h3_normalization_fail_multipart_prototype_is_explicitly_not_attempted`).
+
+- **Slice I (P1): completed through i3 checkpoints**
+  - `i1`: two-level bounded multipart attempt payload (`split_offsets`, `split_depth`) with bounded partition count (max ~4 pieces) (`test_slice_i_i1_two_level_multipart_attempts_are_bounded_and_exposed`),
+  - `i2`: deterministic two-level multipart attempt ordering/summary contract (`selected_depth`, `selected_offset_count`) (`test_slice_i_i2_two_level_multipart_attempts_are_deterministic`),
+  - `i3`: external `MouldAnalysis` property stability guard while internal multipart payload expands (`test_slice_i_i3_external_mouldanalysis_properties_remain_unchanged`).
+
+- **Slice J (P1): completed through j3 checkpoints**
+  - `j1`: manufacturability payload contract in `analyze_source_shape` (`manufacturability_status`, `manufacturability_summary`, `manufacturability_metrics`, `manufacturability_overlay_*`, `manufacturability_recommendations`, `manufacturability_score_breakdown`) (`test_slice_j_j1_manufacturability_payload_contract_is_exposed`),
+  - `j2`: deterministic manufacturability overlay band ordering and pull-direction summary contract (`test_slice_j_j2_overlay_bands_are_deterministic_and_sorted`),
+  - `j3`: manufacturability recommendations + risk score coherence with external property stability guard (`test_slice_j_j3_recommendations_and_property_stability`).
+
+- **Slice K (P1): completed through k3 checkpoints**
+  - `k1`: grouped overlay payload contract (`manufacturability_overlay_groups`, `manufacturability_overlay_group_count`, `manufacturability_overlay_group_summary`) and not-applicable defaults (`test_slice_k_k1_overlay_group_contract_is_exposed`),
+  - `k2`: deterministic grouped overlay + calibration payloads (`manufacturability_calibration_version`, `manufacturability_calibration_inputs`, `manufacturability_calibration_weights`) (`test_slice_k_k2_grouping_and_calibration_payloads_are_deterministic`),
+  - `k3`: external `MouldAnalysis` property stability guard for new grouped/calibration payload fields (`test_slice_k_k3_external_mouldanalysis_properties_remain_unchanged`).
+
+- **Slice L (P1): completed through l3 checkpoints**
+  - `l1`: calibration-matrix payload stabilization across representative fixtures with bounded/deterministic score-contract checks,
+  - `l2`: cluster-level grouped-overlay reporting payload (`manufacturability_overlay_cluster_summary`, `manufacturability_overlay_top_clusters`) with deterministic summary/top-cluster semantics,
+  - `l3`: recommendation/summary alignment with cluster-calibration context plus external `MouldAnalysis` property stability guard.
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**49 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**71/71 tests**).
 - Fishnet native suite (`run_fishnet_native_tests.py`): passing (**66 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
@@ -228,6 +253,108 @@ Key files:
 
 ---
 
+## Slice H — Bounded Multipart Prototype Execution (P1)
+
+### Build
+- Add bounded multipart execution payload to `analyze_source_shape` while preserving external `MouldAnalysis` properties.
+- Execute at most one additional split plane derived from deterministic violation-region midpoints (max ~3 source partitions).
+- Emit deterministic multipart attempt diagnostics and selected prototype summary for warning/fail decomposition scenarios.
+- Keep normalization-fail path explicit by marking multipart execution as `not_attempted` with reason text.
+
+### Tests/Gates
+- Dedicated integration coverage for multipart execution contract exposure and external property stability.
+- Dedicated integration coverage for deterministic bounded multipart attempt execution on concave warning/fail fixtures.
+- Dedicated integration coverage for normalization-fail explicit multipart skip semantics.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Multipart execution prototype diagnostics are explicit, deterministic, bounded, and backward-compatible with the existing document-object interface.
+
+---
+
+## Slice I — Two-Level Bounded Multipart Execution (P1)
+
+### Build
+- Expand multipart prototype execution from one extra split to up to two bounded extra split levels using deterministic violation-derived offsets.
+- Emit structured per-attempt depth metadata (`split_offsets`, `split_depth`) while preserving existing top-level multipart execution payload fields.
+- Keep bounded piece cardinality (`<= 4`) and deterministic attempt IDs/selection summary.
+- Preserve external `MouldAnalysis` document-object property names (internal payload-only expansion).
+
+### Tests/Gates
+- Dedicated integration coverage for bounded two-level multipart payload shape and piece-count bounds.
+- Dedicated integration coverage for deterministic repeat-run multipart attempt/summary payload.
+- Dedicated integration coverage for external property stability while internal payload grows.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Two-level multipart prototype diagnostics are explicit, deterministic, bounded, and backward-compatible with the existing document-object interface.
+
+---
+
+## Slice J — Manufacturability Metrics + Overlay Payloads (P1)
+
+### Build
+- Add explicit manufacturability payloads to `analyze_source_shape` while preserving external `MouldAnalysis` properties:
+  - status/summary/metrics,
+  - overlay status/summary/bands,
+  - recommendations and score breakdown.
+- Keep manufacturability risk scoring bounded and deterministic (`[0, 1]`) with stable classification (`low` / `medium` / `high`).
+- Keep overlay bands deterministic and stably sorted for repeat-run comparisons.
+
+### Tests/Gates
+- Dedicated integration coverage for manufacturability contract exposure on ready/waiting paths.
+- Dedicated integration coverage for deterministic overlay bands and pull-direction summaries.
+- Dedicated integration coverage for recommendation/score consistency and external property stability.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Manufacturability payloads are explicit, deterministic, and backward-compatible with the existing document-object interface.
+
+---
+
+## Slice K — Grouped Overlay Semantics + Calibration Scaffolding (P1)
+
+### Build
+- Add grouped manufacturability overlay payloads:
+  - `manufacturability_overlay_groups`,
+  - `manufacturability_overlay_group_count`,
+  - `manufacturability_overlay_group_summary`.
+- Add explicit calibration scaffolding payloads:
+  - `manufacturability_calibration_version`,
+  - `manufacturability_calibration_inputs`,
+  - `manufacturability_calibration_weights`.
+- Keep scoring behavior stable by default (`group_density_weight=0.0`) while making calibration inputs/weights inspectable.
+- Keep recommendations sorted/deduped and add group-aware recommendations (`target_largest_undercut_group`, `target_largest_draft_group`) when applicable.
+
+### Tests/Gates
+- Dedicated integration coverage for grouped-overlay contract and not-applicable defaults.
+- Dedicated integration coverage for deterministic grouping/calibration payloads.
+- Dedicated integration coverage for external property stability while payload expands.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Grouped overlay + calibration payloads are explicit, deterministic, and backward-compatible with the existing document-object interface.
+
+---
+
+## Slice L — Calibration Matrix + Clustered Overlay Reporting (P1)
+
+### Build
+- Stabilize manufacturability calibration-matrix payload behavior across the representative fixture matrix while preserving external `MouldAnalysis` properties.
+- Add cluster-level grouped-overlay reporting payloads (`manufacturability_overlay_cluster_summary`, `manufacturability_overlay_top_clusters`) with deterministic ordering/caps.
+- Align recommendations and summary tokens with cluster/calibration context while keeping deterministic internal payload semantics.
+
+### Tests/Gates
+- Dedicated integration coverage for calibration payload contract and fixture-matrix bounds/order stability.
+- Dedicated integration coverage for deterministic cluster summary/top-cluster reporting semantics.
+- Dedicated integration coverage for recommendation/summary alignment and external property stability.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Calibration + clustered-overlay payloads are explicit, deterministic, bounded, and backward-compatible with the existing document-object interface.
+
+---
+
 ## 5) Required Acceptance Gates (Global)
 
 A slice can merge only if all apply:
@@ -264,4 +391,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Execution PRD scope is complete through **Slice G**. Next follow-on work should move from advisory decomposition diagnostics to bounded multipart split execution/prototyping while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
+Execution PRD scope is complete through **Slice L**. **Immediate next task (Slice M)**: extend manufacturability calibration validation and reporting polish (cluster labeling/visual semantics) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.

@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-05  
 **Repository:** `FreeCAD-CompositesWB`  
-**Status:** Implemented baseline complete (Slices A-G delivered)  
+**Status:** Implemented baseline complete (Slices A-L delivered)  
 **Related spec:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
 ---
@@ -32,6 +32,11 @@ The system must:
 - **Slice E complete through e5**: dedicated general-shape integration coverage for convex baseline, concave/overhang, internal opening/recess, shell-like normalization contract, and cross-fixture status/property contract matrix.
 - **Slice F complete through f4**: diagnostics schema/property contract lock, user-facing summary coherence hardening, representative fixture determinism matrix checks, and formal diagnostics/validation contract documentation.
 - **Slice G complete through g3**: advisory multipart-readiness decomposition payload contract, deterministic multipart recommendation diagnostics for concave/overhang cases, and explicit normalization-fail decomposition diagnostics based on validation reason-code regions.
+- **Slice H complete through h3**: bounded multipart execution prototype payload contract, deterministic one-extra-split multipart attempt diagnostics (max ~3 pieces), and explicit normalization-fail multipart skip semantics.
+- **Slice I complete through i3**: two-level bounded multipart execution diagnostics (`split_offsets`, `split_depth`) with bounded piece cardinality (max ~4 pieces), deterministic attempt/summary payloads, and external property stability.
+- **Slice J complete through j3**: manufacturability payload contract (metrics/overlay/recommendations), deterministic overlay-band ordering and pull-direction summaries, and risk/recommendation stability without external property expansion.
+- **Slice K complete through k3**: grouped manufacturability overlay semantics (`manufacturability_overlay_groups` + summary/count), calibration scaffolding payloads (`manufacturability_calibration_*`), and group-aware recommendation alignment with external property stability.
+- **Slice L complete through l3**: calibration-matrix payload stabilization across fixture-matrix checks, clustered grouped-overlay summaries/top-clusters, and deterministic recommendation/summary alignment with external property stability.
 - Dedicated mould integration module now covers the required real fixtures:
   - sphere,
   - box,
@@ -39,7 +44,7 @@ The system must:
   - generic lofted shell,
   - concave/overhang composite,
   - internal opening/recess shape.
-- Current gate status: FreeCAD integration suite passing (49 tests) and fishnet native suite passing (66 tests), with known non-fatal TopoShape mapper warnings in integration output.
+- Current gate status: FreeCAD integration suite passing (71/71 tests) and fishnet native suite passing (66 tests), with known non-fatal TopoShape mapper warnings in integration output.
 
 ---
 
@@ -236,6 +241,24 @@ This is still an early heuristic path (`WORK-IN-PROGRESS` in command tooltip), n
 
 ### Phase 5 — Multipart readiness scaffold
 - Add decomposition planning hooks only after two-piece path is robust.
+
+### Phase 6 — Bounded multipart prototype execution
+- Execute deterministic multipart prototypes and surface explicit attempt diagnostics while preserving external `MouldAnalysis` properties.
+
+### Phase 7 — Two-level bounded multipart execution
+- Expand multipart attempts to bounded two-level depth (up to two extra split levels) with deterministic attempt IDs/selection summaries while keeping external property stability.
+
+### Phase 8 — Manufacturability metrics + overlay payloads
+- Add deterministic manufacturability metrics/overlay/recommendation payloads and stable risk scoring while preserving external `MouldAnalysis` properties.
+
+### Phase 9 — Grouped overlay semantics + calibration scaffolding
+- Add grouped overlay clusters and explicit calibration metadata (inputs/weights/version) for traceable score tuning while preserving external `MouldAnalysis` properties.
+
+### Phase 10 — Slice L (calibration matrix + grouped reporting)
+- Stabilize manufacturability score behavior across a broader fixture matrix and add cluster-level grouped-overlay report semantics while preserving external `MouldAnalysis` properties.
+
+### Phase 11 — Slice M follow-on (calibration refinement + reporting polish)
+- Extend calibration validation and grouped-overlay reporting polish (cluster labels/visual semantics) while preserving external `MouldAnalysis` properties.
 
 ---
 
