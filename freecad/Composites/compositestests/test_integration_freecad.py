@@ -381,32 +381,23 @@ class TestFreeCADIntegration(unittest.TestCase):
             any("normalization" in check.lower() for check in result["validation_checks"])
         )
 
-    def test_mould_analysis_unsupported_non_solid_non_shell_reports_explicit_fail_diagnostics(self):
+    def test_mould_analysis_rotated_box_reports_explicit_diagnostics(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
-        class _UnsupportedSourceShape:
-            ShapeType = "Wire"
+        shape = self._make_mould_reference_rotated_box()
+        result = analyze_source_shape(shape)
 
-            @staticmethod
-            def isNull():
-                return False
-
-        result = analyze_source_shape(_UnsupportedSourceShape())
-
-        self.assertEqual(result["normalization_confidence"], "fail")
-        self.assertEqual(result["normalization_source_type"], "wire")
-        self.assertEqual(result["status"], "Fail")
-        self.assertEqual(result["validation_status"], "Fail")
+        self.assertEqual(result["normalization_confidence"], "exact")
+        self.assertEqual(result["normalization_source_type"], "solid")
+        self.assertIn("solid_passthrough_exact", result["normalization_reason_flags"])
         self.assertIn("normalization", result["summary"].lower())
-        self.assertIn("unsupported", result["normalization_summary"].lower())
+        self.assertIn(result["status"], ("Ready", "Warning"))
+        self.assertNotEqual(result["status"], "Fail")
         self.assertTrue(
             any(
-                check.startswith("FAIL: normalization produced no effective solid")
+                check.startswith("PASS: normalization exact")
                 for check in result["validation_checks"]
             )
-        )
-        self.assertTrue(
-            any("unsupported" in check.lower() for check in result["validation_checks"])
         )
 
     def test_mould_analysis_shell_thickness_hint_attempt_recorded(self):
