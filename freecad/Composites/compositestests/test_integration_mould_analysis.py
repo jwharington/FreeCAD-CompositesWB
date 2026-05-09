@@ -302,6 +302,52 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 )
             )
 
+    def test_slice_e_e4_shell_like_source_reports_normalization_and_status_contract(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shell = self._make_mould_reference_lofted_shell()
+        source_obj = types.SimpleNamespace(
+            Name="ShellLikeSource",
+            Thickness=FreeCAD.Units.Quantity("0.80 mm"),
+            Laminate=types.SimpleNamespace(
+                TypeId="App::FeaturePython",
+                Proxy=types.SimpleNamespace(Type="Fem::MaterialMechanicalLaminate"),
+            ),
+        )
+
+        result = analyze_source_shape(shell, source_obj=source_obj)
+
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertIn(result["normalization_confidence"], ("approximate", "fail"))
+        self.assertTrue(result["normalization_reason_flags"])
+        self.assertIn("hint_thickness_present", result["normalization_reason_flags"])
+        self.assertIn("hint_laminate_present", result["normalization_reason_flags"])
+
+        self.assertEqual(
+            result["validation_reason_codes"],
+            [reason["code"] for reason in result["validation_reasons"]],
+        )
+
+        if result["normalization_confidence"] == "fail":
+            self.assertEqual(result["status"], "Fail")
+            self.assertEqual(result["validation_status"], "Fail")
+            self.assertTrue(result["validation_reason_codes"])
+            self.assertTrue(
+                all(
+                    code.startswith("fail_")
+                    for code in result["validation_reason_codes"]
+                )
+            )
+        else:
+            self.assertIn(result["status"], ("Ready", "Warning", "Fail"))
+            self.assertIn("normalization", result["summary"].lower())
+            self.assertTrue(
+                any(
+                    "normalization" in check.lower()
+                    for check in result["validation_checks"]
+                )
+            )
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
