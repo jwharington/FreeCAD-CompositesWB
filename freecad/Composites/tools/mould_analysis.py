@@ -956,6 +956,18 @@ def validate_mould_result(
         shape_is_non_null_and_valid(parting_surface_shape),
         "parting surface shape is valid",
     )
+    mould_half_a_is_null = getattr(mould_half_a_shape, "isNull", lambda: True)()
+    mould_half_b_is_null = getattr(mould_half_b_shape, "isNull", lambda: True)()
+    add_check(
+        not mould_half_a_is_null,
+        "mould half A geometry is non-null",
+        detail="null mould half A geometry",
+    )
+    add_check(
+        not mould_half_b_is_null,
+        "mould half B geometry is non-null",
+        detail="null mould half B geometry",
+    )
     add_check(
         shape_is_non_null_and_valid(mould_half_a_shape),
         "first mould half shape is valid",

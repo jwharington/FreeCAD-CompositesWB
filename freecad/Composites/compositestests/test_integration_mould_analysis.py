@@ -356,6 +356,43 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             )
         )
 
+    def test_slice_d_d2_null_mould_half_forces_fail(self):
+        import Part
+
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        shape = self._make_mould_reference_box()
+        original_make_mould_halves = mould_analysis_module.make_mould_halves
+
+        def null_half_a(shape_arg, surface_normal, surface_offset):
+            result = dict(
+                original_make_mould_halves(shape_arg, surface_normal, surface_offset)
+            )
+            result["status"] = "Ready"
+            result["summary"] = "Injected null mould half A for Slice D d2"
+            result["half_a_shape"] = Part.Shape()
+            result["half_a_volume"] = 0.0
+            return result
+
+        with mock.patch.object(
+            mould_analysis_module,
+            "make_mould_halves",
+            side_effect=null_half_a,
+        ):
+            result = mould_analysis_module.analyze_source_shape(shape)
+
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["validation_status"], "Fail")
+        self.assertEqual(result["parting_surface_status"], "Ready")
+        self.assertTrue(result["mould_half_a_shape"].isNull())
+        self.assertFalse(result["mould_half_b_shape"].isNull())
+        self.assertTrue(
+            any(
+                check.startswith("FAIL: mould half A geometry is non-null")
+                for check in result["validation_checks"]
+            )
+        )
+
     def test_mould_split_strategy_attempts_continue_after_exception(self):
         from freecad.Composites.tools import mould_analysis as mould_analysis_module
 
