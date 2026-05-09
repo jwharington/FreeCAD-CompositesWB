@@ -205,6 +205,14 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             result_b["split_strategy_attempts"],
         )
         self.assertEqual(
+            [item["attempt_index"] for item in result_a["split_strategy_attempts"]],
+            list(range(1, len(result_a["split_strategy_attempts"]) + 1)),
+        )
+        self.assertEqual(
+            [item["strategy_id"] for item in result_a["split_strategy_attempts"]],
+            [item["strategy_id"] for item in result_b["split_strategy_attempts"]],
+        )
+        self.assertEqual(
             (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
             (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
         )
@@ -248,12 +256,18 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertGreaterEqual(len(split_diag), 1)
         self.assertEqual(len([item for item in split_diag if item["selected"]]), 1)
         self.assertIn("selected=", result["split_strategy_summary"])
+        for item in split_diag:
+            self.assertIn("planner_score", item)
+            self.assertIn("selection_reason", item)
+            self.assertTrue(item["selection_reason"])
 
         split_attempts = result["split_strategy_attempts"]
         self.assertGreaterEqual(len(split_attempts), 1)
         for attempt in split_attempts:
             self.assertIn("strategy_id", attempt)
             self.assertIn("status", attempt)
+            self.assertIn("planner_score", attempt)
+            self.assertIn("selection_reason", attempt)
             self.assertIn("validation_summary", attempt)
 
         preferred_diag = result["preferred_direction_diagnostics"]
@@ -309,36 +323,28 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             )
         )
 
-    def test_mould_split_strategy_attempts_continue_after_fail(self):
-        import Part
-
+    def test_mould_split_strategy_attempts_continue_after_exception(self):
         from freecad.Composites.tools import mould_analysis as mould_analysis_module
 
         shape = self._make_mould_reference_box()
         original_make_mould_halves = mould_analysis_module.make_mould_halves
 
-        def fail_first_strategy(shape_arg, surface_normal, surface_offset):
+        def raise_on_first_strategy(shape_arg, surface_normal, surface_offset):
             unit = FreeCAD.Vector(surface_normal.x, surface_normal.y, surface_normal.z)
             if abs(unit.x) > 0.9 and abs(unit.y) < 0.2 and abs(unit.z) < 0.2:
-                return {
-                    "status": "Fail",
-                    "summary": "Injected failure for first strategy",
-                    "half_a_shape": Part.Shape(),
-                    "half_b_shape": Part.Shape(),
-                    "half_a_volume": 0.0,
-                    "half_b_volume": 0.0,
-                }
+                raise RuntimeError("Injected attempt exception")
             return original_make_mould_halves(shape_arg, surface_normal, surface_offset)
 
         with mock.patch.object(
             mould_analysis_module,
             "make_mould_halves",
-            side_effect=fail_first_strategy,
+            side_effect=raise_on_first_strategy,
         ):
             result = mould_analysis_module.analyze_source_shape(shape)
 
         self.assertGreaterEqual(len(result["split_strategy_attempts"]), 2)
         self.assertEqual(result["split_strategy_attempts"][0]["status"], "Fail")
+        self.assertIn("Injected attempt exception", result["split_strategy_attempts"][0]["exception"])
         self.assertEqual(
             len([item for item in result["split_strategy_diagnostics"] if item["selected"]]),
             1,
@@ -382,6 +388,10 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertEqual(result["split_strategy_attempts"][0]["status"], "Warning")
         self.assertEqual(result["split_strategy_attempts"][1]["status"], "Pass")
         self.assertTrue(result["split_strategy_diagnostics"][1]["selected"])
+        self.assertGreater(
+            result["split_strategy_attempts"][1]["planner_score"],
+            result["split_strategy_attempts"][0]["planner_score"],
+        )
 
     def test_mould_backface_ratio_is_geometry_sensitive_for_box(self):
         from freecad.Composites.tools.mould_analysis import _backface_area_ratio

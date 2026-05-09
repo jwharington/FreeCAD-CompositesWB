@@ -447,6 +447,18 @@ def _plan_split_strategies(ranked, limit=MAX_SPLIT_STRATEGIES):
     return strategies
 
 
+def _planner_score(strategy, status, undercut_count, draft_violation_count):
+    status_rank = {
+        "Pass": 3.0,
+        "Warning": 2.0,
+        "Fail": 1.0,
+    }.get(status, 0.0)
+    rank = float(strategy.get("rank", 0) or 0)
+    direction_score = float(strategy.get("direction_score", 0.0) or 0.0)
+    penalty = (float(undercut_count) + float(draft_violation_count)) * 10.0
+    return (status_rank * 1000.0) + direction_score - penalty - (rank * 1.0e-3)
+
+
 def _evaluate_split_strategy_attempt(shape, strategy):
     profile, violations = _direction_profile_and_violations(shape, strategy["direction"])
     undercut_count = len(violations)
@@ -487,30 +499,95 @@ def _evaluate_split_strategy_attempt(shape, strategy):
         "validation": validation,
         "status": status,
         "reason": reason,
+        "planner_score": _planner_score(
+            strategy,
+            status,
+            undercut_count,
+            draft_violation_count,
+        ),
+        "selection_reason": "",
+        "exception": "",
+    }
+
+
+def _failed_attempt_from_exception(strategy, exc):
+    message = str(exc) or exc.__class__.__name__
+    status = "Fail"
+    return {
+        "strategy": strategy,
+        "profile": [],
+        "violations": [],
+        "undercut_count": 0,
+        "draft_violation_count": 0,
+        "parting": {
+            "status": "Fail",
+            "summary": "Parting surface generation failed due to strategy exception.",
+            "curve_summary": "No parting curve generated due to strategy exception.",
+            "shape": Part.Shape(),
+            "surface_normal": _normalized(strategy["direction"]),
+            "surface_offset": 0.0,
+            "surface_area": 0.0,
+        },
+        "mould_halves": {
+            "status": "Fail",
+            "summary": "Mould half generation failed due to strategy exception.",
+            "half_a_shape": Part.Shape(),
+            "half_b_shape": Part.Shape(),
+            "half_a_volume": 0.0,
+            "half_b_volume": 0.0,
+        },
+        "validation": {
+            "status": "Fail",
+            "summary": "Validation fail: strategy evaluation raised an exception.",
+            "checks": [
+                f"FAIL: split strategy attempt exception — {message}",
+            ],
+        },
+        "status": status,
+        "reason": f"candidate exception: {message}",
+        "planner_score": _planner_score(strategy, status, 0, 0),
+        "selection_reason": "",
+        "exception": message,
     }
 
 
 def _evaluate_split_strategy_attempts(shape, strategies):
     attempts = []
-    selected_attempt = None
-    best_attempt = None
-
     for strategy in strategies:
-        attempt = _evaluate_split_strategy_attempt(shape, strategy)
+        try:
+            attempt = _evaluate_split_strategy_attempt(shape, strategy)
+        except Exception as exc:
+            attempt = _failed_attempt_from_exception(strategy, exc)
+
+        attempt["planner_score"] = _planner_score(
+            attempt["strategy"],
+            attempt["status"],
+            attempt.get("undercut_count", 0),
+            attempt.get("draft_violation_count", 0),
+        )
         attempts.append(attempt)
 
-        if best_attempt is None:
-            best_attempt = attempt
+    if not attempts:
+        return None, []
 
-        if attempt["status"] == "Pass":
-            selected_attempt = attempt
-            break
+    selected_attempt = max(
+        attempts,
+        key=lambda attempt: (
+            attempt.get("planner_score", float("-inf")),
+            -int(attempt["strategy"].get("rank", 0) or 0),
+        ),
+    )
+    selected_id = selected_attempt["strategy"]["strategy_id"]
 
-        if selected_attempt is None and attempt["status"] == "Warning":
-            selected_attempt = attempt
-
-    if selected_attempt is None:
-        selected_attempt = best_attempt
+    for attempt in attempts:
+        if attempt["strategy"]["strategy_id"] == selected_id:
+            attempt["selection_reason"] = (
+                "selected: highest planner score among attempted strategies"
+            )
+        else:
+            attempt["selection_reason"] = (
+                f"not_selected: planner score lower than selected strategy {selected_id}"
+            )
 
     return selected_attempt, attempts
 
@@ -539,7 +616,10 @@ def _split_strategy_diagnostics(strategies, selected_strategy, attempts=None):
                 "reason": strategy["reason"],
                 "attempted": attempt is not None,
                 "attempt_status": attempt["status"] if attempt else "not_attempted",
+                "planner_score": attempt["planner_score"] if attempt else None,
+                "selection_reason": attempt["selection_reason"] if attempt else "",
                 "attempt_summary": attempt["validation"]["summary"] if attempt else "",
+                "attempt_exception": attempt["exception"] if attempt else "",
             }
         )
     return diagnostics
@@ -557,11 +637,14 @@ def _split_strategy_attempt_diagnostics(attempts):
                 "direction": strategy["direction_label"],
                 "status": attempt["status"],
                 "reason": attempt["reason"],
+                "planner_score": attempt["planner_score"],
+                "selection_reason": attempt["selection_reason"],
                 "undercut_count": attempt["undercut_count"],
                 "draft_violation_count": attempt["draft_violation_count"],
                 "parting_status": attempt["parting"]["status"],
                 "mould_halves_status": attempt["mould_halves"]["status"],
                 "validation_summary": attempt["validation"]["summary"],
+                "exception": attempt["exception"],
             }
         )
     return diagnostics
@@ -578,12 +661,16 @@ def _format_split_strategy_summary(
 
     attempts = attempts or []
     selected_status = selected_attempt["status"] if selected_attempt else "unknown"
+    selected_planner_score = selected_attempt["planner_score"] if selected_attempt else float("nan")
+    selected_reason = selected_attempt["selection_reason"] if selected_attempt else ""
     failed_attempts = len([attempt for attempt in attempts if attempt["status"] == "Fail"])
 
     return (
         f"selected={selected_strategy['strategy_id']}"
         f"(dir={selected_strategy['direction_label']}, rank={selected_strategy['rank']}, "
-        f"score={selected_strategy['direction_score']:.1f}%, status={selected_status}), "
+        f"score={selected_strategy['direction_score']:.1f}%, status={selected_status}, "
+        f"planner_score={selected_planner_score:.3f}), "
+        f"selection_reason={selected_reason}, "
         f"candidates={len(strategies)}, attempted={len(attempts)}, failed_attempts={failed_attempts}"
     )
 
@@ -1344,6 +1431,9 @@ def analyze_source_shape(
             },
             "status": "Fail",
             "reason": "no split strategy attempt available",
+            "planner_score": _planner_score(selected_split_strategy, "Fail", 0, 0),
+            "selection_reason": "selected: only available fallback attempt",
+            "exception": "",
         }
         split_strategy_attempts = [selected_attempt]
 
