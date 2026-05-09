@@ -299,6 +299,33 @@ class TestFreeCADIntegration(unittest.TestCase):
             )
         )
 
+    def test_mould_analysis_normalization_fail_includes_summary_and_validation_diagnostics(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        multi_body_compound = Part.makeCompound([solid_a, solid_b])
+
+        result = analyze_source_shape(multi_body_compound)
+
+        self.assertEqual(result["normalization_confidence"], "fail")
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["validation_status"], "Fail")
+        self.assertIn("normalization", result["summary"].lower())
+        self.assertIn("normalization", result["normalization_summary"].lower())
+        self.assertTrue(
+            any(
+                check.startswith("FAIL: normalization produced no effective solid")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertTrue(
+            any("normalization" in check.lower() for check in result["validation_checks"])
+        )
+
     def test_mould_analysis_shell_source_recompute_no_crash(self):
         import Part
 
