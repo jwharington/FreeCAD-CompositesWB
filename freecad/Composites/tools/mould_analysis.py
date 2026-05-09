@@ -2,6 +2,7 @@
 # Copyright 2025 John Wharington jwharington@gmail.com
 
 import math
+import re
 
 from FreeCAD import Vector
 import Part
@@ -914,6 +915,66 @@ def make_mould_halves(shape, surface_normal, surface_offset):
     }
 
 
+def _validation_reason_code(severity, label):
+    slug = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+    return f"{severity}_{slug}" if slug else severity
+
+
+def _extract_validation_reasons(checks):
+    reasons = []
+    for check in checks:
+        if check.startswith("FAIL:"):
+            severity = "fail"
+            body = check[len("FAIL:") :].strip()
+        elif check.startswith("WARN:"):
+            severity = "warning"
+            body = check[len("WARN:") :].strip()
+        else:
+            continue
+
+        if " — " in body:
+            label, detail = body.split(" — ", 1)
+        else:
+            label, detail = body, ""
+
+        label = label.strip()
+        detail = detail.strip()
+        reasons.append(
+            {
+                "severity": severity,
+                "code": _validation_reason_code(severity, label),
+                "label": label,
+                "detail": detail,
+            }
+        )
+    return reasons
+
+
+def _dedupe_validation_reasons(reasons):
+    deduped = []
+    seen = set()
+    for reason in reasons:
+        key = (
+            reason.get("severity", ""),
+            reason.get("code", ""),
+            reason.get("label", ""),
+            reason.get("detail", ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(reason)
+    return deduped
+
+
+def _validation_reason_payload(checks):
+    reasons = _dedupe_validation_reasons(_extract_validation_reasons(list(checks or [])))
+    return {
+        "reasons": reasons,
+        "reason_codes": [reason["code"] for reason in reasons],
+    }
+
+
 def validate_mould_result(
     parting_surface_status,
     mould_halves_status,
@@ -1027,10 +1088,13 @@ def validate_mould_result(
         f"Validation {status.lower()}: {len([c for c in checks if c.startswith('PASS:')])} pass, "
         f"{warnings} warning, {failures} fail"
     )
+    payload = _validation_reason_payload(checks)
     return {
         "status": status,
         "summary": summary,
         "checks": checks,
+        "reasons": payload["reasons"],
+        "reason_codes": payload["reason_codes"],
     }
 
 
@@ -1055,10 +1119,13 @@ def _append_validation_check(validation, check):
     checks = list(validation.get("checks", []))
     checks.append(check)
     status, validation_summary = _status_and_summary_from_checks(checks)
+    payload = _validation_reason_payload(checks)
     return {
         "status": status,
         "summary": validation_summary,
         "checks": checks,
+        "reasons": payload["reasons"],
+        "reason_codes": payload["reason_codes"],
     }
 
 
@@ -1081,10 +1148,13 @@ def _append_normalization_validation_check(validation, normalization):
         checks.append("PASS: source laminate hint detected")
 
     status, validation_summary = _status_and_summary_from_checks(checks)
+    payload = _validation_reason_payload(checks)
     return {
         "status": status,
         "summary": validation_summary,
         "checks": checks,
+        "reasons": payload["reasons"],
+        "reason_codes": payload["reason_codes"],
     }
 
 
@@ -1132,6 +1202,8 @@ def _base_analysis_result():
         "validation_status": "Waiting for source",
         "validation_summary": "No source shape available.",
         "validation_checks": ["No source shape available."],
+        "validation_reasons": [],
+        "validation_reason_codes": [],
         "normalization_confidence": NORMALIZATION_CONFIDENCE_FAIL,
         "normalization_source_type": "none",
         "normalization_summary": "Normalization failed: source shape is missing or null.",
@@ -1379,16 +1451,22 @@ def analyze_source_shape(
     )
 
     if normalization["confidence"] == NORMALIZATION_CONFIDENCE_FAIL:
+        normalization_failure_checks = [
+            "FAIL: normalization produced no effective solid",
+            f"FAIL: {normalization['summary']}",
+        ]
+        normalization_failure_payload = _validation_reason_payload(
+            normalization_failure_checks
+        )
         result.update(
             {
                 "status": "Fail",
                 "summary": f"Mould analysis failed during normalization: {normalization['summary']}",
                 "validation_status": "Fail",
                 "validation_summary": "Validation fail: normalization did not produce an effective solid.",
-                "validation_checks": [
-                    "FAIL: normalization produced no effective solid",
-                    f"FAIL: {normalization['summary']}",
-                ],
+                "validation_checks": normalization_failure_checks,
+                "validation_reasons": normalization_failure_payload["reasons"],
+                "validation_reason_codes": normalization_failure_payload["reason_codes"],
                 "parting_surface_status": "Fail",
                 "parting_surface_summary": "No parting surface generated because normalization failed.",
                 "parting_curve_summary": "No parting surface generated because normalization failed.",
@@ -1560,6 +1638,8 @@ def analyze_source_shape(
         f"validation={validation['summary']}"
     )
 
+    validation_payload = _validation_reason_payload(validation["checks"])
+
     result.update(
         {
             "status": status,
@@ -1596,6 +1676,8 @@ def analyze_source_shape(
             "validation_status": validation["status"],
             "validation_summary": validation["summary"],
             "validation_checks": validation["checks"],
+            "validation_reasons": validation_payload["reasons"],
+            "validation_reason_codes": validation_payload["reason_codes"],
         }
     )
     return result

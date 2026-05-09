@@ -426,6 +426,67 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             )
         )
 
+    def test_slice_d_d4_structured_reason_codes_are_present_and_stable(self):
+        import Part
+
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        stem = Part.makeBox(10, 10, 20)
+        cap = Part.makeBox(20, 20, 5)
+        cap.translate(FreeCAD.Vector(-5, -5, 20))
+        overhang_shape = stem.fuse(cap)
+
+        warning_a = mould_analysis_module.analyze_source_shape(overhang_shape)
+        warning_b = mould_analysis_module.analyze_source_shape(overhang_shape)
+
+        self.assertIn(warning_a["status"], ("Warning", "Fail"))
+        self.assertTrue(warning_a["validation_reasons"])
+        self.assertTrue(warning_a["validation_reason_codes"])
+        expected_warning_payload = mould_analysis_module._validation_reason_payload(
+            warning_a["validation_checks"]
+        )
+        self.assertEqual(
+            warning_a["validation_reasons"],
+            expected_warning_payload["reasons"],
+        )
+        self.assertEqual(
+            warning_a["validation_reason_codes"],
+            expected_warning_payload["reason_codes"],
+        )
+        self.assertEqual(
+            warning_a["validation_reason_codes"],
+            [reason["code"] for reason in warning_a["validation_reasons"]],
+        )
+        self.assertEqual(
+            warning_a["validation_reason_codes"],
+            warning_b["validation_reason_codes"],
+        )
+        self.assertEqual(
+            warning_a["validation_reasons"],
+            warning_b["validation_reasons"],
+        )
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        multi_body_compound = Part.makeCompound([solid_a, solid_b])
+
+        fail_result = mould_analysis_module.analyze_source_shape(multi_body_compound)
+        self.assertEqual(fail_result["status"], "Fail")
+        self.assertTrue(fail_result["validation_reasons"])
+        self.assertTrue(fail_result["validation_reason_codes"])
+        expected_fail_payload = mould_analysis_module._validation_reason_payload(
+            fail_result["validation_checks"]
+        )
+        self.assertEqual(
+            fail_result["validation_reasons"],
+            expected_fail_payload["reasons"],
+        )
+        self.assertEqual(
+            fail_result["validation_reason_codes"],
+            expected_fail_payload["reason_codes"],
+        )
+
     def test_mould_split_strategy_attempts_continue_after_exception(self):
         from freecad.Composites.tools import mould_analysis as mould_analysis_module
 
