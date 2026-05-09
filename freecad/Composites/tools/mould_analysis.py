@@ -243,7 +243,11 @@ def _clean_decomposition_regions(regions):
     return cleaned
 
 
-def _decomposition_plan_regions(undercut_regions, draft_violation_regions):
+def _decomposition_plan_regions(
+    undercut_regions,
+    draft_violation_regions,
+    validation_reason_codes=None,
+):
     regions = []
     regions.extend(
         f"undercut:{region}"
@@ -252,6 +256,10 @@ def _decomposition_plan_regions(undercut_regions, draft_violation_regions):
     regions.extend(
         f"draft:{region}"
         for region in _clean_decomposition_regions(draft_violation_regions)
+    )
+    regions.extend(
+        f"validation:{code}"
+        for code in _clean_decomposition_regions(validation_reason_codes)
     )
     return _dedupe_preserve_order(regions)
 
@@ -307,6 +315,7 @@ def _decomposition_readiness_payload(
     draft_violation_count,
     undercut_regions,
     draft_violation_regions,
+    validation_reason_codes=None,
 ):
     decomposition_plan_status = _decomposition_plan_status(
         analysis_status,
@@ -320,6 +329,7 @@ def _decomposition_readiness_payload(
     decomposition_plan_regions = _decomposition_plan_regions(
         undercut_regions,
         draft_violation_regions,
+        validation_reason_codes,
     )
     decomposition_plan_summary = _decomposition_plan_summary(
         decomposition_plan_status,
@@ -1610,6 +1620,7 @@ def analyze_source_shape(
             0,
             [],
             [],
+            normalization_failure_payload["reason_codes"],
         )
         result.update(
             {
@@ -1784,6 +1795,13 @@ def analyze_source_shape(
     else:
         status = "Ready"
 
+    validation_reasons = validation.get("reasons")
+    validation_reason_codes = validation.get("reason_codes")
+    if validation_reasons is None or validation_reason_codes is None:
+        validation_payload = _validation_reason_payload(validation.get("checks", []))
+        validation_reasons = validation_payload["reasons"]
+        validation_reason_codes = validation_payload["reason_codes"]
+
     decomposition_payload = _decomposition_readiness_payload(
         status,
         validation["status"],
@@ -1791,6 +1809,7 @@ def analyze_source_shape(
         draft_violation_count,
         undercut_regions,
         draft_violation_regions,
+        validation_reason_codes,
     )
 
     summary = (
@@ -1810,13 +1829,6 @@ def analyze_source_shape(
         f"mould_halves={mould_halves['summary']}, "
         f"validation={validation['summary']}"
     )
-
-    validation_reasons = validation.get("reasons")
-    validation_reason_codes = validation.get("reason_codes")
-    if validation_reasons is None or validation_reason_codes is None:
-        validation_payload = _validation_reason_payload(validation.get("checks", []))
-        validation_reasons = validation_payload["reasons"]
-        validation_reason_codes = validation_payload["reason_codes"]
 
     result.update(
         {

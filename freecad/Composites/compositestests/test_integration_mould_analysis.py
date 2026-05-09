@@ -706,6 +706,45 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         )
         self.assertIn(expected_region_count_token, result_a["decomposition_plan_summary"])
 
+    def test_slice_g_g3_normalization_fail_decomposition_contract_is_explicit(self):
+        import Part
+
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+
+        result = mould_analysis_module.analyze_source_shape(normalization_fail_shape)
+
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["validation_status"], "Fail")
+        self.assertEqual(
+            result["decomposition_plan_status"],
+            mould_analysis_module.DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED,
+        )
+        self.assertTrue(result["decomposition_plan_candidates"])
+        self.assertIn(
+            "multipart_baseline_required",
+            result["decomposition_plan_candidates"],
+        )
+        self.assertTrue(result["decomposition_plan_regions"])
+        self.assertTrue(
+            any(
+                region.startswith(
+                    "validation:fail_normalization_produced_no_effective_solid"
+                )
+                for region in result["decomposition_plan_regions"]
+            )
+        )
+        self.assertIn(
+            f"decomposition={result['decomposition_plan_status']}",
+            result["decomposition_plan_summary"],
+        )
+        self.assertIn("candidates=", result["decomposition_plan_summary"])
+        self.assertIn("regions=", result["decomposition_plan_summary"])
+
     def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
         import Part
 
