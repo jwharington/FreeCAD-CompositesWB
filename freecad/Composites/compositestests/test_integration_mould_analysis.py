@@ -662,6 +662,50 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         finally:
             FreeCAD.closeDocument(doc_name)
 
+    def test_slice_g_g2_concave_warning_recommends_multipart_with_deterministic_regions(self):
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        shape = self._make_concave_overhang_general_shape()
+
+        result_a = mould_analysis_module.analyze_source_shape(shape)
+        result_b = mould_analysis_module.analyze_source_shape(shape)
+
+        self.assertIn(result_a["status"], ("Warning", "Fail"))
+
+        if result_a["status"] == "Warning":
+            self.assertEqual(
+                result_a["decomposition_plan_status"],
+                mould_analysis_module.DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART,
+            )
+        else:
+            self.assertIn(
+                result_a["decomposition_plan_status"],
+                (
+                    mould_analysis_module.DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED,
+                    mould_analysis_module.DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART,
+                ),
+            )
+
+        self.assertTrue(result_a["decomposition_plan_candidates"])
+
+        self.assertEqual(
+            result_a["decomposition_plan_regions"],
+            result_b["decomposition_plan_regions"],
+        )
+
+        expected_status_token = f"decomposition={result_a['decomposition_plan_status']}"
+        expected_candidate_count_token = (
+            f"candidates={len(result_a['decomposition_plan_candidates'])}"
+        )
+        expected_region_count_token = f"regions={len(result_a['decomposition_plan_regions'])}"
+
+        self.assertIn(expected_status_token, result_a["decomposition_plan_summary"])
+        self.assertIn(
+            expected_candidate_count_token,
+            result_a["decomposition_plan_summary"],
+        )
+        self.assertIn(expected_region_count_token, result_a["decomposition_plan_summary"])
+
     def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
         import Part
 
