@@ -105,6 +105,192 @@ class TestFreeCADIntegration(unittest.TestCase):
 
         FreeCAD.closeDocument(doc_name)
 
+    def test_mould_analysis_command_creates_analysis_object(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        import Part
+
+        from freecad.Composites.features.MouldAnalysis import (
+            CompositeMouldAnalysisCommand,
+            is_mould_analysis,
+        )
+
+        doc_name = "CompositesMouldAnalysisIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        source = doc.addObject("Part::Feature", "SourceSolid")
+        source.Shape = Part.makeBox(20, 30, 40)
+
+        original_selection = getattr(FreeCADGui, "Selection", None)
+        FreeCADGui.Selection = types.SimpleNamespace(
+            clearSelection=lambda: None,
+        )
+
+        try:
+            cmd = CompositeMouldAnalysisCommand()
+            cmd.check_sel = lambda report=False: {"source": source}
+            cmd.Activated()
+        finally:
+            if original_selection is not None:
+                FreeCADGui.Selection = original_selection
+            else:
+                del FreeCADGui.Selection
+
+        obj = doc.getObject("MouldAnalysis")
+        self.assertIsNotNone(obj)
+        self.assertTrue(is_mould_analysis(obj))
+        self.assertEqual(obj.Source.Name, source.Name)
+        self.assertEqual(obj.AnalysisStatus, "Ready")
+        self.assertAlmostEqual(obj.DrawDirectionScore, 50.0, places=6)
+        self.assertEqual(obj.UndercutCount, 0)
+        self.assertEqual(obj.DraftViolationCount, 0)
+        self.assertEqual(obj.UndercutRegions, ["None"])
+        self.assertEqual(obj.DraftViolationRegions, ["None"])
+        self.assertEqual(obj.PartingSurfaceStatus, "Ready")
+        self.assertGreater(obj.PartingSurfaceArea, 0.0)
+        self.assertIsNotNone(obj.PartingSurface)
+        self.assertFalse(obj.PartingSurface.Shape.isNull())
+        self.assertEqual(obj.MouldHalvesStatus, "Ready")
+        self.assertIn("Two mold halves generated", obj.MouldHalvesSummary)
+        self.assertIsNotNone(obj.MouldHalfA)
+        self.assertIsNotNone(obj.MouldHalfB)
+        self.assertFalse(obj.MouldHalfA.Shape.isNull())
+        self.assertFalse(obj.MouldHalfB.Shape.isNull())
+        self.assertEqual(obj.ValidationStatus, "Pass")
+        self.assertIn("Validation pass", obj.ValidationSummary)
+        self.assertTrue(any(check.startswith("PASS:") for check in obj.ValidationChecks))
+        self.assertIn("1.", obj.DrawDirectionRanking)
+        self.assertIn("Source ready for mould analysis", obj.AnalysisSummary)
+        self.assertIn("No undercuts detected", obj.UndercutSummary)
+        self.assertIn("No draft violations detected", obj.DraftViolationSummary)
+        self.assertIn("Parting surface proposed", obj.PartingSurfaceSummary)
+        self.assertFalse(obj.Shape.isNull())
+
+        FreeCAD.closeDocument(doc_name)
+
+    def test_mould_analysis_detects_overhang_regions(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        import Part
+
+        from freecad.Composites.features.MouldAnalysis import (
+            MouldAnalysisFP,
+            is_mould_analysis,
+        )
+
+        doc_name = "CompositesMouldOverhangIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        stem = Part.makeBox(10, 10, 20)
+        cap = Part.makeBox(20, 20, 5)
+        cap.translate(FreeCAD.Vector(-5, -5, 20))
+        source = doc.addObject("Part::Feature", "OverhangSource")
+        source.Shape = stem.fuse(cap)
+
+        obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+        MouldAnalysisFP(obj, source)
+        doc.recompute()
+
+        self.assertTrue(is_mould_analysis(obj))
+        self.assertGreater(obj.UndercutCount, 0)
+        self.assertGreater(obj.DraftViolationCount, 0)
+        self.assertNotEqual(obj.UndercutRegions, ["None"])
+        self.assertNotEqual(obj.DraftViolationRegions, ["None"])
+        self.assertEqual(obj.PartingSurfaceStatus, "Ready")
+        self.assertGreater(obj.PartingSurfaceArea, 0.0)
+        self.assertFalse(obj.PartingSurface.Shape.isNull())
+        self.assertEqual(obj.MouldHalvesStatus, "Ready")
+        self.assertFalse(obj.MouldHalfA.Shape.isNull())
+        self.assertFalse(obj.MouldHalfB.Shape.isNull())
+        self.assertEqual(obj.ValidationStatus, "Warning")
+        self.assertIn("Validation warning", obj.ValidationSummary)
+        self.assertTrue(any(check.startswith("WARN:") for check in obj.ValidationChecks))
+        self.assertIn("possible undercut band", obj.UndercutSummary)
+        self.assertIn("possible draft violation", obj.DraftViolationSummary)
+        self.assertIn("Parting surface proposed", obj.PartingSurfaceSummary)
+
+        FreeCAD.closeDocument(doc_name)
+
+    def test_mould_analysis_normalization_solid_passthrough_is_exact(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = Part.makeBox(12, 18, 24)
+        result = analyze_source_shape(shape)
+
+        self.assertEqual(result["normalization_confidence"], "exact")
+        self.assertEqual(result["normalization_source_type"], "solid")
+        self.assertIn("exact", result["normalization_summary"].lower())
+        self.assertIn("solid_passthrough_exact", result["normalization_reason_flags"])
+        self.assertEqual(result["status"], "Ready")
+        self.assertTrue(
+            any(
+                check.startswith("PASS: normalization exact")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertFalse(result["shape"].isNull())
+
+    def test_mould_analysis_normalization_shell_has_explicit_diagnostics(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        closed_shell = Part.makeBox(10, 20, 30).Shells[0]
+        result = analyze_source_shape(closed_shell)
+
+        self.assertIn(result["normalization_confidence"], ("approximate", "fail"))
+        self.assertEqual(result["normalization_source_type"], "shell")
+        self.assertTrue(result["normalization_reason_flags"])
+        self.assertTrue(result["normalization_summary"])
+        self.assertIn("normalization", result["summary"].lower())
+        if result["normalization_confidence"] == "approximate":
+            self.assertTrue(
+                any(
+                    check.startswith("WARN: normalization approximate")
+                    for check in result["validation_checks"]
+                )
+            )
+
+    def test_mould_analysis_shell_source_recompute_no_crash(self):
+        import Part
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP, is_mould_analysis
+
+        doc_name = "CompositesMouldShellNormalizationIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        source = doc.addObject("Part::Feature", "ShellSource")
+        source.Shape = Part.makeBox(20, 30, 40).Shells[0]
+
+        obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+        MouldAnalysisFP(obj, source)
+
+        doc.recompute()
+
+        self.assertTrue(is_mould_analysis(obj))
+        self.assertIn(obj.AnalysisStatus, ("Ready", "Warning", "Fail"))
+        self.assertNotEqual(obj.AnalysisStatus, "Waiting for source")
+        self.assertIn("normalization", obj.AnalysisSummary.lower())
+
+        FreeCAD.closeDocument(doc_name)
+
     def test_fibre_composite_lamina_areal_weight_updates(self):
         import FreeCADGui
 
