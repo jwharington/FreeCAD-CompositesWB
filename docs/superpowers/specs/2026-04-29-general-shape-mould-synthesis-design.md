@@ -292,6 +292,8 @@ Strengthen validation, warnings, and fallback reporting for difficult shapes.
 ### Phase 5: multipart readiness
 Add a decomposition-plan model only after the two-piece-first path is robust for general shapes.
 
+**Implementation note (2026-05-09):** advisory decomposition-readiness payloads are now implemented in `analyze_source_shape` (`decomposition_plan_status`, `decomposition_plan_summary`, `decomposition_plan_candidates`, `decomposition_plan_regions`) with deterministic contract tests on representative fixtures. The next follow-on phase is bounded multipart split execution/prototyping on top of this advisory layer.
+
 ## 10. Success Criteria
 
 The enhancement is successful when:

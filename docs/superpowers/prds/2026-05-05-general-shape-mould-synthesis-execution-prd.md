@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Execution complete (Slices A-F complete)  
+**Status:** Execution complete (Slices A-G complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -57,10 +57,15 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `f3` `8b5230f`: representative fixture determinism matrix (`test_slice_f_f3_representative_fixture_determinism_matrix`),
   - `f4` `b692082`: diagnostics/validation contract documentation in spec + PRD.
 
+- **Slice G (P1): completed through g3 checkpoints**
+  - `g1` `adcb43e`: decomposition-readiness contract payload (`decomposition_plan_status`, `decomposition_plan_summary`, `decomposition_plan_candidates`, `decomposition_plan_regions`) with interface stability guard (`test_slice_g_g1_decomposition_readiness_contract_is_exposed_and_property_names_stable`),
+  - `g2` `74b1760`: concave/overhang multipart recommendation diagnostics with deterministic region signatures (`test_slice_g_g2_concave_warning_recommends_multipart_with_deterministic_regions`),
+  - `g3` `184a746`: explicit normalization-fail decomposition contract with validation-code region signatures (`test_slice_g_g3_normalization_fail_decomposition_contract_is_explicit`).
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**46 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**49 tests**).
 - Fishnet native suite (`run_fishnet_native_tests.py`): passing (**66 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
@@ -207,6 +212,22 @@ Key files:
 
 ---
 
+## Slice G — Multipart Readiness Scaffolding (P1)
+
+### Build
+- Add advisory decomposition-readiness payload to `analyze_source_shape` while preserving external `MouldAnalysis` properties.
+- Emit deterministic multipart recommendation candidates/regions for warning/fail scenarios.
+- Thread validation reason codes into decomposition region signatures for explicit fail-path diagnostics.
+
+### Tests/Gates
+- Dedicated integration coverage for decomposition payload presence, warning recommendation semantics, and normalization-fail contract.
+- Full integration and fishnet native suites remain green.
+
+### Exit Criteria
+- Multipart-readiness diagnostics are explicit, deterministic, and backward-compatible with the existing document-object interface.
+
+---
+
 ## 5) Required Acceptance Gates (Global)
 
 A slice can merge only if all apply:
@@ -243,4 +264,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Execution PRD scope is complete through **Slice F**. Next follow-on work should branch from this baseline toward multipart/decomposition planning while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
+Execution PRD scope is complete through **Slice G**. Next follow-on work should move from advisory decomposition diagnostics to bounded multipart split execution/prototyping while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
