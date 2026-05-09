@@ -402,6 +402,173 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertIn("Ready", statuses)
         self.assertTrue(any(status in ("Warning", "Fail") for status in statuses))
 
+    def test_slice_f_f1_diagnostics_schema_and_property_names_are_stable(self):
+        import Part
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP, is_mould_analysis
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        ready_result = analyze_source_shape(self._make_mould_reference_box())
+
+        top_level_contract = {
+            "status": str,
+            "summary": str,
+            "validation_status": str,
+            "validation_summary": str,
+            "validation_checks": list,
+            "split_strategy_summary": str,
+            "split_strategy_diagnostics": list,
+            "split_strategy_attempts": list,
+            "validation_reasons": list,
+            "validation_reason_codes": list,
+        }
+
+        for field_name, expected_type in top_level_contract.items():
+            self.assertIn(field_name, ready_result)
+            self.assertIsInstance(ready_result[field_name], expected_type)
+
+        self.assertIn(ready_result["status"], ("Ready", "Warning", "Fail"))
+        self.assertNotEqual(ready_result["status"], "Waiting for source")
+        self.assertTrue(ready_result["summary"])
+        self.assertEqual(
+            ready_result["validation_reason_codes"],
+            [reason["code"] for reason in ready_result["validation_reasons"]],
+        )
+
+        self.assertGreaterEqual(len(ready_result["split_strategy_diagnostics"]), 1)
+        self.assertGreaterEqual(len(ready_result["split_strategy_attempts"]), 1)
+
+        split_diag = ready_result["split_strategy_diagnostics"][0]
+        for field_name, expected_type in {
+            "strategy_id": str,
+            "selected": bool,
+            "rank": int,
+            "direction": str,
+            "direction_score": (int, float),
+            "backface_ratio": (int, float),
+            "geometry_factor": (int, float),
+            "status": str,
+            "reason": str,
+            "attempted": bool,
+            "attempt_status": str,
+            "planner_score": (int, float),
+            "selection_reason": str,
+            "attempt_summary": str,
+            "attempt_exception": str,
+        }.items():
+            self.assertIn(field_name, split_diag)
+            self.assertIsInstance(split_diag[field_name], expected_type)
+
+        split_attempt = ready_result["split_strategy_attempts"][0]
+        for field_name, expected_type in {
+            "attempt_index": int,
+            "strategy_id": str,
+            "rank": int,
+            "direction": str,
+            "status": str,
+            "reason": str,
+            "planner_score": (int, float),
+            "selection_reason": str,
+            "undercut_count": int,
+            "draft_violation_count": int,
+            "parting_status": str,
+            "mould_halves_status": str,
+            "validation_summary": str,
+            "exception": str,
+        }.items():
+            self.assertIn(field_name, split_attempt)
+            self.assertIsInstance(split_attempt[field_name], expected_type)
+
+        self.assertGreaterEqual(ready_result["draw_direction_score"], 0.0)
+        self.assertLessEqual(ready_result["draw_direction_score"], 100.0)
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        fail_result = analyze_source_shape(Part.makeCompound([solid_a, solid_b]))
+
+        self.assertEqual(fail_result["status"], "Fail")
+        self.assertTrue(fail_result["validation_reasons"])
+        self.assertTrue(fail_result["validation_reason_codes"])
+        self.assertEqual(
+            fail_result["validation_reason_codes"],
+            [reason["code"] for reason in fail_result["validation_reasons"]],
+        )
+
+        for reason in fail_result["validation_reasons"]:
+            for key in ("severity", "code", "label", "detail"):
+                self.assertIn(key, reason)
+                self.assertIsInstance(reason[key], str)
+            self.assertIn(reason["severity"], ("warning", "fail"))
+
+        doc_name = "CompositesMouldSliceFf1PropertyContractIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            self.assertTrue(is_mould_analysis(obj))
+
+            expected_property_names = (
+                "Source",
+                "PreferredDrawDirection",
+                "AnalysisStatus",
+                "DrawDirectionScore",
+                "BestDrawDirection",
+                "DrawDirectionRanking",
+                "UndercutCount",
+                "UndercutSummary",
+                "UndercutRegions",
+                "DraftViolationCount",
+                "DraftViolationSummary",
+                "DraftViolationRegions",
+                "PartingSurfaceStatus",
+                "PartingSurfaceNormal",
+                "PartingSurfaceOffset",
+                "PartingSurfaceArea",
+                "PartingSurfaceSummary",
+                "PartingSurface",
+                "MouldHalvesStatus",
+                "MouldHalvesSummary",
+                "MouldHalfA",
+                "MouldHalfB",
+                "ValidationStatus",
+                "ValidationSummary",
+                "ValidationChecks",
+                "AnalysisSummary",
+            )
+
+            for property_name in expected_property_names:
+                self.assertIn(property_name, obj.PropertiesList)
+
+            self.assertIn(obj.AnalysisStatus, ("Ready", "Warning", "Fail"))
+            self.assertNotEqual(obj.AnalysisStatus, "Waiting for source")
+            self.assertIn(obj.ValidationStatus, ("Pass", "Warning", "Fail"))
+            self.assertNotEqual(obj.ValidationStatus, "Waiting for source")
+            self.assertGreaterEqual(obj.DrawDirectionScore, 0.0)
+            self.assertLessEqual(obj.DrawDirectionScore, 100.0)
+            self.assertTrue(obj.DrawDirectionRanking)
+            self.assertTrue(obj.AnalysisSummary)
+            self.assertTrue(obj.ValidationSummary)
+            self.assertTrue(obj.ValidationChecks)
+
+            self.assertIsNotNone(obj.PartingSurface)
+            self.assertIsNotNone(obj.MouldHalfA)
+            self.assertIsNotNone(obj.MouldHalfB)
+            self.assertFalse(obj.PartingSurface.Shape.isNull())
+            self.assertFalse(obj.MouldHalfA.Shape.isNull())
+            self.assertFalse(obj.MouldHalfB.Shape.isNull())
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
