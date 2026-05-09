@@ -22,8 +22,14 @@ def main():
             sys.path.insert(0, repo_root)
 
         import freecad.Composites.compositestests.test_integration_freecad as test_module
+        import freecad.Composites.compositestests.test_integration_mould_analysis as mould_module
 
-        suite = unittest.defaultTestLoader.loadTestsFromModule(test_module)
+        suite = unittest.TestSuite(
+            [
+                unittest.defaultTestLoader.loadTestsFromModule(test_module),
+                unittest.defaultTestLoader.loadTestsFromModule(mould_module),
+            ]
+        )
         print(f"Loaded {suite.countTestCases()} integration test(s)")
         result = unittest.TextTestRunner(verbosity=2, stream=sys.stdout).run(
             suite
