@@ -262,7 +262,11 @@ class MouldAnalysisFP(CompositePartFP):
 
     def execute(self, fp):
         source_shape = fp.Source.Shape if fp.Source else None
-        result = analyze_source_shape(source_shape, fp.PreferredDrawDirection)
+        result = analyze_source_shape(
+            source_shape,
+            fp.PreferredDrawDirection,
+            source_obj=fp.Source,
+        )
         fp.AnalysisStatus = result["status"]
         fp.DrawDirectionScore = result["draw_direction_score"]
         fp.BestDrawDirection = result["best_draw_direction"]

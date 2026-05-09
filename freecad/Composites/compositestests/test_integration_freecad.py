@@ -265,6 +265,40 @@ class TestFreeCADIntegration(unittest.TestCase):
                 )
             )
 
+    def test_mould_analysis_normalization_uses_source_hints_in_diagnostics(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = Part.makeBox(10, 20, 30)
+        source_obj = types.SimpleNamespace(
+            Name="HintedSource",
+            Thickness=FreeCAD.Units.Quantity("0.75 mm"),
+            Laminate=types.SimpleNamespace(
+                TypeId="App::FeaturePython",
+                Proxy=types.SimpleNamespace(Type="Fem::MaterialMechanicalLaminate"),
+            ),
+        )
+
+        result = analyze_source_shape(shape, source_obj=source_obj)
+
+        self.assertIn("hint_thickness_present", result["normalization_reason_flags"])
+        self.assertIn("hint_laminate_present", result["normalization_reason_flags"])
+        self.assertIn("thickness_hint_mm=0.750", result["normalization_summary"])
+        self.assertIn("laminate_hint=Fem::MaterialMechanicalLaminate", result["normalization_summary"])
+        self.assertTrue(
+            any(
+                check.startswith("PASS: source thickness hint detected")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: source laminate hint detected")
+                for check in result["validation_checks"]
+            )
+        )
+
     def test_mould_analysis_shell_source_recompute_no_crash(self):
         import Part
 

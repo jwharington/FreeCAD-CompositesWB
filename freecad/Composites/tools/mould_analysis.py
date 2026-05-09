@@ -24,7 +24,7 @@ def _safe_copy_shape(shape):
         return shape
 
 
-def _bbox_proxy_solid(shape):
+def _bbox_proxy_solid(shape, padding_hint_mm=None):
     bbox = shape.BoundBox
     min_size = 1.0e-3
     dx = max(float(getattr(bbox, "XLength", 0.0)), min_size)
@@ -33,12 +33,118 @@ def _bbox_proxy_solid(shape):
     px = max(dx * 0.05, min_size)
     py = max(dy * 0.05, min_size)
     pz = max(dz * 0.05, min_size)
+
+    if padding_hint_mm is not None:
+        pad_hint = max(float(padding_hint_mm), min_size)
+        px = max(px, pad_hint)
+        py = max(py, pad_hint)
+        pz = max(pz, pad_hint)
+
     return Part.makeBox(
         dx + (2.0 * px),
         dy + (2.0 * py),
         dz + (2.0 * pz),
         Vector(bbox.XMin - px, bbox.YMin - py, bbox.ZMin - pz),
     )
+
+
+def _quantity_to_mm(value):
+    if value is None:
+        return None
+
+    if hasattr(value, "getValueAs"):
+        try:
+            converted = value.getValueAs("mm")
+            if hasattr(converted, "Value"):
+                return float(converted.Value)
+            return float(converted)
+        except Exception:
+            pass
+
+    if hasattr(value, "Value"):
+        try:
+            return float(value.Value)
+        except Exception:
+            pass
+
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _extract_normalization_hints(source_obj):
+    hints = {
+        "source_name": "",
+        "thickness_mm": None,
+        "has_laminate": False,
+        "laminate_type": "",
+    }
+    if source_obj is None:
+        return hints
+
+    hints["source_name"] = str(getattr(source_obj, "Name", "") or "")
+
+    for prop_name in (
+        "Thickness",
+        "thickness",
+        "ShellThickness",
+        "LaminateThickness",
+    ):
+        if not hasattr(source_obj, prop_name):
+            continue
+        thickness_mm = _quantity_to_mm(getattr(source_obj, prop_name, None))
+        if thickness_mm is None:
+            continue
+        hints["thickness_mm"] = thickness_mm
+        break
+
+    for prop_name in ("Laminate", "LaminateRef", "Layup", "Stack"):
+        if not hasattr(source_obj, prop_name):
+            continue
+        laminate_obj = getattr(source_obj, prop_name, None)
+        if laminate_obj is None:
+            continue
+        hints["has_laminate"] = True
+        hints["laminate_type"] = (
+            getattr(getattr(laminate_obj, "Proxy", None), "Type", "")
+            or getattr(laminate_obj, "TypeId", "")
+            or type(laminate_obj).__name__
+        )
+        break
+
+    if not hints["has_laminate"]:
+        proxy_type = str(getattr(getattr(source_obj, "Proxy", None), "Type", "") or "")
+        if "Laminate" in proxy_type:
+            hints["has_laminate"] = True
+            hints["laminate_type"] = proxy_type
+
+    return hints
+
+
+def _normalization_hint_reason_flags(hints):
+    flags = []
+    if hints.get("thickness_mm") is not None:
+        flags.append("hint_thickness_present")
+    if hints.get("has_laminate"):
+        flags.append("hint_laminate_present")
+    return flags
+
+
+def _normalization_hint_summary(hints):
+    thickness_mm = hints.get("thickness_mm")
+    if thickness_mm is None:
+        thickness_summary = "thickness_hint_mm=none"
+    else:
+        thickness_summary = f"thickness_hint_mm={thickness_mm:.3f}"
+
+    if hints.get("has_laminate"):
+        laminate_type = hints.get("laminate_type") or "unknown"
+        laminate_summary = f"laminate_hint={laminate_type}"
+    else:
+        laminate_summary = "laminate_hint=none"
+
+    return f"{thickness_summary}, {laminate_summary}"
 
 
 def _format_vector(vec):
@@ -435,6 +541,12 @@ def _append_normalization_validation_check(validation, normalization):
     else:
         checks.append(f"FAIL: normalization failed — {summary}")
 
+    hint_flags = normalization.get("hint_flags", [])
+    if "hint_thickness_present" in hint_flags:
+        checks.append("PASS: source thickness hint detected")
+    if "hint_laminate_present" in hint_flags:
+        checks.append("PASS: source laminate hint detected")
+
     status, validation_summary = _status_and_summary_from_checks(checks)
     return {
         "status": status,
@@ -477,61 +589,77 @@ def _base_analysis_result():
         "normalization_source_type": "none",
         "normalization_summary": "Normalization failed: source shape is missing or null.",
         "normalization_reason_flags": ["source_missing_or_null"],
+        "normalization_hint_summary": "no source-object hints",
     }
 
 
-def normalize_source_shape(shape):
+def normalize_source_shape(shape, hints=None):
     base = _base_analysis_result()
-    if shape is None or getattr(shape, "isNull", lambda: True)():
+    hints = hints or {}
+    hint_flags = _normalization_hint_reason_flags(hints)
+    hint_summary = _normalization_hint_summary(hints)
+
+    def build_result(confidence, source_type, summary, reason_flags, effective_shape):
         return {
-            "confidence": NORMALIZATION_CONFIDENCE_FAIL,
-            "source_type": "none",
-            "summary": base["normalization_summary"],
-            "reason_flags": base["normalization_reason_flags"],
-            "effective_shape": Part.Shape(),
+            "confidence": confidence,
+            "source_type": source_type,
+            "summary": f"{summary} Hints: {hint_summary}.",
+            "reason_flags": list(reason_flags) + hint_flags,
+            "hint_flags": list(hint_flags),
+            "hint_summary": hint_summary,
+            "effective_shape": effective_shape,
         }
+
+    if shape is None or getattr(shape, "isNull", lambda: True)():
+        return build_result(
+            NORMALIZATION_CONFIDENCE_FAIL,
+            "none",
+            base["normalization_summary"],
+            base["normalization_reason_flags"],
+            Part.Shape(),
+        )
 
     shape_type = getattr(shape, "ShapeType", "Unknown")
 
     if shape_type in ("Solid", "CompSolid"):
-        return {
-            "confidence": NORMALIZATION_CONFIDENCE_EXACT,
-            "source_type": shape_type.lower(),
-            "summary": "Normalization exact: solid input used without approximation.",
-            "reason_flags": ["solid_passthrough_exact"],
-            "effective_shape": _safe_copy_shape(shape),
-        }
+        return build_result(
+            NORMALIZATION_CONFIDENCE_EXACT,
+            shape_type.lower(),
+            "Normalization exact: solid input used without approximation.",
+            ["solid_passthrough_exact"],
+            _safe_copy_shape(shape),
+        )
 
     if shape_type == "Compound":
         solids = list(getattr(shape, "Solids", []))
         if len(solids) == 1 and not solids[0].isNull():
-            return {
-                "confidence": NORMALIZATION_CONFIDENCE_EXACT,
-                "source_type": "compound",
-                "summary": "Normalization exact: single solid extracted from compound source.",
-                "reason_flags": ["compound_single_solid_exact"],
-                "effective_shape": _safe_copy_shape(solids[0]),
-            }
+            return build_result(
+                NORMALIZATION_CONFIDENCE_EXACT,
+                "compound",
+                "Normalization exact: single solid extracted from compound source.",
+                ["compound_single_solid_exact"],
+                _safe_copy_shape(solids[0]),
+            )
         if len(solids) > 1:
-            return {
-                "confidence": NORMALIZATION_CONFIDENCE_FAIL,
-                "source_type": "compound",
-                "summary": "Normalization failed: source compound contains multiple solids; two-piece single-body normalization is ambiguous.",
-                "reason_flags": ["compound_multi_solid_unsupported"],
-                "effective_shape": Part.Shape(),
-            }
+            return build_result(
+                NORMALIZATION_CONFIDENCE_FAIL,
+                "compound",
+                "Normalization failed: source compound contains multiple solids; two-piece single-body normalization is ambiguous.",
+                ["compound_multi_solid_unsupported"],
+                Part.Shape(),
+            )
         shells = list(getattr(shape, "Shells", []))
         if len(shells) == 1:
             shape = shells[0]
             shape_type = "Shell"
         else:
-            return {
-                "confidence": NORMALIZATION_CONFIDENCE_FAIL,
-                "source_type": "compound",
-                "summary": "Normalization failed: source compound has no single solid or shell candidate for effective-solid synthesis.",
-                "reason_flags": ["compound_no_effective_candidate"],
-                "effective_shape": Part.Shape(),
-            }
+            return build_result(
+                NORMALIZATION_CONFIDENCE_FAIL,
+                "compound",
+                "Normalization failed: source compound has no single solid or shell candidate for effective-solid synthesis.",
+                ["compound_no_effective_candidate"],
+                Part.Shape(),
+            )
 
     if shape_type == "Shell":
         reason_flags = []
@@ -545,66 +673,83 @@ def normalize_source_shape(shape):
                     not getattr(effective_solid, "isNull", lambda: True)()
                     and getattr(effective_solid, "Volume", 0.0) > 0.0
                 ):
-                    return {
-                        "confidence": NORMALIZATION_CONFIDENCE_APPROXIMATE,
-                        "source_type": "shell",
-                        "summary": "Normalization approximate: shell converted to effective solid envelope without explicit thickness/laminate metadata.",
-                        "reason_flags": reason_flags + ["shell_effective_solid_approximate"],
-                        "effective_shape": _safe_copy_shape(effective_solid),
-                    }
+                    if "hint_thickness_present" in hint_flags or "hint_laminate_present" in hint_flags:
+                        shell_summary = (
+                            "Normalization approximate: shell converted to effective solid envelope using available source-object hints."
+                        )
+                    else:
+                        shell_summary = (
+                            "Normalization approximate: shell converted to effective solid envelope without explicit thickness/laminate metadata."
+                        )
+                    return build_result(
+                        NORMALIZATION_CONFIDENCE_APPROXIMATE,
+                        "shell",
+                        shell_summary,
+                        reason_flags + ["shell_effective_solid_approximate"],
+                        _safe_copy_shape(effective_solid),
+                    )
                 reason_flags.append("shell_no_closed_volume")
             except Exception:
                 reason_flags.append("shell_solid_conversion_failed")
 
         try:
-            proxy = _bbox_proxy_solid(shape)
+            proxy = _bbox_proxy_solid(
+                shape,
+                padding_hint_mm=hints.get("thickness_mm"),
+            )
             if not proxy.isNull():
-                return {
-                    "confidence": NORMALIZATION_CONFIDENCE_APPROXIMATE,
-                    "source_type": "shell",
-                    "summary": "Normalization approximate: shell replaced with conservative bounding proxy solid.",
-                    "reason_flags": reason_flags
-                    + [
-                        "shell_proxy_bbox",
-                        "missing_thickness_or_laminate_metadata",
-                    ],
-                    "effective_shape": proxy,
-                }
+                missing_metadata_flag = []
+                if "hint_thickness_present" not in hint_flags and "hint_laminate_present" not in hint_flags:
+                    missing_metadata_flag = ["missing_thickness_or_laminate_metadata"]
+                return build_result(
+                    NORMALIZATION_CONFIDENCE_APPROXIMATE,
+                    "shell",
+                    "Normalization approximate: shell replaced with conservative bounding proxy solid.",
+                    reason_flags + ["shell_proxy_bbox"] + missing_metadata_flag,
+                    proxy,
+                )
             reason_flags.append("shell_proxy_null")
         except Exception:
             reason_flags.append("shell_proxy_failed")
 
-        return {
-            "confidence": NORMALIZATION_CONFIDENCE_FAIL,
-            "source_type": "shell",
-            "summary": "Normalization failed: shell source could not be converted to an effective solid.",
-            "reason_flags": reason_flags + ["shell_unrecoverable"],
-            "effective_shape": Part.Shape(),
-        }
+        return build_result(
+            NORMALIZATION_CONFIDENCE_FAIL,
+            "shell",
+            "Normalization failed: shell source could not be converted to an effective solid.",
+            reason_flags + ["shell_unrecoverable"],
+            Part.Shape(),
+        )
 
     try:
-        proxy = _bbox_proxy_solid(shape)
+        proxy = _bbox_proxy_solid(
+            shape,
+            padding_hint_mm=hints.get("thickness_mm"),
+        )
         if not proxy.isNull():
-            return {
-                "confidence": NORMALIZATION_CONFIDENCE_APPROXIMATE,
-                "source_type": shape_type.lower(),
-                "summary": "Normalization approximate: non-solid source replaced with conservative bounding proxy solid.",
-                "reason_flags": ["non_solid_proxy_bbox"],
-                "effective_shape": proxy,
-            }
+            return build_result(
+                NORMALIZATION_CONFIDENCE_APPROXIMATE,
+                shape_type.lower(),
+                "Normalization approximate: non-solid source replaced with conservative bounding proxy solid.",
+                ["non_solid_proxy_bbox"],
+                proxy,
+            )
     except Exception:
         pass
 
-    return {
-        "confidence": NORMALIZATION_CONFIDENCE_FAIL,
-        "source_type": shape_type.lower(),
-        "summary": f"Normalization failed: unsupported source shape type '{shape_type}'.",
-        "reason_flags": ["unsupported_source_shape_type"],
-        "effective_shape": Part.Shape(),
-    }
+    return build_result(
+        NORMALIZATION_CONFIDENCE_FAIL,
+        shape_type.lower(),
+        f"Normalization failed: unsupported source shape type '{shape_type}'.",
+        ["unsupported_source_shape_type"],
+        Part.Shape(),
+    )
 
 
-def analyze_source_shape(shape, draw_direction=default_mould_analysis_draw_direction):
+def analyze_source_shape(
+    shape,
+    draw_direction=default_mould_analysis_draw_direction,
+    source_obj=None,
+):
     """Return a lightweight analysis preview for a selected source shape.
 
     This intentionally stays heuristic-driven so it can provide a stable,
@@ -614,11 +759,15 @@ def analyze_source_shape(shape, draw_direction=default_mould_analysis_draw_direc
     if shape is None or getattr(shape, "isNull", lambda: True)():
         return result
 
-    normalization = normalize_source_shape(shape)
+    normalization_hints = _extract_normalization_hints(source_obj)
+    normalization = normalize_source_shape(shape, hints=normalization_hints)
     result["normalization_confidence"] = normalization["confidence"]
     result["normalization_source_type"] = normalization["source_type"]
     result["normalization_summary"] = normalization["summary"]
     result["normalization_reason_flags"] = normalization["reason_flags"]
+    result["normalization_hint_summary"] = normalization.get(
+        "hint_summary", _normalization_hint_summary(normalization_hints)
+    )
 
     if normalization["confidence"] == NORMALIZATION_CONFIDENCE_FAIL:
         result.update(
