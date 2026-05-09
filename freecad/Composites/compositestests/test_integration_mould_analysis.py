@@ -48,6 +48,19 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         notch.translate(FreeCAD.Vector(2, 2, 18))
         return stem.fuse(cap).cut(notch)
 
+    def _make_internal_opening_recess_general_shape(self):
+        import Part
+
+        outer = Part.makeBox(24, 18, 16)
+        tunnel = Part.makeCylinder(
+            3.0,
+            28.0,
+            FreeCAD.Vector(-2.0, 9.0, 8.0),
+            FreeCAD.Vector(1.0, 0.0, 0.0),
+        )
+        recess = Part.makeBox(8, 8, 6, FreeCAD.Vector(8, 5, 10))
+        return outer.cut(tunnel).cut(recess)
+
     def _make_mould_reference_lofted_shell(self):
         import Part
 
@@ -241,6 +254,53 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             result_a["validation_reason_codes"],
             result_b["validation_reason_codes"],
         )
+
+    def test_slice_e_e3_internal_opening_recess_general_shape_can_fail_explicitly(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = self._make_internal_opening_recess_general_shape()
+        result = analyze_source_shape(shape)
+
+        self.assertIn(result["status"], ("Ready", "Warning", "Fail"))
+        self.assertNotEqual(result["status"], "Waiting for source")
+
+        self.assertIn("validation_reasons", result)
+        self.assertIn("validation_reason_codes", result)
+        self.assertIn("split_strategy_summary", result)
+        self.assertIn("split_strategy_attempts", result)
+
+        self.assertIsInstance(result["validation_reasons"], list)
+        self.assertIsInstance(result["validation_reason_codes"], list)
+        self.assertTrue(result["split_strategy_summary"])
+        self.assertIsInstance(result["split_strategy_attempts"], list)
+        self.assertGreaterEqual(len(result["split_strategy_attempts"]), 1)
+
+        self.assertEqual(
+            result["validation_reason_codes"],
+            [reason["code"] for reason in result["validation_reasons"]],
+        )
+
+        if result["status"] == "Fail":
+            self.assertEqual(result["validation_status"], "Fail")
+            self.assertTrue(result["validation_reason_codes"])
+            self.assertTrue(
+                any(code.startswith("fail_") for code in result["validation_reason_codes"])
+            )
+        elif result["status"] == "Warning":
+            self.assertIn(result["validation_status"], ("Warning", "Fail"))
+            self.assertTrue(result["validation_reason_codes"])
+            self.assertTrue(
+                any(
+                    code.startswith(("warning_", "fail_"))
+                    for code in result["validation_reason_codes"]
+                )
+            )
+            self.assertTrue(
+                any(
+                    check.startswith(("WARN:", "FAIL:"))
+                    for check in result["validation_checks"]
+                )
+            )
 
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
