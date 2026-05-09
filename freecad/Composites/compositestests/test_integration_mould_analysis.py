@@ -629,6 +629,86 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertEqual(fail_result["status"], "Fail")
         self.assertEqual(fail_result["validation_status"], "Fail")
 
+    def test_slice_f_f3_representative_fixture_determinism_matrix(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        def deterministic_shell_source_hints():
+            return types.SimpleNamespace(
+                Name="DeterministicShellLikeSource",
+                Thickness=FreeCAD.Units.Quantity("0.80 mm"),
+                Laminate=types.SimpleNamespace(
+                    TypeId="App::FeaturePython",
+                    Proxy=types.SimpleNamespace(Type="Fem::MaterialMechanicalLaminate"),
+                ),
+            )
+
+        fixtures = (
+            ("convex_box", lambda: self._make_mould_reference_box(), None),
+            ("rotated_box", lambda: self._make_mould_reference_rotated_box(), None),
+            (
+                "concave_overhang",
+                lambda: self._make_concave_overhang_general_shape(),
+                None,
+            ),
+            (
+                "internal_opening_recess",
+                lambda: self._make_internal_opening_recess_general_shape(),
+                None,
+            ),
+            (
+                "shell_like_with_hints",
+                lambda: self._make_mould_reference_lofted_shell(),
+                deterministic_shell_source_hints,
+            ),
+        )
+
+        stable_fields = (
+            "status",
+            "validation_status",
+            "draw_direction_ranking",
+            "draw_direction_rationale",
+            "preferred_direction_diagnostics",
+            "split_strategy_summary",
+            "split_strategy_diagnostics",
+            "split_strategy_attempts",
+            "validation_reason_codes",
+            "validation_reasons",
+        )
+
+        for fixture_name, shape_factory, source_factory in fixtures:
+            with self.subTest(shape=fixture_name):
+                source_a = source_factory() if source_factory is not None else None
+                source_b = source_factory() if source_factory is not None else None
+
+                result_a = analyze_source_shape(shape_factory(), source_obj=source_a)
+                result_b = analyze_source_shape(shape_factory(), source_obj=source_b)
+
+                for field_name in stable_fields:
+                    self.assertEqual(
+                        canonicalize(result_a[field_name]),
+                        canonicalize(result_b[field_name]),
+                        msg=f"Fixture {fixture_name} unstable field: {field_name}",
+                    )
+
+                self.assertEqual(
+                    result_a["validation_reason_codes"],
+                    [reason["code"] for reason in result_a["validation_reasons"]],
+                )
+                self.assertEqual(
+                    result_b["validation_reason_codes"],
+                    [reason["code"] for reason in result_b["validation_reasons"]],
+                )
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
