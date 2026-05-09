@@ -315,9 +315,16 @@ def _format_ranking(ranked):
 
 def _candidate_diagnostics(ranked):
     diagnostics = []
-    for item in ranked:
+    if not ranked:
+        return diagnostics
+
+    best_normalized = ranked[0]["normalized_score"]
+    for rank, item in enumerate(ranked, start=1):
         diagnostics.append(
             {
+                "rank": rank,
+                "is_winner": rank == 1,
+                "margin_to_best_pp": best_normalized - item["normalized_score"],
                 "direction": _format_vector(item["direction"]),
                 "normalized_score": item["normalized_score"],
                 "bbox_score": item["bbox_score"],

@@ -187,14 +187,23 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
 
         diagnostics = result["draw_direction_diagnostics"]
         self.assertEqual(len(diagnostics), 3)
-        for item in diagnostics:
+        for expected_rank, item in enumerate(diagnostics, start=1):
+            self.assertIn("rank", item)
+            self.assertIn("is_winner", item)
+            self.assertIn("margin_to_best_pp", item)
             self.assertIn("direction", item)
             self.assertIn("backface_ratio", item)
             self.assertIn("geometry_factor", item)
+            self.assertEqual(item["rank"], expected_rank)
             self.assertGreaterEqual(item["backface_ratio"], 0.0)
             self.assertLessEqual(item["backface_ratio"], 1.0)
             self.assertGreaterEqual(item["geometry_factor"], 0.0)
             self.assertLessEqual(item["geometry_factor"], 1.0)
+            self.assertGreaterEqual(item["margin_to_best_pp"], 0.0)
+
+        self.assertEqual(len([item for item in diagnostics if item["is_winner"]]), 1)
+        self.assertTrue(diagnostics[0]["is_winner"])
+        self.assertAlmostEqual(diagnostics[0]["margin_to_best_pp"], 0.0, places=9)
 
         self.assertIn("winner=", result["draw_direction_rationale"])
         self.assertIn("geometry_factor=", result["draw_direction_rationale"])
