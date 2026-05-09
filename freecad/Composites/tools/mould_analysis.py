@@ -19,6 +19,7 @@ NORMALIZATION_CONFIDENCE_APPROXIMATE = "approximate"
 NORMALIZATION_CONFIDENCE_FAIL = "fail"
 
 GEOMETRY_BACKFACE_WEIGHT = 0.25
+MAX_SPLIT_STRATEGIES = 2
 
 
 def _safe_copy_shape(shape):
@@ -427,6 +428,57 @@ def _format_preferred_direction_diagnostics(diagnostics):
     )
 
 
+def _plan_split_strategies(ranked, limit=MAX_SPLIT_STRATEGIES):
+    strategies = []
+    for rank, item in enumerate(ranked[: max(0, int(limit))], start=1):
+        strategies.append(
+            {
+                "strategy_id": f"axis_plane_r{rank}",
+                "rank": rank,
+                "direction": item["direction"],
+                "direction_label": _format_vector(item["direction"]),
+                "direction_score": item["normalized_score"],
+                "backface_ratio": item["backface_ratio"],
+                "geometry_factor": item["geometry_factor"],
+                "status": "planned",
+                "reason": "top-ranked draw-direction strategy",
+            }
+        )
+    return strategies
+
+
+def _split_strategy_diagnostics(strategies, selected_strategy):
+    selected_id = selected_strategy.get("strategy_id") if selected_strategy else ""
+    diagnostics = []
+    for strategy in strategies:
+        diagnostics.append(
+            {
+                "strategy_id": strategy["strategy_id"],
+                "selected": strategy["strategy_id"] == selected_id,
+                "rank": strategy["rank"],
+                "direction": strategy["direction_label"],
+                "direction_score": strategy["direction_score"],
+                "backface_ratio": strategy["backface_ratio"],
+                "geometry_factor": strategy["geometry_factor"],
+                "status": strategy["status"],
+                "reason": strategy["reason"],
+            }
+        )
+    return diagnostics
+
+
+def _format_split_strategy_summary(selected_strategy, strategies):
+    if selected_strategy is None:
+        return "no strategy selected"
+
+    return (
+        f"selected={selected_strategy['strategy_id']}"
+        f"(dir={selected_strategy['direction_label']}, rank={selected_strategy['rank']}, "
+        f"score={selected_strategy['direction_score']:.1f}%), "
+        f"candidates={len(strategies)}"
+    )
+
+
 def _projection_bounds(shape, direction):
     unit = _normalized(direction)
     corners = [
@@ -797,6 +849,8 @@ def _base_analysis_result():
         "draw_direction_ranking": "No candidate directions available.",
         "draw_direction_diagnostics": [],
         "draw_direction_rationale": "No ranked candidate directions were available.",
+        "split_strategy_summary": "No split strategy planned.",
+        "split_strategy_diagnostics": [],
         "preferred_direction_diagnostics": {
             "direction": _format_vector(default_mould_analysis_draw_direction),
             "matched_candidate": False,
@@ -1118,6 +1172,32 @@ def analyze_source_shape(
     ranking = _format_ranking(ranked)
     ranking_diagnostics = _candidate_diagnostics(ranked)
     draw_direction_rationale = _draw_direction_rationale(ranked)
+    split_strategies = _plan_split_strategies(ranked)
+    if split_strategies:
+        selected_split_strategy = split_strategies[0]
+    else:
+        selected_split_strategy = {
+            "strategy_id": "fallback_draw_direction",
+            "rank": 1,
+            "direction": draw_direction,
+            "direction_label": _format_vector(draw_direction),
+            "direction_score": normalized_preferred_score,
+            "backface_ratio": _backface_area_ratio(effective_shape, draw_direction),
+            "geometry_factor": 1.0,
+            "status": "fallback",
+            "reason": "no ranked candidates available",
+        }
+        split_strategies = [selected_split_strategy]
+
+    split_strategy_summary = _format_split_strategy_summary(
+        selected_split_strategy,
+        split_strategies,
+    )
+    split_strategy_diagnostics = _split_strategy_diagnostics(
+        split_strategies,
+        selected_split_strategy,
+    )
+
     preferred_direction_diagnostics = _preferred_direction_diagnostics(
         ranked,
         draw_direction,
@@ -1147,7 +1227,10 @@ def analyze_source_shape(
         else "No draft violations detected by the heuristic profile."
     )
 
-    parting = propose_parting_surface(effective_shape, best_direction)
+    parting = propose_parting_surface(
+        effective_shape,
+        selected_split_strategy["direction"],
+    )
     mould_halves = make_mould_halves(
         effective_shape,
         parting["surface_normal"],
@@ -1173,6 +1256,10 @@ def analyze_source_shape(
         validation,
         f"PASS: preferred direction diagnostics — {preferred_direction_summary}",
     )
+    validation = _append_validation_check(
+        validation,
+        f"PASS: split strategy planning — {split_strategy_summary}",
+    )
 
     if validation["status"] == "Fail":
         status = "Fail"
@@ -1190,6 +1277,7 @@ def analyze_source_shape(
         f"best_direction={_format_vector(best_direction)}, "
         f"draw_rationale={draw_direction_rationale}, "
         f"preferred_diag={preferred_direction_summary}, "
+        f"split_strategy={split_strategy_summary}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1206,6 +1294,8 @@ def analyze_source_shape(
             "draw_direction_ranking": ranking,
             "draw_direction_diagnostics": ranking_diagnostics,
             "draw_direction_rationale": draw_direction_rationale,
+            "split_strategy_summary": split_strategy_summary,
+            "split_strategy_diagnostics": split_strategy_diagnostics,
             "preferred_direction_diagnostics": preferred_direction_diagnostics,
             "undercut_count": undercut_count,
             "undercut_summary": undercut_summary,

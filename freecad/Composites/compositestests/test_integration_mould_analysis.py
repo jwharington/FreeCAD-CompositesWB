@@ -130,10 +130,17 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 for check in obj.ValidationChecks
             )
         )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: split strategy planning")
+                for check in obj.ValidationChecks
+            )
+        )
         self.assertIn("1.", obj.DrawDirectionRanking)
         self.assertIn("Source ready for mould analysis", obj.AnalysisSummary)
         self.assertIn("draw_rationale=winner=", obj.AnalysisSummary)
         self.assertIn("preferred_diag=direction=", obj.AnalysisSummary)
+        self.assertIn("split_strategy=selected=", obj.AnalysisSummary)
         self.assertIn("No undercuts detected", obj.UndercutSummary)
         self.assertIn("No draft violations detected", obj.DraftViolationSummary)
         self.assertIn("Parting surface proposed", obj.PartingSurfaceSummary)
@@ -185,6 +192,14 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             result_b["preferred_direction_diagnostics"],
         )
         self.assertEqual(
+            result_a["split_strategy_summary"],
+            result_b["split_strategy_summary"],
+        )
+        self.assertEqual(
+            result_a["split_strategy_diagnostics"],
+            result_b["split_strategy_diagnostics"],
+        )
+        self.assertEqual(
             (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
             (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
         )
@@ -221,6 +236,12 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertIn("geometry_factor=", result["draw_direction_rationale"])
         self.assertIn("draw_rationale=winner=", result["summary"])
         self.assertIn("preferred_diag=direction=", result["summary"])
+        self.assertIn("split_strategy=selected=", result["summary"])
+
+        split_diag = result["split_strategy_diagnostics"]
+        self.assertGreaterEqual(len(split_diag), 1)
+        self.assertEqual(len([item for item in split_diag if item["selected"]]), 1)
+        self.assertIn("selected=", result["split_strategy_summary"])
 
         preferred_diag = result["preferred_direction_diagnostics"]
         self.assertTrue(preferred_diag["matched_candidate"])
@@ -240,6 +261,12 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 for check in result["validation_checks"]
             )
         )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: split strategy planning")
+                for check in result["validation_checks"]
+            )
+        )
 
     def test_mould_preferred_direction_fallback_diagnostics_for_off_axis_direction(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
@@ -254,9 +281,16 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertGreaterEqual(preferred_diag["margin_to_best_pp"], 0.0)
         self.assertLessEqual(result["draw_direction_score"], 100.0)
         self.assertIn("basis=fallback", result["summary"])
+        self.assertIn("split_strategy=selected=", result["summary"])
         self.assertTrue(
             any(
                 check.startswith("PASS: preferred direction diagnostics")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: split strategy planning")
                 for check in result["validation_checks"]
             )
         )
