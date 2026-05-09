@@ -378,6 +378,55 @@ def _match_ranked_candidate(ranked, direction, tolerance=1.0e-9):
     return None
 
 
+def _preferred_direction_diagnostics(
+    ranked,
+    draw_direction,
+    normalized_preferred_score,
+    preferred_candidate,
+):
+    best_normalized = (
+        ranked[0]["normalized_score"] if ranked else normalized_preferred_score
+    )
+    matched_rank = None
+    matched_backface_ratio = None
+
+    if preferred_candidate is not None:
+        for rank, item in enumerate(ranked, start=1):
+            if item is preferred_candidate:
+                matched_rank = rank
+                break
+        matched_backface_ratio = preferred_candidate["backface_ratio"]
+
+    return {
+        "direction": _format_vector(draw_direction),
+        "matched_candidate": preferred_candidate is not None,
+        "matched_rank": matched_rank,
+        "used_fallback_scoring": preferred_candidate is None,
+        "normalized_score": normalized_preferred_score,
+        "margin_to_best_pp": max(0.0, best_normalized - normalized_preferred_score),
+        "backface_ratio": matched_backface_ratio,
+    }
+
+
+def _format_preferred_direction_diagnostics(diagnostics):
+    basis = "candidate" if diagnostics["matched_candidate"] else "fallback"
+    rank_suffix = (
+        f"rank={diagnostics['matched_rank']}"
+        if diagnostics["matched_rank"] is not None
+        else "rank=none"
+    )
+    backface_suffix = ""
+    if diagnostics["backface_ratio"] is not None:
+        backface_suffix = f", backface={100.0 * diagnostics['backface_ratio']:.1f}%"
+
+    return (
+        f"direction={diagnostics['direction']}, basis={basis}({rank_suffix}), "
+        f"score={diagnostics['normalized_score']:.1f}%, "
+        f"margin_to_best={diagnostics['margin_to_best_pp']:.1f}pp"
+        f"{backface_suffix}"
+    )
+
+
 def _projection_bounds(shape, direction):
     unit = _normalized(direction)
     corners = [
@@ -701,6 +750,17 @@ def _status_and_summary_from_checks(checks):
     return status, summary
 
 
+def _append_validation_check(validation, check):
+    checks = list(validation.get("checks", []))
+    checks.append(check)
+    status, validation_summary = _status_and_summary_from_checks(checks)
+    return {
+        "status": status,
+        "summary": validation_summary,
+        "checks": checks,
+    }
+
+
 def _append_normalization_validation_check(validation, normalization):
     checks = list(validation.get("checks", []))
     confidence = normalization["confidence"]
@@ -737,6 +797,15 @@ def _base_analysis_result():
         "draw_direction_ranking": "No candidate directions available.",
         "draw_direction_diagnostics": [],
         "draw_direction_rationale": "No ranked candidate directions were available.",
+        "preferred_direction_diagnostics": {
+            "direction": _format_vector(default_mould_analysis_draw_direction),
+            "matched_candidate": False,
+            "matched_rank": None,
+            "used_fallback_scoring": False,
+            "normalized_score": 0.0,
+            "margin_to_best_pp": 0.0,
+            "backface_ratio": None,
+        },
         "undercut_count": 0,
         "undercut_summary": "No source shape available.",
         "undercut_regions": ["No source shape available."],
@@ -1049,6 +1118,15 @@ def analyze_source_shape(
     ranking = _format_ranking(ranked)
     ranking_diagnostics = _candidate_diagnostics(ranked)
     draw_direction_rationale = _draw_direction_rationale(ranked)
+    preferred_direction_diagnostics = _preferred_direction_diagnostics(
+        ranked,
+        draw_direction,
+        normalized_preferred_score,
+        preferred_candidate,
+    )
+    preferred_direction_summary = _format_preferred_direction_diagnostics(
+        preferred_direction_diagnostics
+    )
 
     profile = _slice_area_profile(effective_shape, draw_direction)
     violations = _profile_violations(profile)
@@ -1087,8 +1165,13 @@ def analyze_source_shape(
     )
 
     validation = _append_normalization_validation_check(validation, normalization)
-    validation["checks"].append(
-        f"PASS: draw-direction rationale — {draw_direction_rationale}"
+    validation = _append_validation_check(
+        validation,
+        f"PASS: draw-direction rationale — {draw_direction_rationale}",
+    )
+    validation = _append_validation_check(
+        validation,
+        f"PASS: preferred direction diagnostics — {preferred_direction_summary}",
     )
 
     if validation["status"] == "Fail":
@@ -1106,6 +1189,7 @@ def analyze_source_shape(
         f"preferred_score={normalized_preferred_score:.1f}%, "
         f"best_direction={_format_vector(best_direction)}, "
         f"draw_rationale={draw_direction_rationale}, "
+        f"preferred_diag={preferred_direction_summary}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1122,6 +1206,7 @@ def analyze_source_shape(
             "draw_direction_ranking": ranking,
             "draw_direction_diagnostics": ranking_diagnostics,
             "draw_direction_rationale": draw_direction_rationale,
+            "preferred_direction_diagnostics": preferred_direction_diagnostics,
             "undercut_count": undercut_count,
             "undercut_summary": undercut_summary,
             "undercut_regions": undercut_regions,

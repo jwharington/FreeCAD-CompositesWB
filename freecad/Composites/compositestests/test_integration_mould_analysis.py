@@ -124,9 +124,16 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 for check in obj.ValidationChecks
             )
         )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: preferred direction diagnostics")
+                for check in obj.ValidationChecks
+            )
+        )
         self.assertIn("1.", obj.DrawDirectionRanking)
         self.assertIn("Source ready for mould analysis", obj.AnalysisSummary)
         self.assertIn("draw_rationale=winner=", obj.AnalysisSummary)
+        self.assertIn("preferred_diag=direction=", obj.AnalysisSummary)
         self.assertIn("No undercuts detected", obj.UndercutSummary)
         self.assertIn("No draft violations detected", obj.DraftViolationSummary)
         self.assertIn("Parting surface proposed", obj.PartingSurfaceSummary)
@@ -174,6 +181,10 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             result_b["draw_direction_rationale"],
         )
         self.assertEqual(
+            result_a["preferred_direction_diagnostics"],
+            result_b["preferred_direction_diagnostics"],
+        )
+        self.assertEqual(
             (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
             (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
         )
@@ -209,9 +220,43 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertIn("winner=", result["draw_direction_rationale"])
         self.assertIn("geometry_factor=", result["draw_direction_rationale"])
         self.assertIn("draw_rationale=winner=", result["summary"])
+        self.assertIn("preferred_diag=direction=", result["summary"])
+
+        preferred_diag = result["preferred_direction_diagnostics"]
+        self.assertTrue(preferred_diag["matched_candidate"])
+        self.assertFalse(preferred_diag["used_fallback_scoring"])
+        self.assertIsNotNone(preferred_diag["matched_rank"])
+        self.assertGreaterEqual(preferred_diag["margin_to_best_pp"], 0.0)
+
         self.assertTrue(
             any(
                 check.startswith("PASS: draw-direction rationale")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertTrue(
+            any(
+                check.startswith("PASS: preferred direction diagnostics")
+                for check in result["validation_checks"]
+            )
+        )
+
+    def test_mould_preferred_direction_fallback_diagnostics_for_off_axis_direction(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = self._make_mould_reference_box()
+        result = analyze_source_shape(shape, draw_direction=FreeCAD.Vector(1, 1, 0))
+
+        preferred_diag = result["preferred_direction_diagnostics"]
+        self.assertFalse(preferred_diag["matched_candidate"])
+        self.assertTrue(preferred_diag["used_fallback_scoring"])
+        self.assertIsNone(preferred_diag["matched_rank"])
+        self.assertGreaterEqual(preferred_diag["margin_to_best_pp"], 0.0)
+        self.assertLessEqual(result["draw_direction_score"], 100.0)
+        self.assertIn("basis=fallback", result["summary"])
+        self.assertTrue(
+            any(
+                check.startswith("PASS: preferred direction diagnostics")
                 for check in result["validation_checks"]
             )
         )
