@@ -447,10 +447,84 @@ def _plan_split_strategies(ranked, limit=MAX_SPLIT_STRATEGIES):
     return strategies
 
 
-def _split_strategy_diagnostics(strategies, selected_strategy):
+def _evaluate_split_strategy_attempt(
+    shape,
+    strategy,
+    undercut_count,
+    draft_violation_count,
+):
+    parting = propose_parting_surface(shape, strategy["direction"])
+    mould_halves = make_mould_halves(
+        shape,
+        parting["surface_normal"],
+        parting["surface_offset"],
+    )
+    validation = validate_mould_result(
+        parting["status"],
+        mould_halves["status"],
+        undercut_count,
+        draft_violation_count,
+        parting["shape"],
+        mould_halves["half_a_shape"],
+        mould_halves["half_b_shape"],
+    )
+
+    status = validation["status"]
+    if status == "Pass":
+        reason = "candidate passed validation"
+    elif status == "Warning":
+        reason = "candidate produced warning-grade validation"
+    else:
+        reason = "candidate failed validation"
+
+    return {
+        "strategy": strategy,
+        "parting": parting,
+        "mould_halves": mould_halves,
+        "validation": validation,
+        "status": status,
+        "reason": reason,
+    }
+
+
+def _evaluate_split_strategy_attempts(
+    shape,
+    strategies,
+    undercut_count,
+    draft_violation_count,
+):
+    attempts = []
+    selected_attempt = None
+
+    for strategy in strategies:
+        attempt = _evaluate_split_strategy_attempt(
+            shape,
+            strategy,
+            undercut_count,
+            draft_violation_count,
+        )
+        attempts.append(attempt)
+        if selected_attempt is None and attempt["status"] != "Fail":
+            selected_attempt = attempt
+            break
+
+    if selected_attempt is None and attempts:
+        selected_attempt = attempts[0]
+
+    return selected_attempt, attempts
+
+
+def _split_strategy_diagnostics(strategies, selected_strategy, attempts=None):
+    attempts = attempts or []
+    attempts_by_id = {
+        attempt["strategy"]["strategy_id"]: attempt
+        for attempt in attempts
+    }
+
     selected_id = selected_strategy.get("strategy_id") if selected_strategy else ""
     diagnostics = []
     for strategy in strategies:
+        attempt = attempts_by_id.get(strategy["strategy_id"])
         diagnostics.append(
             {
                 "strategy_id": strategy["strategy_id"],
@@ -462,20 +536,52 @@ def _split_strategy_diagnostics(strategies, selected_strategy):
                 "geometry_factor": strategy["geometry_factor"],
                 "status": strategy["status"],
                 "reason": strategy["reason"],
+                "attempted": attempt is not None,
+                "attempt_status": attempt["status"] if attempt else "not_attempted",
+                "attempt_summary": attempt["validation"]["summary"] if attempt else "",
             }
         )
     return diagnostics
 
 
-def _format_split_strategy_summary(selected_strategy, strategies):
+def _split_strategy_attempt_diagnostics(attempts):
+    diagnostics = []
+    for index, attempt in enumerate(attempts, start=1):
+        strategy = attempt["strategy"]
+        diagnostics.append(
+            {
+                "attempt_index": index,
+                "strategy_id": strategy["strategy_id"],
+                "rank": strategy["rank"],
+                "direction": strategy["direction_label"],
+                "status": attempt["status"],
+                "reason": attempt["reason"],
+                "parting_status": attempt["parting"]["status"],
+                "mould_halves_status": attempt["mould_halves"]["status"],
+                "validation_summary": attempt["validation"]["summary"],
+            }
+        )
+    return diagnostics
+
+
+def _format_split_strategy_summary(
+    selected_strategy,
+    strategies,
+    selected_attempt=None,
+    attempts=None,
+):
     if selected_strategy is None:
         return "no strategy selected"
+
+    attempts = attempts or []
+    selected_status = selected_attempt["status"] if selected_attempt else "unknown"
+    failed_attempts = len([attempt for attempt in attempts if attempt["status"] == "Fail"])
 
     return (
         f"selected={selected_strategy['strategy_id']}"
         f"(dir={selected_strategy['direction_label']}, rank={selected_strategy['rank']}, "
-        f"score={selected_strategy['direction_score']:.1f}%), "
-        f"candidates={len(strategies)}"
+        f"score={selected_strategy['direction_score']:.1f}%, status={selected_status}), "
+        f"candidates={len(strategies)}, attempted={len(attempts)}, failed_attempts={failed_attempts}"
     )
 
 
@@ -851,6 +957,7 @@ def _base_analysis_result():
         "draw_direction_rationale": "No ranked candidate directions were available.",
         "split_strategy_summary": "No split strategy planned.",
         "split_strategy_diagnostics": [],
+        "split_strategy_attempts": [],
         "preferred_direction_diagnostics": {
             "direction": _format_vector(default_mould_analysis_draw_direction),
             "matched_candidate": False,
@@ -1189,15 +1296,6 @@ def analyze_source_shape(
         }
         split_strategies = [selected_split_strategy]
 
-    split_strategy_summary = _format_split_strategy_summary(
-        selected_split_strategy,
-        split_strategies,
-    )
-    split_strategy_diagnostics = _split_strategy_diagnostics(
-        split_strategies,
-        selected_split_strategy,
-    )
-
     preferred_direction_diagnostics = _preferred_direction_diagnostics(
         ranked,
         draw_direction,
@@ -1227,24 +1325,54 @@ def analyze_source_shape(
         else "No draft violations detected by the heuristic profile."
     )
 
-    parting = propose_parting_surface(
+    selected_attempt, split_strategy_attempts = _evaluate_split_strategy_attempts(
         effective_shape,
-        selected_split_strategy["direction"],
-    )
-    mould_halves = make_mould_halves(
-        effective_shape,
-        parting["surface_normal"],
-        parting["surface_offset"],
-    )
-
-    validation = validate_mould_result(
-        parting["status"],
-        mould_halves["status"],
+        split_strategies,
         undercut_count,
         draft_violation_count,
-        parting["shape"],
-        mould_halves["half_a_shape"],
-        mould_halves["half_b_shape"],
+    )
+    if selected_attempt is None:
+        fallback_parting = propose_parting_surface(
+            effective_shape,
+            selected_split_strategy["direction"],
+        )
+        fallback_mould_halves = make_mould_halves(
+            effective_shape,
+            fallback_parting["surface_normal"],
+            fallback_parting["surface_offset"],
+        )
+        selected_attempt = {
+            "strategy": selected_split_strategy,
+            "parting": fallback_parting,
+            "mould_halves": fallback_mould_halves,
+            "validation": {
+                "status": "Fail",
+                "summary": "Validation fail: split strategy attempts produced no candidate.",
+                "checks": ["FAIL: split strategy attempts produced no candidate"],
+            },
+            "status": "Fail",
+            "reason": "no split strategy attempt available",
+        }
+        split_strategy_attempts = [selected_attempt]
+
+    selected_split_strategy = selected_attempt["strategy"]
+    parting = selected_attempt["parting"]
+    mould_halves = selected_attempt["mould_halves"]
+    validation = selected_attempt["validation"]
+
+    split_strategy_summary = _format_split_strategy_summary(
+        selected_split_strategy,
+        split_strategies,
+        selected_attempt,
+        split_strategy_attempts,
+    )
+    split_strategy_diagnostics = _split_strategy_diagnostics(
+        split_strategies,
+        selected_split_strategy,
+        split_strategy_attempts,
+    )
+    split_strategy_attempt_diagnostics = _split_strategy_attempt_diagnostics(
+        split_strategy_attempts,
     )
 
     validation = _append_normalization_validation_check(validation, normalization)
@@ -1278,6 +1406,7 @@ def analyze_source_shape(
         f"draw_rationale={draw_direction_rationale}, "
         f"preferred_diag={preferred_direction_summary}, "
         f"split_strategy={split_strategy_summary}, "
+        f"split_attempts={len(split_strategy_attempt_diagnostics)}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1296,6 +1425,7 @@ def analyze_source_shape(
             "draw_direction_rationale": draw_direction_rationale,
             "split_strategy_summary": split_strategy_summary,
             "split_strategy_diagnostics": split_strategy_diagnostics,
+            "split_strategy_attempts": split_strategy_attempt_diagnostics,
             "preferred_direction_diagnostics": preferred_direction_diagnostics,
             "undercut_count": undercut_count,
             "undercut_summary": undercut_summary,
