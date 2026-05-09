@@ -26,6 +26,42 @@ from freecad.Composites.compositestests.example_materials import make_glass
 
 
 class TestFreeCADIntegration(unittest.TestCase):
+    def _make_mould_reference_box(self):
+        import Part
+
+        return Part.makeBox(20, 30, 40)
+
+    def _make_mould_reference_sphere(self):
+        import Part
+
+        return Part.makeSphere(15.0)
+
+    def _make_mould_reference_rotated_box(self):
+        shape = self._make_mould_reference_box()
+        shape.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(1, 1, 0), 33.0)
+        return shape
+
+    def _make_mould_reference_lofted_shell(self):
+        import Part
+
+        wire_a = Part.Wire(
+            [Part.makeCircle(8.0, FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(0, 0, 1))]
+        )
+        wire_b = Part.Wire(
+            [
+                Part.makeCircle(
+                    5.5,
+                    FreeCAD.Vector(3.0, 2.0, 16.0),
+                    FreeCAD.Vector(0.2, 0.0, 1.0),
+                )
+            ]
+        )
+        loft = Part.makeLoft([wire_a, wire_b], False, False)
+        if getattr(loft, "ShapeType", "") == "Shell":
+            return loft
+        shells = list(getattr(loft, "Shells", []))
+        return shells[0] if shells else loft
+
     def test_workbench_module_imports(self):
         self.assertTrue(hasattr(CompositesWB, "is_comp_type"))
         self.assertTrue(hasattr(CompositesWB, "ICONPATH"))
@@ -125,7 +161,7 @@ class TestFreeCADIntegration(unittest.TestCase):
 
         doc = FreeCAD.newDocument(doc_name)
         source = doc.addObject("Part::Feature", "SourceSolid")
-        source.Shape = Part.makeBox(20, 30, 40)
+        source.Shape = self._make_mould_reference_box()
 
         original_selection = getattr(FreeCADGui, "Selection", None)
         FreeCADGui.Selection = types.SimpleNamespace(
@@ -173,6 +209,28 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertFalse(obj.Shape.isNull())
 
         FreeCAD.closeDocument(doc_name)
+
+    def test_mould_analysis_reference_shapes_smoke(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        reference_shapes = (
+            ("sphere", self._make_mould_reference_sphere(), "solid"),
+            ("box", self._make_mould_reference_box(), "solid"),
+            ("rotated_box", self._make_mould_reference_rotated_box(), "solid"),
+            (
+                "generic_lofted_shell",
+                self._make_mould_reference_lofted_shell(),
+                "shell",
+            ),
+        )
+
+        for name, shape, expected_source_type in reference_shapes:
+            with self.subTest(shape=name):
+                result = analyze_source_shape(shape)
+                self.assertEqual(result["normalization_source_type"], expected_source_type)
+                self.assertNotEqual(result["status"], "Waiting for source")
+                self.assertIn("normalization", result["summary"].lower())
+                self.assertTrue(result["normalization_reason_flags"])
 
     def test_mould_analysis_detects_overhang_regions(self):
         import FreeCADGui
@@ -224,11 +282,9 @@ class TestFreeCADIntegration(unittest.TestCase):
         FreeCAD.closeDocument(doc_name)
 
     def test_mould_analysis_normalization_solid_passthrough_is_exact(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
-        shape = Part.makeBox(12, 18, 24)
+        shape = self._make_mould_reference_box()
         result = analyze_source_shape(shape)
 
         self.assertEqual(result["normalization_confidence"], "exact")
@@ -245,12 +301,10 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertFalse(result["shape"].isNull())
 
     def test_mould_analysis_normalization_shell_has_explicit_diagnostics(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
-        closed_shell = Part.makeBox(10, 20, 30).Shells[0]
-        result = analyze_source_shape(closed_shell)
+        lofted_shell = self._make_mould_reference_lofted_shell()
+        result = analyze_source_shape(lofted_shell)
 
         self.assertIn(result["normalization_confidence"], ("approximate", "fail"))
         self.assertEqual(result["normalization_source_type"], "shell")
@@ -266,11 +320,9 @@ class TestFreeCADIntegration(unittest.TestCase):
             )
 
     def test_mould_analysis_normalization_uses_source_hints_in_diagnostics(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
-        shape = Part.makeBox(10, 20, 30)
+        shape = self._make_mould_reference_box()
         source_obj = types.SimpleNamespace(
             Name="HintedSource",
             Thickness=FreeCAD.Units.Quantity("0.75 mm"),
@@ -358,16 +410,13 @@ class TestFreeCADIntegration(unittest.TestCase):
         )
 
     def test_mould_analysis_shell_thickness_hint_attempt_recorded(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
         class _ThicknessHintSource:
             Name = "ThicknessHintSource"
             Thickness = 2.5
 
-        face = Part.makeBox(12, 16, 20).Faces[0]
-        open_shell = Part.Shell([face])
+        open_shell = self._make_mould_reference_lofted_shell()
         result = analyze_source_shape(open_shell, source_obj=_ThicknessHintSource())
 
         self.assertEqual(result["normalization_source_type"], "shell")
@@ -386,8 +435,6 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertIn("thickness envelope attempted", result["normalization_summary"].lower())
 
     def test_mould_analysis_reason_flag_order_is_stable_for_repeated_runs(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
         class _HintedShellSource:
@@ -398,8 +445,7 @@ class TestFreeCADIntegration(unittest.TestCase):
                 Proxy=types.SimpleNamespace(Type="Fem::MaterialMechanicalLaminate"),
             )
 
-        face = Part.makeBox(10, 14, 18).Faces[0]
-        open_shell = Part.Shell([face])
+        open_shell = self._make_mould_reference_lofted_shell()
 
         result_a = analyze_source_shape(open_shell, source_obj=_HintedShellSource())
         result_b = analyze_source_shape(open_shell, source_obj=_HintedShellSource())
@@ -411,8 +457,6 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertEqual(len(flags_a), len(set(flags_a)))
 
     def test_mould_analysis_shell_laminate_only_skips_thickness_envelope(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
         class _LaminateProxy:
@@ -425,8 +469,7 @@ class TestFreeCADIntegration(unittest.TestCase):
             Name = "LaminateOnlySource"
             Laminate = _LaminateRef()
 
-        face = Part.makeBox(10, 14, 18).Faces[0]
-        open_shell = Part.Shell([face])
+        open_shell = self._make_mould_reference_lofted_shell()
         result = analyze_source_shape(open_shell, source_obj=_LaminateOnlySource())
 
         self.assertEqual(result["normalization_source_type"], "shell")
@@ -446,16 +489,13 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertIn("thickness envelope skipped", result["normalization_summary"].lower())
 
     def test_mould_analysis_shell_invalid_non_positive_thickness_skips_envelope(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
         class _NonPositiveThicknessSource:
             Name = "NonPositiveThicknessSource"
             Thickness = 0.0
 
-        face = Part.makeBox(10, 14, 18).Faces[0]
-        open_shell = Part.Shell([face])
+        open_shell = self._make_mould_reference_lofted_shell()
         result = analyze_source_shape(open_shell, source_obj=_NonPositiveThicknessSource())
 
         self.assertEqual(result["normalization_source_type"], "shell")
@@ -474,16 +514,13 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertIn("invalid_non_positive", result["normalization_summary"])
 
     def test_mould_analysis_shell_invalid_non_numeric_thickness_skips_envelope(self):
-        import Part
-
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
         class _NonNumericThicknessSource:
             Name = "NonNumericThicknessSource"
             Thickness = "nan"
 
-        face = Part.makeBox(10, 14, 18).Faces[0]
-        open_shell = Part.Shell([face])
+        open_shell = self._make_mould_reference_lofted_shell()
         result = analyze_source_shape(open_shell, source_obj=_NonNumericThicknessSource())
 
         self.assertEqual(result["normalization_source_type"], "shell")
@@ -517,7 +554,7 @@ class TestFreeCADIntegration(unittest.TestCase):
 
         doc = FreeCAD.newDocument(doc_name)
         source = doc.addObject("Part::Feature", "ShellSource")
-        source.Shape = Part.makeBox(20, 30, 40).Shells[0]
+        source.Shape = self._make_mould_reference_lofted_shell()
 
         obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
         MouldAnalysisFP(obj, source)
