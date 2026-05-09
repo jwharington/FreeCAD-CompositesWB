@@ -1458,12 +1458,20 @@ def analyze_source_shape(
         normalization_failure_payload = _validation_reason_payload(
             normalization_failure_checks
         )
+        normalization_validation_summary = (
+            "Validation fail: normalization did not produce an effective solid."
+        )
         result.update(
             {
                 "status": "Fail",
-                "summary": f"Mould analysis failed during normalization: {normalization['summary']}",
+                "summary": (
+                    "Source fail for mould analysis; "
+                    f"normalization={normalization['confidence']} ({normalization['summary']}), "
+                    "split_strategy=not_applicable(normalization_failed), "
+                    f"validation={normalization_validation_summary}"
+                ),
                 "validation_status": "Fail",
-                "validation_summary": "Validation fail: normalization did not produce an effective solid.",
+                "validation_summary": normalization_validation_summary,
                 "validation_checks": normalization_failure_checks,
                 "validation_reasons": normalization_failure_payload["reasons"],
                 "validation_reason_codes": normalization_failure_payload["reason_codes"],
@@ -1638,7 +1646,12 @@ def analyze_source_shape(
         f"validation={validation['summary']}"
     )
 
-    validation_payload = _validation_reason_payload(validation["checks"])
+    validation_reasons = validation.get("reasons")
+    validation_reason_codes = validation.get("reason_codes")
+    if validation_reasons is None or validation_reason_codes is None:
+        validation_payload = _validation_reason_payload(validation.get("checks", []))
+        validation_reasons = validation_payload["reasons"]
+        validation_reason_codes = validation_payload["reason_codes"]
 
     result.update(
         {
@@ -1676,8 +1689,8 @@ def analyze_source_shape(
             "validation_status": validation["status"],
             "validation_summary": validation["summary"],
             "validation_checks": validation["checks"],
-            "validation_reasons": validation_payload["reasons"],
-            "validation_reason_codes": validation_payload["reason_codes"],
+            "validation_reasons": validation_reasons,
+            "validation_reason_codes": validation_reason_codes,
         }
     )
     return result

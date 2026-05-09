@@ -569,6 +569,66 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         finally:
             FreeCAD.closeDocument(doc_name)
 
+    def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
+        import Part
+
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        def assert_summary_status_contract(result):
+            self.assertIn(result["status"], ("Ready", "Warning", "Fail"))
+            self.assertIn(result["validation_status"], ("Pass", "Warning", "Fail"))
+
+            summary_lower = result["summary"].lower()
+            self.assertIn(f"source {result['status'].lower()}", summary_lower)
+            for token in ("normalization", "split_strategy", "validation"):
+                self.assertIn(token, summary_lower)
+
+            self.assertTrue(
+                result["validation_summary"].startswith(
+                    f"Validation {result['validation_status'].lower()}"
+                )
+            )
+
+        ready_result = mould_analysis_module.analyze_source_shape(
+            self._make_mould_reference_box()
+        )
+        assert_summary_status_contract(ready_result)
+        self.assertEqual(ready_result["status"], "Ready")
+        self.assertEqual(ready_result["validation_status"], "Pass")
+
+        original_make_mould_halves = mould_analysis_module.make_mould_halves
+
+        def degraded_but_usable(shape_arg, surface_normal, surface_offset):
+            response = dict(
+                original_make_mould_halves(shape_arg, surface_normal, surface_offset)
+            )
+            response["status"] = "Degraded"
+            response["summary"] = "Injected degraded-but-usable mould halves for Slice F f2"
+            return response
+
+        with mock.patch.object(
+            mould_analysis_module,
+            "make_mould_halves",
+            side_effect=degraded_but_usable,
+        ):
+            warning_result = mould_analysis_module.analyze_source_shape(
+                self._make_mould_reference_box()
+            )
+
+        assert_summary_status_contract(warning_result)
+        self.assertEqual(warning_result["status"], "Warning")
+        self.assertEqual(warning_result["validation_status"], "Warning")
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+
+        fail_result = mould_analysis_module.analyze_source_shape(normalization_fail_shape)
+        assert_summary_status_contract(fail_result)
+        self.assertEqual(fail_result["status"], "Fail")
+        self.assertEqual(fail_result["validation_status"], "Fail")
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
