@@ -950,14 +950,41 @@ def validate_mould_result(
         except Exception:
             return True
 
-    add_check(parting_surface_status == "Ready", "parting surface generated")
-    add_check(mould_halves_status == "Ready", "mould halves generated")
-    add_check(
-        shape_is_non_null_and_valid(parting_surface_shape),
-        "parting surface shape is valid",
-    )
+    parting_shape_valid = shape_is_non_null_and_valid(parting_surface_shape)
     mould_half_a_is_null = getattr(mould_half_a_shape, "isNull", lambda: True)()
     mould_half_b_is_null = getattr(mould_half_b_shape, "isNull", lambda: True)()
+    mould_half_a_valid = shape_is_non_null_and_valid(mould_half_a_shape)
+    mould_half_b_valid = shape_is_non_null_and_valid(mould_half_b_shape)
+
+    degraded_but_usable = (
+        mould_halves_status == "Degraded"
+        and (not mould_half_a_is_null)
+        and (not mould_half_b_is_null)
+        and mould_half_a_valid
+        and mould_half_b_valid
+    )
+
+    add_check(parting_surface_status == "Ready", "parting surface generated")
+    if mould_halves_status == "Ready":
+        add_check(True, "mould halves generated")
+    elif degraded_but_usable:
+        add_check(
+            False,
+            "mould halves degraded but usable",
+            detail="status=Degraded with both half geometries valid",
+            warning=True,
+        )
+    else:
+        add_check(
+            False,
+            "mould halves generated",
+            detail=f"status={mould_halves_status}",
+        )
+
+    add_check(
+        parting_shape_valid,
+        "parting surface shape is valid",
+    )
     add_check(
         not mould_half_a_is_null,
         "mould half A geometry is non-null",
@@ -969,11 +996,11 @@ def validate_mould_result(
         detail="null mould half B geometry",
     )
     add_check(
-        shape_is_non_null_and_valid(mould_half_a_shape),
+        mould_half_a_valid,
         "first mould half shape is valid",
     )
     add_check(
-        shape_is_non_null_and_valid(mould_half_b_shape),
+        mould_half_b_valid,
         "second mould half shape is valid",
     )
     add_check(
