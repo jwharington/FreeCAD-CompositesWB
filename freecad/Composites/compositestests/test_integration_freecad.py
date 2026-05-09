@@ -329,6 +329,34 @@ class TestFreeCADIntegration(unittest.TestCase):
             any("normalization" in check.lower() for check in result["validation_checks"])
         )
 
+    def test_mould_analysis_unsupported_non_solid_non_shell_reports_explicit_fail_diagnostics(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _UnsupportedSourceShape:
+            ShapeType = "Wire"
+
+            @staticmethod
+            def isNull():
+                return False
+
+        result = analyze_source_shape(_UnsupportedSourceShape())
+
+        self.assertEqual(result["normalization_confidence"], "fail")
+        self.assertEqual(result["normalization_source_type"], "wire")
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["validation_status"], "Fail")
+        self.assertIn("normalization", result["summary"].lower())
+        self.assertIn("unsupported", result["normalization_summary"].lower())
+        self.assertTrue(
+            any(
+                check.startswith("FAIL: normalization produced no effective solid")
+                for check in result["validation_checks"]
+            )
+        )
+        self.assertTrue(
+            any("unsupported" in check.lower() for check in result["validation_checks"])
+        )
+
     def test_mould_analysis_shell_thickness_hint_attempt_recorded(self):
         import Part
 
@@ -356,6 +384,31 @@ class TestFreeCADIntegration(unittest.TestCase):
             result["normalization_reason_flags"],
         )
         self.assertIn("thickness envelope attempted", result["normalization_summary"].lower())
+
+    def test_mould_analysis_reason_flag_order_is_stable_for_repeated_runs(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        class _HintedShellSource:
+            Name = "HintedShellSource"
+            Thickness = 1.25
+            Laminate = types.SimpleNamespace(
+                TypeId="App::FeaturePython",
+                Proxy=types.SimpleNamespace(Type="Fem::MaterialMechanicalLaminate"),
+            )
+
+        face = Part.makeBox(10, 14, 18).Faces[0]
+        open_shell = Part.Shell([face])
+
+        result_a = analyze_source_shape(open_shell, source_obj=_HintedShellSource())
+        result_b = analyze_source_shape(open_shell, source_obj=_HintedShellSource())
+
+        flags_a = result_a["normalization_reason_flags"]
+        flags_b = result_b["normalization_reason_flags"]
+
+        self.assertEqual(flags_a, flags_b)
+        self.assertEqual(len(flags_a), len(set(flags_a)))
 
     def test_mould_analysis_shell_laminate_only_skips_thickness_envelope(self):
         import Part

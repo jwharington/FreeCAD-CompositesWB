@@ -191,6 +191,22 @@ def _normalization_hint_summary(hints):
 
     return f"{thickness_summary}, {laminate_summary}"
 
+
+def _dedupe_preserve_order(items):
+    deduped = []
+    seen = set()
+    for item in items:
+        if item in seen:
+            continue
+        deduped.append(item)
+        seen.add(item)
+    return deduped
+
+
+def _normalization_reason_flags(reason_flags, hint_flags):
+    return _dedupe_preserve_order(list(reason_flags) + list(hint_flags))
+
+
 def _format_vector(vec):
     return f"({vec.x:.3f}, {vec.y:.3f}, {vec.z:.3f})"
 
@@ -648,7 +664,7 @@ def normalize_source_shape(shape, hints=None):
             "confidence": confidence,
             "source_type": source_type,
             "summary": f"{summary} Hints: {hint_summary}.",
-            "reason_flags": list(reason_flags) + hint_flags,
+            "reason_flags": _normalization_reason_flags(reason_flags, hint_flags),
             "hint_flags": list(hint_flags),
             "hint_summary": hint_summary,
             "effective_shape": effective_shape,
