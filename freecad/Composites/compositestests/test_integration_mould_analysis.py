@@ -100,7 +100,7 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertTrue(is_mould_analysis(obj))
         self.assertEqual(obj.Source.Name, source.Name)
         self.assertEqual(obj.AnalysisStatus, "Ready")
-        self.assertAlmostEqual(obj.DrawDirectionScore, 50.0, places=6)
+        self.assertAlmostEqual(obj.DrawDirectionScore, 53.06122448979592, places=6)
         self.assertEqual(obj.UndercutCount, 0)
         self.assertEqual(obj.DraftViolationCount, 0)
         self.assertEqual(obj.UndercutRegions, ["None"])
@@ -148,6 +148,32 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 self.assertNotEqual(result["status"], "Waiting for source")
                 self.assertIn("normalization", result["summary"].lower())
                 self.assertTrue(result["normalization_reason_flags"])
+
+    def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape = self._make_mould_reference_rotated_box()
+        result_a = analyze_source_shape(shape)
+        result_b = analyze_source_shape(shape)
+
+        self.assertEqual(result_a["draw_direction_ranking"], result_b["draw_direction_ranking"])
+        self.assertEqual(result_a["draw_direction_score"], result_b["draw_direction_score"])
+        self.assertEqual(
+            (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
+            (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
+        )
+
+    def test_mould_backface_ratio_is_geometry_sensitive_for_box(self):
+        from freecad.Composites.tools.mould_analysis import _backface_area_ratio
+
+        shape = self._make_mould_reference_box()
+
+        ratio_x = _backface_area_ratio(shape, FreeCAD.Vector(1, 0, 0))
+        ratio_y = _backface_area_ratio(shape, FreeCAD.Vector(0, 1, 0))
+        ratio_z = _backface_area_ratio(shape, FreeCAD.Vector(0, 0, 1))
+
+        self.assertGreater(ratio_x, ratio_y)
+        self.assertGreater(ratio_y, ratio_z)
 
     def test_mould_analysis_detects_overhang_regions(self):
         import FreeCADGui

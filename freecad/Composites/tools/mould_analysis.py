@@ -18,6 +18,8 @@ NORMALIZATION_CONFIDENCE_EXACT = "exact"
 NORMALIZATION_CONFIDENCE_APPROXIMATE = "approximate"
 NORMALIZATION_CONFIDENCE_FAIL = "fail"
 
+GEOMETRY_BACKFACE_WEIGHT = 0.25
+
 
 def _safe_copy_shape(shape):
     try:
@@ -227,16 +229,61 @@ def _extent_along_direction(bbox, direction):
     )
 
 
+def _face_midpoint_normal(face):
+    try:
+        umin, umax, vmin, vmax = face.ParameterRange
+        u = 0.5 * (umin + umax)
+        v = 0.5 * (vmin + vmax)
+        normal = face.normalAt(u, v)
+    except Exception:
+        return None
+
+    length = getattr(normal, "Length", 0.0)
+    if not length:
+        return None
+    return Vector(normal.x / length, normal.y / length, normal.z / length)
+
+
+def _backface_area_ratio(shape, direction, epsilon=1.0e-9):
+    unit = _normalized(direction)
+    total_area = 0.0
+    backface_area = 0.0
+
+    for face in getattr(shape, "Faces", []):
+        area = float(getattr(face, "Area", 0.0) or 0.0)
+        if area <= 0.0:
+            continue
+        normal = _face_midpoint_normal(face)
+        if normal is None:
+            continue
+
+        dot = normal.x * unit.x + normal.y * unit.y + normal.z * unit.z
+        total_area += area
+        if dot < -epsilon:
+            backface_area += area
+
+    if total_area <= 0.0:
+        return 0.0
+    return max(0.0, min(1.0, backface_area / total_area))
+
+
 def _candidate_scores(shape):
     bbox = shape.BoundBox
     raw = []
-    for direction in _candidate_draw_directions:
+    for index, direction in enumerate(_candidate_draw_directions):
         extent = _extent_along_direction(bbox, direction)
-        score = 1.0 / extent if extent else 0.0
+        bbox_score = 1.0 / extent if extent else 0.0
+        backface_ratio = _backface_area_ratio(shape, direction)
+        geometry_factor = max(0.0, 1.0 - (GEOMETRY_BACKFACE_WEIGHT * backface_ratio))
+        score = bbox_score * geometry_factor
         raw.append(
             {
+                "index": index,
                 "direction": direction,
                 "extent": extent,
+                "bbox_score": bbox_score,
+                "backface_ratio": backface_ratio,
+                "geometry_factor": geometry_factor,
                 "score": score,
             }
         )
@@ -252,7 +299,7 @@ def _candidate_scores(shape):
                 "normalized_score": 100.0 * item["score"] / best_score,
             }
         )
-    ranked.sort(key=lambda item: item["score"], reverse=True)
+    ranked.sort(key=lambda item: (-item["score"], item["index"]))
     return ranked
 
 
