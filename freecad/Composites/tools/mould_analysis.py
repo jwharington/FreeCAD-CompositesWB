@@ -21,11 +21,33 @@ NORMALIZATION_CONFIDENCE_FAIL = "fail"
 
 GEOMETRY_BACKFACE_WEIGHT = 0.25
 MAX_SPLIT_STRATEGIES = 2
+MAX_MULTIPART_EXTRA_SPLITS = 2
 
 DECOMPOSITION_PLAN_STATUS_NOT_APPLICABLE = "not_applicable"
 DECOMPOSITION_PLAN_STATUS_NOT_REQUIRED = "not_required"
 DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART = "consider_multipart"
 DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED = "multipart_required"
+
+MULTIPART_EXECUTION_STATUS_NOT_APPLICABLE = "not_applicable"
+MULTIPART_EXECUTION_STATUS_NOT_ATTEMPTED = "not_attempted"
+MULTIPART_EXECUTION_STATUS_PROTOTYPED = "prototyped"
+
+MANUFACTURABILITY_STATUS_NOT_APPLICABLE = "not_applicable"
+MANUFACTURABILITY_STATUS_READY = "ready"
+MANUFACTURABILITY_CALIBRATION_VERSION = "v2"
+MANUFACTURABILITY_CALIBRATION_WEIGHTS = {
+    "draft_weight": 0.32,
+    "undercut_weight": 0.33,
+    "backface_weight": 0.20,
+    "multipart_weight": 0.10,
+    "group_density_weight": 0.05,
+}
+MANUFACTURABILITY_DRAFT_SATURATION_COUNT = 6.0
+MANUFACTURABILITY_UNDERCUT_SATURATION_COUNT = 6.0
+MANUFACTURABILITY_MULTIPART_SATURATION_COUNT = 2.0
+MANUFACTURABILITY_GROUP_DENSITY_SATURATION_COUNT = 4.0
+MANUFACTURABILITY_BACKFACE_SATURATION_RATIO = 0.60
+MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS = 3
 
 
 def _safe_copy_shape(shape):
@@ -345,6 +367,911 @@ def _decomposition_readiness_payload(
         "decomposition_plan_summary": decomposition_plan_summary,
         "decomposition_plan_candidates": decomposition_plan_candidates,
         "decomposition_plan_regions": decomposition_plan_regions,
+    }
+
+
+def _axis_bounds(shape, axis):
+    bbox = shape.BoundBox
+    if axis == "x":
+        return float(bbox.XMin), float(bbox.XMax)
+    if axis == "y":
+        return float(bbox.YMin), float(bbox.YMax)
+    return float(bbox.ZMin), float(bbox.ZMax)
+
+
+def _axis_clip_box(shape, axis, start, end, margin=0.1):
+    bbox = shape.BoundBox
+    xmin = float(bbox.XMin - (margin * bbox.XLength))
+    xmax = float(bbox.XMax + (margin * bbox.XLength))
+    ymin = float(bbox.YMin - (margin * bbox.YLength))
+    ymax = float(bbox.YMax + (margin * bbox.YLength))
+    zmin = float(bbox.ZMin - (margin * bbox.ZLength))
+    zmax = float(bbox.ZMax + (margin * bbox.ZLength))
+
+    if end <= start:
+        return Part.Shape()
+
+    if axis == "x":
+        return Part.makeBox(
+            float(end - start),
+            float(ymax - ymin),
+            float(zmax - zmin),
+            Vector(float(start), float(ymin), float(zmin)),
+        )
+    if axis == "y":
+        return Part.makeBox(
+            float(xmax - xmin),
+            float(end - start),
+            float(zmax - zmin),
+            Vector(float(xmin), float(start), float(zmin)),
+        )
+    return Part.makeBox(
+        float(xmax - xmin),
+        float(ymax - ymin),
+        float(end - start),
+        Vector(float(xmin), float(ymin), float(start)),
+    )
+
+
+def _split_offsets_from_violations(
+    violations,
+    axis_min,
+    axis_max,
+    baseline_offset,
+    max_extra_splits=MAX_MULTIPART_EXTRA_SPLITS,
+):
+    span = max(1.0e-6, float(axis_max) - float(axis_min))
+    eps = span * 1.0e-5
+    axis_min_f = float(axis_min)
+    axis_max_f = float(axis_max)
+    baseline_offset_f = float(baseline_offset)
+
+    raw_offsets = []
+    for violation in violations or []:
+        start = float(violation.get("start_position", 0.0))
+        end = float(violation.get("end_position", start))
+        midpoint = 0.5 * (start + end)
+        midpoint = max(axis_min_f + eps, min(axis_max_f - eps, midpoint))
+
+        if abs(midpoint - baseline_offset_f) <= eps:
+            continue
+
+        raw_offsets.append(midpoint)
+
+    raw_offsets.sort()
+
+    offsets = []
+    for midpoint in raw_offsets:
+        if any(abs(midpoint - existing) <= eps for existing in offsets):
+            continue
+        offsets.append(midpoint)
+
+    return offsets[: max(0, int(max_extra_splits))]
+
+
+def _multipart_offset_sets(extra_offsets, max_depth=2):
+    offsets = [float(offset) for offset in extra_offsets or []]
+    if not offsets:
+        return []
+
+    sets = []
+    first = [offsets[0]]
+    sets.append(first)
+
+    if len(offsets) >= 2 and int(max_depth) >= 2:
+        sets.append([offsets[0], offsets[1]])
+
+    return sets
+
+
+def _multipart_piece_slices(shape, axis, baseline_offset, extra_offsets):
+    axis_min, axis_max = _axis_bounds(shape, axis)
+    span = max(1.0e-6, float(axis_max) - float(axis_min))
+    eps = span * 1.0e-5
+
+    offsets = [
+        max(axis_min, min(axis_max, float(baseline_offset))),
+    ]
+    offsets.extend(
+        max(axis_min, min(axis_max, float(offset)))
+        for offset in (extra_offsets or [])
+    )
+
+    unique_offsets = []
+    for offset in sorted(offsets):
+        if unique_offsets and abs(offset - unique_offsets[-1]) <= eps:
+            continue
+        unique_offsets.append(offset)
+
+    cuts = [axis_min] + unique_offsets + [axis_max]
+
+    pieces = []
+    for index in range(len(cuts) - 1):
+        start = cuts[index]
+        end = cuts[index + 1]
+        if end <= start:
+            continue
+        clip_box = _axis_clip_box(shape, axis, start, end)
+        if getattr(clip_box, "isNull", lambda: True)():
+            continue
+        try:
+            piece = shape.common(clip_box)
+        except Exception:
+            piece = Part.Shape()
+
+        volume = float(getattr(piece, "Volume", 0.0) or 0.0)
+        if getattr(piece, "isNull", lambda: True)() or volume <= 1.0e-9:
+            continue
+
+        pieces.append(
+            {
+                "piece_index": len(pieces) + 1,
+                "start": float(start),
+                "end": float(end),
+                "volume": volume,
+                "shape": piece,
+            }
+        )
+
+    return pieces
+
+
+def _multipart_attempt(
+    shape,
+    direction,
+    baseline_offset,
+    extra_offsets,
+    baseline_violation_count,
+):
+    axis = _dominant_axis(direction)
+    split_offsets = [float(offset) for offset in (extra_offsets or [])]
+    pieces = _multipart_piece_slices(
+        shape,
+        axis,
+        baseline_offset,
+        split_offsets,
+    )
+
+    piece_violation_count = 0
+    for piece in pieces:
+        _, violations = _direction_profile_and_violations(piece["shape"], direction)
+        piece_violation_count += len(violations)
+
+    if len(pieces) < 2:
+        status = "Fail"
+        reason = "multipart split produced fewer than two non-null source partitions"
+    elif piece_violation_count < int(baseline_violation_count or 0):
+        status = "Pass"
+        reason = "multipart split reduced profile violations versus two-piece baseline"
+    else:
+        status = "Warning"
+        reason = "multipart split did not reduce profile violations versus two-piece baseline"
+
+    return {
+        "axis": axis,
+        "split_offset": float(split_offsets[0]) if split_offsets else float(baseline_offset),
+        "split_offsets": split_offsets,
+        "split_depth": len(split_offsets),
+        "baseline_offset": float(baseline_offset),
+        "piece_count": len(pieces),
+        "piece_volumes": [float(piece["volume"]) for piece in pieces],
+        "total_piece_volume": float(sum(piece["volume"] for piece in pieces)),
+        "baseline_violation_count": int(baseline_violation_count or 0),
+        "piece_violation_count": int(piece_violation_count),
+        "status": status,
+        "reason": reason,
+    }
+
+
+def _select_best_multipart_attempt(attempts):
+    if not attempts:
+        return None
+
+    status_rank = {
+        "Pass": 3,
+        "Warning": 2,
+        "Fail": 1,
+    }
+
+    return max(
+        attempts,
+        key=lambda attempt: (
+            status_rank.get(attempt.get("status", "Fail"), 0),
+            float(attempt.get("baseline_violation_count", 0))
+            - float(attempt.get("piece_violation_count", 0)),
+            float(attempt.get("total_piece_volume", 0.0)),
+            -int(attempt.get("split_depth", 0) or 0),
+            -abs(
+                float(attempt.get("split_offset", 0.0))
+                - float(attempt.get("baseline_offset", 0.0))
+            ),
+        ),
+    )
+
+
+def _multipart_execution_payload(
+    shape,
+    direction,
+    baseline_offset,
+    baseline_violations,
+    decomposition_plan_status,
+):
+    if decomposition_plan_status in (
+        DECOMPOSITION_PLAN_STATUS_NOT_APPLICABLE,
+        DECOMPOSITION_PLAN_STATUS_NOT_REQUIRED,
+    ):
+        return {
+            "multipart_execution_status": MULTIPART_EXECUTION_STATUS_NOT_APPLICABLE,
+            "multipart_execution_summary": (
+                "Multipart prototype not applicable: decomposition planning is not required."
+            ),
+            "multipart_execution_attempts": [],
+            "multipart_piece_count": 0,
+        }
+
+    if shape is None or getattr(shape, "isNull", lambda: True)():
+        return {
+            "multipart_execution_status": MULTIPART_EXECUTION_STATUS_NOT_ATTEMPTED,
+            "multipart_execution_summary": (
+                "Multipart prototype not attempted: effective source shape is unavailable."
+            ),
+            "multipart_execution_attempts": [],
+            "multipart_piece_count": 0,
+        }
+
+    axis = _dominant_axis(direction)
+    axis_min, axis_max = _axis_bounds(shape, axis)
+    extra_offsets = _split_offsets_from_violations(
+        baseline_violations,
+        axis_min,
+        axis_max,
+        baseline_offset,
+    )
+    offset_sets = _multipart_offset_sets(extra_offsets)
+
+    if not offset_sets:
+        return {
+            "multipart_execution_status": MULTIPART_EXECUTION_STATUS_NOT_ATTEMPTED,
+            "multipart_execution_summary": (
+                "Multipart prototype not attempted: no deterministic extra split offset was derived from profile violations."
+            ),
+            "multipart_execution_attempts": [],
+            "multipart_piece_count": 0,
+        }
+
+    attempts = []
+    baseline_violation_count = len(baseline_violations or [])
+    level_counters = {}
+    for index, split_offsets in enumerate(offset_sets, start=1):
+        attempt = _multipart_attempt(
+            shape,
+            direction,
+            baseline_offset,
+            split_offsets,
+            baseline_violation_count,
+        )
+
+        split_depth = int(attempt["split_depth"])
+        level_counters[split_depth] = level_counters.get(split_depth, 0) + 1
+        level_index = level_counters[split_depth]
+
+        attempts.append(
+            {
+                "attempt_index": index,
+                "strategy_id": f"multipart_extra_split_l{split_depth}_{level_index}",
+                "axis": attempt["axis"],
+                "split_offset": attempt["split_offset"],
+                "split_offsets": attempt["split_offsets"],
+                "split_depth": split_depth,
+                "baseline_offset": attempt["baseline_offset"],
+                "piece_count": attempt["piece_count"],
+                "piece_volumes": attempt["piece_volumes"],
+                "total_piece_volume": attempt["total_piece_volume"],
+                "baseline_violation_count": attempt["baseline_violation_count"],
+                "piece_violation_count": attempt["piece_violation_count"],
+                "status": attempt["status"],
+                "reason": attempt["reason"],
+            }
+        )
+
+    selected_attempt = _select_best_multipart_attempt(attempts)
+    selected_piece_count = int(selected_attempt["piece_count"]) if selected_attempt else 0
+
+    selected_status = selected_attempt["status"] if selected_attempt else "Fail"
+    selected_attempt_index = selected_attempt["attempt_index"] if selected_attempt else 0
+    selected_reason = selected_attempt["reason"] if selected_attempt else ""
+    selected_depth = int(selected_attempt.get("split_depth", 0) or 0) if selected_attempt else 0
+    selected_offset_count = len(selected_attempt.get("split_offsets", [])) if selected_attempt else 0
+    summary = (
+        f"Multipart prototype {MULTIPART_EXECUTION_STATUS_PROTOTYPED}: "
+        f"attempts={len(attempts)}, selected_attempt={selected_attempt_index}, "
+        f"selected_status={selected_status}, piece_count={selected_piece_count}, "
+        f"selected_depth={selected_depth}, selected_offset_count={selected_offset_count}; "
+        f"{selected_reason}"
+    )
+
+    return {
+        "multipart_execution_status": MULTIPART_EXECUTION_STATUS_PROTOTYPED,
+        "multipart_execution_summary": summary,
+        "multipart_execution_attempts": attempts,
+        "multipart_piece_count": selected_piece_count,
+    }
+
+
+def _region_interval(region_text):
+    match = re.search(
+        r"\[\d+\]\s*([-+]?\d*\.?\d+)→([-+]?\d*\.?\d+)",
+        str(region_text or ""),
+    )
+    if not match:
+        return None
+
+    start = float(match.group(1))
+    end = float(match.group(2))
+    if end < start:
+        start, end = end, start
+    return start, end
+
+
+def _manufacturability_overlay_bands(undercut_regions, draft_violation_regions):
+    bands = []
+
+    def extend(kind, regions):
+        for region in regions or []:
+            interval = _region_interval(region)
+            if interval is None:
+                continue
+            start, end = interval
+            bands.append(
+                {
+                    "kind": kind,
+                    "start": round(float(start), 9),
+                    "end": round(float(end), 9),
+                    "label": str(region),
+                }
+            )
+
+    extend("undercut", undercut_regions)
+    extend("draft_violation", draft_violation_regions)
+
+    return sorted(
+        bands,
+        key=lambda item: (
+            item["kind"],
+            float(item["start"]),
+            float(item["end"]),
+            item["label"],
+        ),
+    )
+
+
+def _overlay_group_severity_tier(group):
+    span = max(0.0, float(group.get("span", 0.0) or 0.0))
+    band_count = max(0, int(group.get("band_count", 0) or 0))
+    span_component = min(1.0, span / 10.0)
+    density_component = min(1.0, float(band_count) / 3.0)
+    severity_score = 0.5 * (span_component + density_component)
+
+    if severity_score >= 0.67:
+        return "high"
+    if severity_score >= 0.34:
+        return "medium"
+    return "low"
+
+
+def _overlay_group_cluster_label(group):
+    kind = str(group.get("kind") or "cluster")
+    return f"{kind}_{_overlay_group_severity_tier(group)}_cluster"
+
+
+def _ordered_overlay_groups(groups):
+    return sorted(
+        list(groups or []),
+        key=lambda item: (
+            item.get("kind", ""),
+            float(item.get("start", 0.0) or 0.0),
+            float(item.get("end", 0.0) or 0.0),
+            item.get("group_id", ""),
+        ),
+    )
+
+
+def _manufacturability_overlay_groups(bands):
+    sorted_bands = sorted(
+        list(bands or []),
+        key=lambda item: (
+            item["kind"],
+            float(item["start"]),
+            float(item["end"]),
+            item["label"],
+        ),
+    )
+    if not sorted_bands:
+        return []
+
+    global_start = min(float(band["start"]) for band in sorted_bands)
+    global_end = max(float(band["end"]) for band in sorted_bands)
+    span = max(1.0e-6, global_end - global_start)
+    eps = max(1.0e-9, span * 1.0e-6)
+
+    groups = []
+    current = None
+
+    for band in sorted_bands:
+        kind = str(band["kind"])
+        start = float(band["start"])
+        end = float(band["end"])
+        label = str(band["label"])
+
+        if (
+            current is None
+            or kind != current["kind"]
+            or start > float(current["end"]) + eps
+        ):
+            if current is not None:
+                groups.append(current)
+            current = {
+                "kind": kind,
+                "start": start,
+                "end": end,
+                "band_count": 1,
+                "labels": [label],
+            }
+            continue
+
+        current["end"] = max(float(current["end"]), end)
+        current["band_count"] = int(current["band_count"] or 0) + 1
+        current["labels"].append(label)
+
+    if current is not None:
+        groups.append(current)
+
+    groups = sorted(
+        groups,
+        key=lambda item: (
+            item["kind"],
+            float(item["start"]),
+            float(item["end"]),
+            tuple(sorted(set(item["labels"]))),
+        ),
+    )
+
+    by_kind_index = {}
+    payload = []
+    for group in groups:
+        kind = group["kind"]
+        by_kind_index[kind] = by_kind_index.get(kind, 0) + 1
+        start = round(float(group["start"]), 9)
+        end = round(float(group["end"]), 9)
+        labels = sorted(set(str(label) for label in group.get("labels", [])))
+        cluster_group = {
+            "group_id": f"{kind}_g{by_kind_index[kind]}",
+            "kind": kind,
+            "band_count": int(group.get("band_count", 0) or 0),
+            "start": start,
+            "end": end,
+            "labels": labels,
+            "span": round(max(0.0, end - start), 9),
+        }
+        cluster_group["severity_tier"] = _overlay_group_severity_tier(cluster_group)
+        cluster_group["cluster_label"] = _overlay_group_cluster_label(cluster_group)
+        payload.append(cluster_group)
+
+    return _ordered_overlay_groups(payload)
+
+
+def _manufacturability_overlay_group_summary(groups):
+    groups = _ordered_overlay_groups(groups)
+    undercut_groups = len([group for group in groups if group.get("kind") == "undercut"])
+    draft_groups = len(
+        [group for group in groups if group.get("kind") == "draft_violation"]
+    )
+    return (
+        f"groups={len(groups)}, undercut_groups={undercut_groups}, "
+        f"draft_violation_groups={draft_groups}"
+    )
+
+
+def _manufacturability_overlay_top_clusters(
+    groups,
+    max_items=MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS,
+):
+    ordered_groups = _ordered_overlay_groups(groups)
+    limit = max(0, int(max_items or 0))
+    payload = []
+    for group in ordered_groups[:limit]:
+        payload.append(
+            {
+                "group_id": str(group.get("group_id") or ""),
+                "kind": str(group.get("kind") or ""),
+                "cluster_label": str(group.get("cluster_label") or ""),
+                "severity_tier": str(group.get("severity_tier") or "low"),
+                "start": round(float(group.get("start", 0.0) or 0.0), 9),
+                "end": round(float(group.get("end", 0.0) or 0.0), 9),
+                "span": round(float(group.get("span", 0.0) or 0.0), 9),
+                "band_count": int(group.get("band_count", 0) or 0),
+            }
+        )
+    return payload
+
+
+def _manufacturability_overlay_cluster_summary(
+    groups,
+    max_items=MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS,
+):
+    ordered_groups = _ordered_overlay_groups(groups)
+    top_clusters = _manufacturability_overlay_top_clusters(
+        ordered_groups,
+        max_items=max_items,
+    )
+    if not top_clusters:
+        return f"clusters=0, top_clusters=[], cap={int(max_items or 0)}"
+
+    top_tokens = [
+        f"{cluster['group_id']}:{cluster['cluster_label']}"
+        for cluster in top_clusters
+    ]
+    return (
+        f"clusters={len(ordered_groups)}, top_clusters=[{', '.join(top_tokens)}], "
+        f"cap={int(max_items or 0)}"
+    )
+
+
+def _manufacturability_calibration_weights():
+    return {
+        key: round(float(value), 9)
+        for key, value in MANUFACTURABILITY_CALIBRATION_WEIGHTS.items()
+    }
+
+
+def _manufacturability_calibration_inputs(
+    draft_violation_count,
+    undercut_count,
+    backface_area_ratio,
+    multipart_piece_count,
+    overlay_group_count,
+):
+    multipart_piece_count = int(multipart_piece_count or 0)
+    return {
+        "draft_violation_count": int(draft_violation_count or 0),
+        "undercut_count": int(undercut_count or 0),
+        "backface_area_ratio": round(float(backface_area_ratio or 0.0), 9),
+        "multipart_piece_count": multipart_piece_count,
+        "multipart_excess_piece_count": max(0, multipart_piece_count - 2),
+        "overlay_group_count": int(overlay_group_count or 0),
+        "draft_saturation_count": round(
+            float(MANUFACTURABILITY_DRAFT_SATURATION_COUNT),
+            9,
+        ),
+        "undercut_saturation_count": round(
+            float(MANUFACTURABILITY_UNDERCUT_SATURATION_COUNT),
+            9,
+        ),
+        "multipart_saturation_count": round(
+            float(MANUFACTURABILITY_MULTIPART_SATURATION_COUNT),
+            9,
+        ),
+        "group_density_saturation_count": round(
+            float(MANUFACTURABILITY_GROUP_DENSITY_SATURATION_COUNT),
+            9,
+        ),
+        "backface_saturation_ratio": round(
+            float(MANUFACTURABILITY_BACKFACE_SATURATION_RATIO),
+            9,
+        ),
+    }
+
+
+def _manufacturability_score_breakdown(
+    backface_area_ratio,
+    undercut_count,
+    draft_violation_count,
+    multipart_piece_count,
+    overlay_group_count=0,
+    calibration_weights=None,
+):
+    draft_component = min(
+        1.0,
+        max(0.0, float(draft_violation_count or 0.0))
+        / max(1.0, float(MANUFACTURABILITY_DRAFT_SATURATION_COUNT)),
+    )
+    undercut_component = min(
+        1.0,
+        max(0.0, float(undercut_count or 0.0))
+        / max(1.0, float(MANUFACTURABILITY_UNDERCUT_SATURATION_COUNT)),
+    )
+    backface_component = min(
+        1.0,
+        max(0.0, float(backface_area_ratio or 0.0))
+        / max(1.0e-6, float(MANUFACTURABILITY_BACKFACE_SATURATION_RATIO)),
+    )
+    multipart_component = min(
+        1.0,
+        max(0.0, float(int(multipart_piece_count or 0) - 2))
+        / max(1.0, float(MANUFACTURABILITY_MULTIPART_SATURATION_COUNT)),
+    )
+    group_density_component = min(
+        1.0,
+        max(0.0, float(overlay_group_count or 0.0))
+        / max(1.0, float(MANUFACTURABILITY_GROUP_DENSITY_SATURATION_COUNT)),
+    )
+
+    calibration_weights = calibration_weights or _manufacturability_calibration_weights()
+    draft_weight = max(0.0, float(calibration_weights.get("draft_weight", 0.32) or 0.0))
+    undercut_weight = max(
+        0.0,
+        float(calibration_weights.get("undercut_weight", 0.33) or 0.0),
+    )
+    backface_weight = max(
+        0.0,
+        float(calibration_weights.get("backface_weight", 0.20) or 0.0),
+    )
+    multipart_weight = max(
+        0.0,
+        float(calibration_weights.get("multipart_weight", 0.10) or 0.0),
+    )
+    group_density_weight = max(
+        0.0,
+        float(calibration_weights.get("group_density_weight", 0.05) or 0.0),
+    )
+
+    weighted_total = (
+        (draft_weight * draft_component)
+        + (undercut_weight * undercut_component)
+        + (backface_weight * backface_component)
+        + (multipart_weight * multipart_component)
+        + (group_density_weight * group_density_component)
+    )
+    weight_sum = (
+        draft_weight
+        + undercut_weight
+        + backface_weight
+        + multipart_weight
+        + group_density_weight
+    )
+    if weight_sum <= 1.0e-9:
+        total = 0.0
+    else:
+        total = weighted_total / weight_sum
+    total = min(1.0, max(0.0, total))
+
+    return {
+        "draft_component": round(draft_component, 9),
+        "undercut_component": round(undercut_component, 9),
+        "backface_component": round(backface_component, 9),
+        "multipart_component": round(multipart_component, 9),
+        "group_density_component": round(group_density_component, 9),
+        "total": round(total, 9),
+    }
+
+
+def _manufacturability_risk_class(risk_index):
+    if risk_index >= 0.67:
+        return "high"
+    if risk_index >= 0.34:
+        return "medium"
+    return "low"
+
+
+def _largest_overlay_group(groups, kind):
+    matching = [group for group in (groups or []) if group.get("kind") == kind]
+    if not matching:
+        return None
+    return max(
+        matching,
+        key=lambda group: (
+            float(group.get("span", 0.0) or 0.0),
+            int(group.get("band_count", 0) or 0),
+            group.get("group_id", ""),
+        ),
+    )
+
+
+def _manufacturability_recommendations(
+    breakdown,
+    undercut_count,
+    draft_violation_count,
+    decomposition_plan_status,
+    multipart_piece_count,
+    overlay_groups=None,
+):
+    recommendations = []
+    if int(draft_violation_count or 0) > 0:
+        recommendations.append("reduce_negative_draft")
+    if int(undercut_count or 0) > 0:
+        recommendations.append("relieve_undercut_regions")
+    if float(breakdown.get("backface_component", 0.0) or 0.0) >= 0.25:
+        recommendations.append("reduce_backface_exposure")
+    if (
+        decomposition_plan_status in (
+            DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART,
+            DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED,
+        )
+        or int(multipart_piece_count or 0) >= 4
+    ):
+        recommendations.append("consider_additional_multipart_depth")
+
+    largest_undercut_group = _largest_overlay_group(overlay_groups, "undercut")
+    largest_draft_group = _largest_overlay_group(overlay_groups, "draft_violation")
+
+    if largest_undercut_group is not None:
+        recommendations.append("target_largest_undercut_group")
+        if largest_undercut_group.get("severity_tier") == "high":
+            recommendations.append("prioritize_high_severity_undercut_cluster")
+
+    if largest_draft_group is not None:
+        recommendations.append("target_largest_draft_group")
+        if largest_draft_group.get("severity_tier") == "high":
+            recommendations.append("prioritize_high_severity_draft_cluster")
+
+    return sorted(_dedupe_preserve_order(recommendations))
+
+
+def _not_applicable_manufacturability_payload(reason):
+    calibration_weights = _manufacturability_calibration_weights()
+    calibration_inputs = _manufacturability_calibration_inputs(
+        0,
+        0,
+        0.0,
+        0,
+        0,
+    )
+    return {
+        "manufacturability_status": MANUFACTURABILITY_STATUS_NOT_APPLICABLE,
+        "manufacturability_summary": (
+            f"manufacturability=not_applicable; reason={reason}; "
+            f"groups=0, clusters=0, calibration={MANUFACTURABILITY_CALIBRATION_VERSION}"
+        ),
+        "manufacturability_metrics": {
+            "backface_area_ratio": 0.0,
+            "undercut_count": 0,
+            "draft_violation_count": 0,
+            "multipart_piece_count": 0,
+            "risk_index": 0.0,
+            "risk_class": "low",
+        },
+        "manufacturability_overlay_status": MANUFACTURABILITY_STATUS_NOT_APPLICABLE,
+        "manufacturability_overlay_summary": f"overlay=not_applicable; reason={reason}",
+        "manufacturability_overlay_bands": [],
+        "manufacturability_overlay_groups": [],
+        "manufacturability_overlay_group_count": 0,
+        "manufacturability_overlay_group_summary": (
+            "groups=0, undercut_groups=0, draft_violation_groups=0"
+        ),
+        "manufacturability_overlay_cluster_summary": (
+            f"clusters=0, top_clusters=[], cap={MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS}"
+        ),
+        "manufacturability_overlay_top_clusters": [],
+        "manufacturability_pull_direction": "(0.000, 0.000, 1.000)",
+        "manufacturability_recommendations": [],
+        "manufacturability_score_breakdown": {
+            "draft_component": 0.0,
+            "undercut_component": 0.0,
+            "backface_component": 0.0,
+            "multipart_component": 0.0,
+            "group_density_component": 0.0,
+            "total": 0.0,
+        },
+        "manufacturability_calibration_version": MANUFACTURABILITY_CALIBRATION_VERSION,
+        "manufacturability_calibration_inputs": calibration_inputs,
+        "manufacturability_calibration_weights": calibration_weights,
+    }
+
+
+def _manufacturability_payload(
+    shape,
+    pull_direction,
+    undercut_count,
+    draft_violation_count,
+    undercut_regions,
+    draft_violation_regions,
+    multipart_payload,
+    decomposition_plan_status,
+):
+    if shape is None or getattr(shape, "isNull", lambda: True)():
+        return _not_applicable_manufacturability_payload("source_shape_unavailable")
+
+    pull_unit = _normalized(pull_direction)
+    backface_area_ratio = round(float(_backface_area_ratio(shape, pull_unit)), 9)
+
+    multipart_piece_count = int(multipart_payload.get("multipart_piece_count", 0) or 0)
+    bands = _manufacturability_overlay_bands(
+        undercut_regions,
+        draft_violation_regions,
+    )
+    overlay_groups = _manufacturability_overlay_groups(bands)
+    overlay_group_count = len(overlay_groups)
+    overlay_group_summary = _manufacturability_overlay_group_summary(overlay_groups)
+    overlay_top_clusters = _manufacturability_overlay_top_clusters(
+        overlay_groups,
+        max_items=MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS,
+    )
+    overlay_cluster_summary = _manufacturability_overlay_cluster_summary(
+        overlay_groups,
+        max_items=MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS,
+    )
+
+    calibration_version = MANUFACTURABILITY_CALIBRATION_VERSION
+    calibration_weights = _manufacturability_calibration_weights()
+    calibration_inputs = _manufacturability_calibration_inputs(
+        draft_violation_count,
+        undercut_count,
+        backface_area_ratio,
+        multipart_piece_count,
+        overlay_group_count,
+    )
+
+    breakdown = _manufacturability_score_breakdown(
+        backface_area_ratio,
+        undercut_count,
+        draft_violation_count,
+        multipart_piece_count,
+        overlay_group_count=overlay_group_count,
+        calibration_weights=calibration_weights,
+    )
+    risk_index = float(breakdown["total"])
+    risk_class = _manufacturability_risk_class(risk_index)
+
+    metrics = {
+        "backface_area_ratio": backface_area_ratio,
+        "undercut_count": int(undercut_count or 0),
+        "draft_violation_count": int(draft_violation_count or 0),
+        "multipart_piece_count": multipart_piece_count,
+        "risk_index": round(risk_index, 9),
+        "risk_class": risk_class,
+    }
+
+    summary = (
+        "manufacturability=ready; "
+        f"risk_index={metrics['risk_index']:.2f}, risk_class={risk_class}, "
+        f"backface={backface_area_ratio:.2f}, undercuts={metrics['undercut_count']}, "
+        f"draft_violations={metrics['draft_violation_count']}, "
+        f"multipart_pieces={metrics['multipart_piece_count']}, "
+        f"groups={overlay_group_count}, clusters={len(overlay_top_clusters)}, "
+        f"calibration={calibration_version}, "
+        f"group_density_weight={calibration_weights['group_density_weight']:.2f}, "
+        f"draft_sat={MANUFACTURABILITY_DRAFT_SATURATION_COUNT:.1f}, "
+        f"undercut_sat={MANUFACTURABILITY_UNDERCUT_SATURATION_COUNT:.1f}"
+    )
+
+    undercut_band_count = len([band for band in bands if band["kind"] == "undercut"])
+    draft_band_count = len([band for band in bands if band["kind"] == "draft_violation"])
+
+    pull_direction_text = _format_vector(pull_unit)
+    overlay_summary = (
+        "overlay=ready; "
+        f"bands={len(bands)}, groups={overlay_group_count}, "
+        f"undercut={undercut_band_count}, draft_violation={draft_band_count}, "
+        f"top_clusters={len(overlay_top_clusters)}, pull={pull_direction_text}"
+    )
+
+    recommendations = _manufacturability_recommendations(
+        breakdown,
+        undercut_count,
+        draft_violation_count,
+        decomposition_plan_status,
+        multipart_piece_count,
+        overlay_groups=overlay_groups,
+    )
+
+    return {
+        "manufacturability_status": MANUFACTURABILITY_STATUS_READY,
+        "manufacturability_summary": summary,
+        "manufacturability_metrics": metrics,
+        "manufacturability_overlay_status": MANUFACTURABILITY_STATUS_READY,
+        "manufacturability_overlay_summary": overlay_summary,
+        "manufacturability_overlay_bands": bands,
+        "manufacturability_overlay_groups": overlay_groups,
+        "manufacturability_overlay_group_count": overlay_group_count,
+        "manufacturability_overlay_group_summary": overlay_group_summary,
+        "manufacturability_overlay_cluster_summary": overlay_cluster_summary,
+        "manufacturability_overlay_top_clusters": overlay_top_clusters,
+        "manufacturability_pull_direction": pull_direction_text,
+        "manufacturability_recommendations": recommendations,
+        "manufacturability_score_breakdown": breakdown,
+        "manufacturability_calibration_version": calibration_version,
+        "manufacturability_calibration_inputs": calibration_inputs,
+        "manufacturability_calibration_weights": calibration_weights,
     }
 
 
@@ -1356,6 +2283,13 @@ def _base_analysis_result():
         "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
         "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
         "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
+        "multipart_execution_status": MULTIPART_EXECUTION_STATUS_NOT_APPLICABLE,
+        "multipart_execution_summary": "Multipart prototype not applicable: no source shape available.",
+        "multipart_execution_attempts": [],
+        "multipart_piece_count": 0,
+        **_not_applicable_manufacturability_payload(
+            "no_source_shape_available"
+        ),
         "normalization_confidence": NORMALIZATION_CONFIDENCE_FAIL,
         "normalization_source_type": "none",
         "normalization_summary": "Normalization failed: source shape is missing or null.",
@@ -1641,6 +2575,15 @@ def analyze_source_shape(
                 "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
                 "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
                 "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
+                "multipart_execution_status": MULTIPART_EXECUTION_STATUS_NOT_ATTEMPTED,
+                "multipart_execution_summary": (
+                    "Multipart prototype not attempted: normalization failed to produce an effective source shape."
+                ),
+                "multipart_execution_attempts": [],
+                "multipart_piece_count": 0,
+                **_not_applicable_manufacturability_payload(
+                    "normalization_failed"
+                ),
                 "parting_surface_status": "Fail",
                 "parting_surface_summary": "No parting surface generated because normalization failed.",
                 "parting_curve_summary": "No parting surface generated because normalization failed.",
@@ -1812,6 +2755,24 @@ def analyze_source_shape(
         validation_reason_codes,
     )
 
+    multipart_payload = _multipart_execution_payload(
+        effective_shape,
+        selected_split_strategy["direction"],
+        parting["surface_offset"],
+        selected_violations,
+        decomposition_payload["decomposition_plan_status"],
+    )
+    manufacturability_payload = _manufacturability_payload(
+        effective_shape,
+        selected_split_strategy["direction"],
+        undercut_count,
+        draft_violation_count,
+        undercut_regions,
+        draft_violation_regions,
+        multipart_payload,
+        decomposition_payload["decomposition_plan_status"],
+    )
+
     summary = (
         f"Source {status.lower()} for mould analysis; "
         f"normalization={normalization['confidence']} ({normalization['summary']}), "
@@ -1824,6 +2785,8 @@ def analyze_source_shape(
         f"split_strategy={split_strategy_summary}, "
         f"split_attempts={len(split_strategy_attempt_diagnostics)}, "
         f"decomposition={decomposition_payload['decomposition_plan_status']}, "
+        f"multipart={multipart_payload['multipart_execution_status']}, "
+        f"manufacturability={manufacturability_payload['manufacturability_status']}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1872,6 +2835,27 @@ def analyze_source_shape(
             "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
             "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
             "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
+            "multipart_execution_status": multipart_payload["multipart_execution_status"],
+            "multipart_execution_summary": multipart_payload["multipart_execution_summary"],
+            "multipart_execution_attempts": multipart_payload["multipart_execution_attempts"],
+            "multipart_piece_count": multipart_payload["multipart_piece_count"],
+            "manufacturability_status": manufacturability_payload["manufacturability_status"],
+            "manufacturability_summary": manufacturability_payload["manufacturability_summary"],
+            "manufacturability_metrics": manufacturability_payload["manufacturability_metrics"],
+            "manufacturability_overlay_status": manufacturability_payload["manufacturability_overlay_status"],
+            "manufacturability_overlay_summary": manufacturability_payload["manufacturability_overlay_summary"],
+            "manufacturability_overlay_bands": manufacturability_payload["manufacturability_overlay_bands"],
+            "manufacturability_overlay_groups": manufacturability_payload["manufacturability_overlay_groups"],
+            "manufacturability_overlay_group_count": manufacturability_payload["manufacturability_overlay_group_count"],
+            "manufacturability_overlay_group_summary": manufacturability_payload["manufacturability_overlay_group_summary"],
+            "manufacturability_overlay_cluster_summary": manufacturability_payload["manufacturability_overlay_cluster_summary"],
+            "manufacturability_overlay_top_clusters": manufacturability_payload["manufacturability_overlay_top_clusters"],
+            "manufacturability_pull_direction": manufacturability_payload["manufacturability_pull_direction"],
+            "manufacturability_recommendations": manufacturability_payload["manufacturability_recommendations"],
+            "manufacturability_score_breakdown": manufacturability_payload["manufacturability_score_breakdown"],
+            "manufacturability_calibration_version": manufacturability_payload["manufacturability_calibration_version"],
+            "manufacturability_calibration_inputs": manufacturability_payload["manufacturability_calibration_inputs"],
+            "manufacturability_calibration_weights": manufacturability_payload["manufacturability_calibration_weights"],
         }
     )
     return result
