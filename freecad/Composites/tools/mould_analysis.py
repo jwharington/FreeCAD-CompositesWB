@@ -329,6 +329,32 @@ def _candidate_diagnostics(ranked):
     return diagnostics
 
 
+def _draw_direction_rationale(ranked):
+    if not ranked:
+        return "No ranked candidate directions were available."
+
+    winner = ranked[0]
+    winner_direction = _format_vector(winner["direction"])
+    winner_score = winner["normalized_score"]
+    winner_backface = 100.0 * winner["backface_ratio"]
+    winner_geometry = winner["geometry_factor"]
+    winner_bbox = winner["bbox_score"]
+
+    if len(ranked) == 1:
+        margin_text = "single candidate"
+    else:
+        runner_up = ranked[1]
+        runner_direction = _format_vector(runner_up["direction"])
+        margin_pp = winner_score - runner_up["normalized_score"]
+        margin_text = f"margin_vs_runner_up={margin_pp:.1f}pp (vs {runner_direction})"
+
+    return (
+        f"winner={winner_direction}; score={winner_score:.1f}%"
+        f"; bbox={winner_bbox:.5f}; backface={winner_backface:.1f}%"
+        f"; geometry_factor={winner_geometry:.3f}; {margin_text}."
+    )
+
+
 def _projection_bounds(shape, direction):
     unit = _normalized(direction)
     corners = [
@@ -687,6 +713,7 @@ def _base_analysis_result():
         "best_draw_direction": default_mould_analysis_draw_direction,
         "draw_direction_ranking": "No candidate directions available.",
         "draw_direction_diagnostics": [],
+        "draw_direction_rationale": "No ranked candidate directions were available.",
         "undercut_count": 0,
         "undercut_summary": "No source shape available.",
         "undercut_regions": ["No source shape available."],
@@ -987,6 +1014,7 @@ def analyze_source_shape(
     best_direction = ranked[0]["direction"] if ranked else draw_direction
     ranking = _format_ranking(ranked)
     ranking_diagnostics = _candidate_diagnostics(ranked)
+    draw_direction_rationale = _draw_direction_rationale(ranked)
 
     profile = _slice_area_profile(effective_shape, draw_direction)
     violations = _profile_violations(profile)
@@ -1025,6 +1053,9 @@ def analyze_source_shape(
     )
 
     validation = _append_normalization_validation_check(validation, normalization)
+    validation["checks"].append(
+        f"PASS: draw-direction rationale — {draw_direction_rationale}"
+    )
 
     if validation["status"] == "Fail":
         status = "Fail"
@@ -1040,6 +1071,7 @@ def analyze_source_shape(
         f"preferred_direction={_format_vector(draw_direction)}, "
         f"preferred_score={normalized_preferred_score:.1f}%, "
         f"best_direction={_format_vector(best_direction)}, "
+        f"draw_rationale={draw_direction_rationale}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1055,6 +1087,7 @@ def analyze_source_shape(
             "best_draw_direction": best_direction,
             "draw_direction_ranking": ranking,
             "draw_direction_diagnostics": ranking_diagnostics,
+            "draw_direction_rationale": draw_direction_rationale,
             "undercut_count": undercut_count,
             "undercut_summary": undercut_summary,
             "undercut_regions": undercut_regions,

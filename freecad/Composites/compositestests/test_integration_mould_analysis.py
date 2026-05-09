@@ -118,8 +118,15 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertEqual(obj.ValidationStatus, "Pass")
         self.assertIn("Validation pass", obj.ValidationSummary)
         self.assertTrue(any(check.startswith("PASS:") for check in obj.ValidationChecks))
+        self.assertTrue(
+            any(
+                check.startswith("PASS: draw-direction rationale")
+                for check in obj.ValidationChecks
+            )
+        )
         self.assertIn("1.", obj.DrawDirectionRanking)
         self.assertIn("Source ready for mould analysis", obj.AnalysisSummary)
+        self.assertIn("draw_rationale=winner=", obj.AnalysisSummary)
         self.assertIn("No undercuts detected", obj.UndercutSummary)
         self.assertIn("No draft violations detected", obj.DraftViolationSummary)
         self.assertIn("Parting surface proposed", obj.PartingSurfaceSummary)
@@ -163,6 +170,10 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             result_b["draw_direction_diagnostics"],
         )
         self.assertEqual(
+            result_a["draw_direction_rationale"],
+            result_b["draw_direction_rationale"],
+        )
+        self.assertEqual(
             (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
             (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
         )
@@ -184,6 +195,16 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             self.assertLessEqual(item["backface_ratio"], 1.0)
             self.assertGreaterEqual(item["geometry_factor"], 0.0)
             self.assertLessEqual(item["geometry_factor"], 1.0)
+
+        self.assertIn("winner=", result["draw_direction_rationale"])
+        self.assertIn("geometry_factor=", result["draw_direction_rationale"])
+        self.assertIn("draw_rationale=winner=", result["summary"])
+        self.assertTrue(
+            any(
+                check.startswith("PASS: draw-direction rationale")
+                for check in result["validation_checks"]
+            )
+        )
 
     def test_mould_backface_ratio_is_geometry_sensitive_for_box(self):
         from freecad.Composites.tools.mould_analysis import _backface_area_ratio
