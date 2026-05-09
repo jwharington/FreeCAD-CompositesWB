@@ -159,9 +159,31 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertEqual(result_a["draw_direction_ranking"], result_b["draw_direction_ranking"])
         self.assertEqual(result_a["draw_direction_score"], result_b["draw_direction_score"])
         self.assertEqual(
+            result_a["draw_direction_diagnostics"],
+            result_b["draw_direction_diagnostics"],
+        )
+        self.assertEqual(
             (result_a["best_draw_direction"].x, result_a["best_draw_direction"].y, result_a["best_draw_direction"].z),
             (result_b["best_draw_direction"].x, result_b["best_draw_direction"].y, result_b["best_draw_direction"].z),
         )
+        self.assertIn("bf=", result_a["draw_direction_ranking"])
+
+    def test_mould_candidate_rationale_payload_present_for_lofted_shell(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shell = self._make_mould_reference_lofted_shell()
+        result = analyze_source_shape(shell)
+
+        diagnostics = result["draw_direction_diagnostics"]
+        self.assertEqual(len(diagnostics), 3)
+        for item in diagnostics:
+            self.assertIn("direction", item)
+            self.assertIn("backface_ratio", item)
+            self.assertIn("geometry_factor", item)
+            self.assertGreaterEqual(item["backface_ratio"], 0.0)
+            self.assertLessEqual(item["backface_ratio"], 1.0)
+            self.assertGreaterEqual(item["geometry_factor"], 0.0)
+            self.assertLessEqual(item["geometry_factor"], 1.0)
 
     def test_mould_backface_ratio_is_geometry_sensitive_for_box(self):
         from freecad.Composites.tools.mould_analysis import _backface_area_ratio

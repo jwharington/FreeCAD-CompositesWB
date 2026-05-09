@@ -308,9 +308,25 @@ def _format_ranking(ranked):
         return "No candidate directions available."
     return "; ".join(
         f"{index + 1}. {_format_vector(item['direction'])}"
-        f" ({item['normalized_score']:.1f}%)"
+        f" ({item['normalized_score']:.1f}%, bf={100.0 * item['backface_ratio']:.1f}%)"
         for index, item in enumerate(ranked)
     )
+
+
+def _candidate_diagnostics(ranked):
+    diagnostics = []
+    for item in ranked:
+        diagnostics.append(
+            {
+                "direction": _format_vector(item["direction"]),
+                "normalized_score": item["normalized_score"],
+                "bbox_score": item["bbox_score"],
+                "backface_ratio": item["backface_ratio"],
+                "geometry_factor": item["geometry_factor"],
+                "composite_score": item["score"],
+            }
+        )
+    return diagnostics
 
 
 def _projection_bounds(shape, direction):
@@ -670,6 +686,7 @@ def _base_analysis_result():
         "draw_direction_score": 0.0,
         "best_draw_direction": default_mould_analysis_draw_direction,
         "draw_direction_ranking": "No candidate directions available.",
+        "draw_direction_diagnostics": [],
         "undercut_count": 0,
         "undercut_summary": "No source shape available.",
         "undercut_regions": ["No source shape available."],
@@ -969,6 +986,7 @@ def analyze_source_shape(
     )
     best_direction = ranked[0]["direction"] if ranked else draw_direction
     ranking = _format_ranking(ranked)
+    ranking_diagnostics = _candidate_diagnostics(ranked)
 
     profile = _slice_area_profile(effective_shape, draw_direction)
     violations = _profile_violations(profile)
@@ -1036,6 +1054,7 @@ def analyze_source_shape(
             "draw_direction_score": normalized_preferred_score,
             "best_draw_direction": best_direction,
             "draw_direction_ranking": ranking,
+            "draw_direction_diagnostics": ranking_diagnostics,
             "undercut_count": undercut_count,
             "undercut_summary": undercut_summary,
             "undercut_regions": undercut_regions,
