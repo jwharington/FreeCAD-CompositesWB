@@ -244,6 +244,10 @@ def _face_midpoint_normal(face):
     return Vector(normal.x / length, normal.y / length, normal.z / length)
 
 
+def _dot(a, b):
+    return a.x * b.x + a.y * b.y + a.z * b.z
+
+
 def _backface_area_ratio(shape, direction, epsilon=1.0e-9):
     unit = _normalized(direction)
     total_area = 0.0
@@ -257,7 +261,7 @@ def _backface_area_ratio(shape, direction, epsilon=1.0e-9):
         if normal is None:
             continue
 
-        dot = normal.x * unit.x + normal.y * unit.y + normal.z * unit.z
+        dot = _dot(normal, unit)
         total_area += area
         if dot < -epsilon:
             backface_area += area
@@ -360,6 +364,18 @@ def _draw_direction_rationale(ranked):
         f"; bbox={winner_bbox:.5f}; backface={winner_backface:.1f}%"
         f"; geometry_factor={winner_geometry:.3f}; {margin_text}."
     )
+
+
+def _match_ranked_candidate(ranked, direction, tolerance=1.0e-9):
+    if not ranked:
+        return None
+
+    unit = _normalized(direction)
+    for item in ranked:
+        candidate = _normalized(item["direction"])
+        if _dot(unit, candidate) >= (1.0 - tolerance):
+            return item
+    return None
 
 
 def _projection_bounds(shape, direction):
@@ -1012,8 +1028,19 @@ def analyze_source_shape(
     effective_shape = normalization["effective_shape"]
     bbox = effective_shape.BoundBox
     ranked = _candidate_scores(effective_shape)
-    preferred_extent = _extent_along_direction(bbox, draw_direction)
-    preferred_score = 1.0 / preferred_extent if preferred_extent else 0.0
+    preferred_candidate = _match_ranked_candidate(ranked, draw_direction)
+    if preferred_candidate is not None:
+        preferred_score = preferred_candidate["score"]
+    else:
+        preferred_extent = _extent_along_direction(bbox, draw_direction)
+        preferred_bbox_score = 1.0 / preferred_extent if preferred_extent else 0.0
+        preferred_backface_ratio = _backface_area_ratio(effective_shape, draw_direction)
+        preferred_geometry_factor = max(
+            0.0,
+            1.0 - (GEOMETRY_BACKFACE_WEIGHT * preferred_backface_ratio),
+        )
+        preferred_score = preferred_bbox_score * preferred_geometry_factor
+
     best_score = ranked[0]["score"] if ranked else preferred_score or 1.0
     normalized_preferred_score = (
         100.0 * preferred_score / best_score if best_score else 0.0

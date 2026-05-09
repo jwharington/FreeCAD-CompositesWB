@@ -100,7 +100,7 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertTrue(is_mould_analysis(obj))
         self.assertEqual(obj.Source.Name, source.Name)
         self.assertEqual(obj.AnalysisStatus, "Ready")
-        self.assertAlmostEqual(obj.DrawDirectionScore, 53.06122448979592, places=6)
+        self.assertAlmostEqual(obj.DrawDirectionScore, 51.53061224489796, places=6)
         self.assertEqual(obj.UndercutCount, 0)
         self.assertEqual(obj.DraftViolationCount, 0)
         self.assertEqual(obj.UndercutRegions, ["None"])
@@ -187,6 +187,7 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
 
         diagnostics = result["draw_direction_diagnostics"]
         self.assertEqual(len(diagnostics), 3)
+        self.assertLessEqual(result["draw_direction_score"], 100.0)
         for expected_rank, item in enumerate(diagnostics, start=1):
             self.assertIn("rank", item)
             self.assertIn("is_winner", item)
