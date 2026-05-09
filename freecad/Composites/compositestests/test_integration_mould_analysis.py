@@ -374,6 +374,27 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             "split_strategy_attempts": list,
             "validation_reasons": list,
             "validation_reason_codes": list,
+            "multipart_execution_status": str,
+            "multipart_execution_summary": str,
+            "multipart_execution_attempts": list,
+            "multipart_piece_count": int,
+            "manufacturability_status": str,
+            "manufacturability_summary": str,
+            "manufacturability_metrics": dict,
+            "manufacturability_overlay_status": str,
+            "manufacturability_overlay_summary": str,
+            "manufacturability_overlay_bands": list,
+            "manufacturability_overlay_groups": list,
+            "manufacturability_overlay_group_count": int,
+            "manufacturability_overlay_group_summary": str,
+            "manufacturability_overlay_cluster_summary": str,
+            "manufacturability_overlay_top_clusters": list,
+            "manufacturability_pull_direction": str,
+            "manufacturability_recommendations": list,
+            "manufacturability_score_breakdown": dict,
+            "manufacturability_calibration_version": str,
+            "manufacturability_calibration_inputs": dict,
+            "manufacturability_calibration_weights": dict,
         }
 
         statuses = []
@@ -421,6 +442,27 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             "split_strategy_attempts": list,
             "validation_reasons": list,
             "validation_reason_codes": list,
+            "multipart_execution_status": str,
+            "multipart_execution_summary": str,
+            "multipart_execution_attempts": list,
+            "multipart_piece_count": int,
+            "manufacturability_status": str,
+            "manufacturability_summary": str,
+            "manufacturability_metrics": dict,
+            "manufacturability_overlay_status": str,
+            "manufacturability_overlay_summary": str,
+            "manufacturability_overlay_bands": list,
+            "manufacturability_overlay_groups": list,
+            "manufacturability_overlay_group_count": int,
+            "manufacturability_overlay_group_summary": str,
+            "manufacturability_overlay_cluster_summary": str,
+            "manufacturability_overlay_top_clusters": list,
+            "manufacturability_pull_direction": str,
+            "manufacturability_recommendations": list,
+            "manufacturability_score_breakdown": dict,
+            "manufacturability_calibration_version": str,
+            "manufacturability_calibration_inputs": dict,
+            "manufacturability_calibration_weights": dict,
         }
 
         for field_name, expected_type in top_level_contract.items():
@@ -745,6 +787,986 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertIn("candidates=", result["decomposition_plan_summary"])
         self.assertIn("regions=", result["decomposition_plan_summary"])
 
+    def test_slice_h_h1_multipart_execution_contract_is_exposed_and_property_names_stable(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        ready_result = analyze_source_shape(self._make_mould_reference_box())
+
+        multipart_contract = {
+            "multipart_execution_status": str,
+            "multipart_execution_summary": str,
+            "multipart_execution_attempts": list,
+            "multipart_piece_count": int,
+        }
+
+        for field_name, expected_type in multipart_contract.items():
+            self.assertIn(field_name, ready_result)
+            self.assertIsInstance(ready_result[field_name], expected_type)
+
+        self.assertEqual(ready_result["multipart_execution_status"], "not_applicable")
+        self.assertEqual(ready_result["multipart_execution_attempts"], [])
+        self.assertEqual(ready_result["multipart_piece_count"], 0)
+
+        doc_name = "CompositesMouldSliceHh1MultipartContractIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            for internal_contract_name in multipart_contract:
+                self.assertNotIn(internal_contract_name, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_h_h2_concave_warning_executes_bounded_multipart_prototype_deterministically(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        shape_a = self._make_concave_overhang_general_shape()
+        shape_b = self._make_concave_overhang_general_shape()
+
+        result_a = analyze_source_shape(shape_a)
+        result_b = analyze_source_shape(shape_b)
+
+        self.assertIn(result_a["decomposition_plan_status"], ("consider_multipart", "multipart_required"))
+        self.assertEqual(result_a["multipart_execution_status"], "prototyped")
+        self.assertTrue(result_a["multipart_execution_attempts"])
+        self.assertGreaterEqual(result_a["multipart_piece_count"], 2)
+        self.assertLessEqual(result_a["multipart_piece_count"], 4)
+
+        self.assertEqual(
+            canonicalize(result_a["multipart_execution_attempts"]),
+            canonicalize(result_b["multipart_execution_attempts"]),
+        )
+
+        first_attempt = result_a["multipart_execution_attempts"][0]
+        self.assertEqual(first_attempt["attempt_index"], 1)
+        self.assertIn(first_attempt["status"], ("Pass", "Warning", "Fail"))
+        self.assertIn("piece_count", first_attempt)
+        self.assertLessEqual(first_attempt["piece_count"], 4)
+
+    def test_slice_h_h3_normalization_fail_multipart_prototype_is_explicitly_not_attempted(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+
+        result = analyze_source_shape(normalization_fail_shape)
+
+        self.assertEqual(result["status"], "Fail")
+        self.assertEqual(result["decomposition_plan_status"], "multipart_required")
+        self.assertEqual(result["multipart_execution_status"], "not_attempted")
+        self.assertEqual(result["multipart_execution_attempts"], [])
+        self.assertEqual(result["multipart_piece_count"], 0)
+        self.assertIn("normalization failed", result["multipart_execution_summary"].lower())
+
+    def test_slice_i_i1_two_level_multipart_attempts_are_bounded_and_exposed(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertEqual(result["multipart_execution_status"], "prototyped")
+        attempts = result["multipart_execution_attempts"]
+        self.assertTrue(attempts)
+
+        depths = {attempt.get("split_depth") for attempt in attempts}
+        self.assertIn(1, depths)
+        if len(attempts) >= 2:
+            self.assertIn(2, depths)
+
+        for attempt in attempts:
+            self.assertIn("split_offsets", attempt)
+            self.assertIn("split_depth", attempt)
+            self.assertEqual(len(attempt["split_offsets"]), int(attempt["split_depth"]))
+            self.assertEqual(attempt["split_offsets"], sorted(attempt["split_offsets"]))
+            self.assertLessEqual(attempt["piece_count"], 4)
+
+        strategy_ids = [attempt["strategy_id"] for attempt in attempts]
+        self.assertTrue(any(strategy_id.startswith("multipart_extra_split_l1_") for strategy_id in strategy_ids))
+        if len(attempts) >= 2:
+            self.assertTrue(any(strategy_id.startswith("multipart_extra_split_l2_") for strategy_id in strategy_ids))
+
+        self.assertLessEqual(result["multipart_piece_count"], 4)
+
+    def test_slice_i_i2_two_level_multipart_attempts_are_deterministic(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        result_a = analyze_source_shape(self._make_concave_overhang_general_shape())
+        result_b = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertEqual(result_a["multipart_execution_status"], "prototyped")
+        self.assertEqual(result_a["multipart_execution_status"], result_b["multipart_execution_status"])
+        self.assertEqual(result_a["multipart_piece_count"], result_b["multipart_piece_count"])
+        self.assertEqual(
+            canonicalize(result_a["multipart_execution_attempts"]),
+            canonicalize(result_b["multipart_execution_attempts"]),
+        )
+
+        summary_tokens = (
+            "attempts=",
+            "selected_attempt=",
+            "selected_status=",
+            "selected_depth=",
+            "selected_offset_count=",
+        )
+        for token in summary_tokens:
+            self.assertIn(token, result_a["multipart_execution_summary"])
+            self.assertIn(token, result_b["multipart_execution_summary"])
+
+    def test_slice_i_i3_external_mouldanalysis_properties_remain_unchanged(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+        self.assertEqual(result["multipart_execution_status"], "prototyped")
+        self.assertTrue(result["multipart_execution_attempts"])
+        self.assertIn("split_offsets", result["multipart_execution_attempts"][0])
+        self.assertIn("split_depth", result["multipart_execution_attempts"][0])
+
+        doc_name = "CompositesMouldSliceIi3PropertyStabilityIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            internal_only_fields = (
+                "multipart_execution_status",
+                "multipart_execution_summary",
+                "multipart_execution_attempts",
+                "multipart_piece_count",
+                "split_offsets",
+                "split_depth",
+            )
+            for internal_field in internal_only_fields:
+                self.assertNotIn(internal_field, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_j_j1_manufacturability_payload_contract_is_exposed(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        ready_result = analyze_source_shape(self._make_mould_reference_box())
+
+        payload_contract = {
+            "manufacturability_status": str,
+            "manufacturability_summary": str,
+            "manufacturability_metrics": dict,
+            "manufacturability_overlay_status": str,
+            "manufacturability_overlay_summary": str,
+            "manufacturability_overlay_bands": list,
+            "manufacturability_pull_direction": str,
+            "manufacturability_recommendations": list,
+            "manufacturability_score_breakdown": dict,
+        }
+
+        for field_name, expected_type in payload_contract.items():
+            self.assertIn(field_name, ready_result)
+            self.assertIsInstance(ready_result[field_name], expected_type)
+
+        self.assertEqual(ready_result["manufacturability_status"], "ready")
+        self.assertIn("manufacturability=ready", ready_result["manufacturability_summary"])
+        for token in (
+            "risk_index=",
+            "risk_class=",
+            "backface=",
+            "undercuts=",
+            "draft_violations=",
+        ):
+            self.assertIn(token, ready_result["manufacturability_summary"])
+
+        metrics = ready_result["manufacturability_metrics"]
+        for key, expected_type in {
+            "backface_area_ratio": (int, float),
+            "undercut_count": int,
+            "draft_violation_count": int,
+            "multipart_piece_count": int,
+            "risk_index": (int, float),
+            "risk_class": str,
+        }.items():
+            self.assertIn(key, metrics)
+            self.assertIsInstance(metrics[key], expected_type)
+
+        self.assertIn(metrics["risk_class"], ("low", "medium", "high"))
+        self.assertGreaterEqual(metrics["risk_index"], 0.0)
+        self.assertLessEqual(metrics["risk_index"], 1.0)
+
+        waiting_result = analyze_source_shape(None)
+        self.assertEqual(waiting_result["manufacturability_status"], "not_applicable")
+        self.assertEqual(waiting_result["manufacturability_overlay_status"], "not_applicable")
+
+    def test_slice_j_j2_overlay_bands_are_deterministic_and_sorted(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        result_a = analyze_source_shape(self._make_concave_overhang_general_shape())
+        result_b = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertEqual(result_a["manufacturability_overlay_status"], "ready")
+        self.assertEqual(
+            result_a["manufacturability_overlay_summary"],
+            result_b["manufacturability_overlay_summary"],
+        )
+        self.assertEqual(
+            result_a["manufacturability_pull_direction"],
+            result_b["manufacturability_pull_direction"],
+        )
+        self.assertEqual(
+            canonicalize(result_a["manufacturability_overlay_bands"]),
+            canonicalize(result_b["manufacturability_overlay_bands"]),
+        )
+
+        bands = result_a["manufacturability_overlay_bands"]
+        self.assertEqual(
+            bands,
+            sorted(
+                bands,
+                key=lambda item: (
+                    item["kind"],
+                    float(item["start"]),
+                    float(item["end"]),
+                    item["label"],
+                ),
+            ),
+        )
+        for band in bands:
+            self.assertIn(band["kind"], ("undercut", "draft_violation"))
+            self.assertLessEqual(float(band["start"]), float(band["end"]))
+            self.assertIsInstance(band["label"], str)
+
+    def test_slice_j_j3_recommendations_and_property_stability(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        recommendations = result["manufacturability_recommendations"]
+        self.assertEqual(recommendations, sorted(recommendations))
+        self.assertEqual(len(recommendations), len(set(recommendations)))
+
+        breakdown = result["manufacturability_score_breakdown"]
+        for field_name in (
+            "draft_component",
+            "undercut_component",
+            "backface_component",
+            "multipart_component",
+            "total",
+        ):
+            self.assertIn(field_name, breakdown)
+            self.assertGreaterEqual(breakdown[field_name], 0.0)
+            self.assertLessEqual(breakdown[field_name], 1.0)
+
+        self.assertAlmostEqual(
+            breakdown["total"],
+            result["manufacturability_metrics"]["risk_index"],
+            places=9,
+        )
+
+        if result["manufacturability_metrics"]["undercut_count"] > 0:
+            self.assertIn("relieve_undercut_regions", recommendations)
+        if result["manufacturability_metrics"]["draft_violation_count"] > 0:
+            self.assertIn("reduce_negative_draft", recommendations)
+
+        doc_name = "CompositesMouldSliceJj3PropertyStabilityIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            internal_only_fields = (
+                "manufacturability_status",
+                "manufacturability_summary",
+                "manufacturability_metrics",
+                "manufacturability_overlay_status",
+                "manufacturability_overlay_summary",
+                "manufacturability_overlay_bands",
+                "manufacturability_pull_direction",
+                "manufacturability_recommendations",
+                "manufacturability_score_breakdown",
+            )
+            for internal_field in internal_only_fields:
+                self.assertNotIn(internal_field, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_k_k1_overlay_group_contract_is_exposed(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import (
+            MANUFACTURABILITY_CALIBRATION_VERSION,
+            analyze_source_shape,
+        )
+
+        payload_contract = {
+            "manufacturability_overlay_groups": list,
+            "manufacturability_overlay_group_count": int,
+            "manufacturability_overlay_group_summary": str,
+            "manufacturability_calibration_version": str,
+            "manufacturability_calibration_inputs": dict,
+            "manufacturability_calibration_weights": dict,
+        }
+
+        ready_result = analyze_source_shape(self._make_mould_reference_box())
+        for field_name, expected_type in payload_contract.items():
+            self.assertIn(field_name, ready_result)
+            self.assertIsInstance(ready_result[field_name], expected_type)
+
+        self.assertEqual(
+            ready_result["manufacturability_overlay_group_count"],
+            len(ready_result["manufacturability_overlay_groups"]),
+        )
+        self.assertIn(
+            "groups=",
+            ready_result["manufacturability_overlay_group_summary"],
+        )
+        self.assertEqual(
+            ready_result["manufacturability_calibration_version"],
+            MANUFACTURABILITY_CALIBRATION_VERSION,
+        )
+
+        for key in (
+            "draft_violation_count",
+            "undercut_count",
+            "backface_area_ratio",
+            "multipart_piece_count",
+            "overlay_group_count",
+        ):
+            self.assertIn(key, ready_result["manufacturability_calibration_inputs"])
+
+        for key in (
+            "draft_weight",
+            "undercut_weight",
+            "backface_weight",
+            "multipart_weight",
+            "group_density_weight",
+        ):
+            self.assertIn(key, ready_result["manufacturability_calibration_weights"])
+
+        waiting_result = analyze_source_shape(None)
+        self.assertEqual(waiting_result["manufacturability_status"], "not_applicable")
+        self.assertEqual(waiting_result["manufacturability_overlay_status"], "not_applicable")
+        self.assertEqual(waiting_result["manufacturability_overlay_groups"], [])
+        self.assertEqual(waiting_result["manufacturability_overlay_group_count"], 0)
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+
+        fail_result = analyze_source_shape(normalization_fail_shape)
+        self.assertEqual(fail_result["status"], "Fail")
+        self.assertEqual(fail_result["manufacturability_status"], "not_applicable")
+        self.assertEqual(fail_result["manufacturability_overlay_groups"], [])
+        self.assertEqual(fail_result["manufacturability_overlay_group_count"], 0)
+
+    def test_slice_k_k2_grouping_and_calibration_payloads_are_deterministic(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        result_a = analyze_source_shape(self._make_concave_overhang_general_shape())
+        result_b = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        deterministic_fields = (
+            "manufacturability_overlay_groups",
+            "manufacturability_overlay_group_summary",
+            "manufacturability_calibration_version",
+            "manufacturability_calibration_inputs",
+            "manufacturability_calibration_weights",
+            "manufacturability_overlay_bands",
+            "manufacturability_summary",
+            "manufacturability_metrics",
+            "manufacturability_score_breakdown",
+            "manufacturability_recommendations",
+        )
+
+        for field_name in deterministic_fields:
+            self.assertEqual(
+                canonicalize(result_a[field_name]),
+                canonicalize(result_b[field_name]),
+                msg=f"Determinism mismatch for {field_name}",
+            )
+
+        groups = result_a["manufacturability_overlay_groups"]
+        self.assertEqual(
+            result_a["manufacturability_overlay_group_count"],
+            len(groups),
+        )
+        self.assertEqual(
+            groups,
+            sorted(
+                groups,
+                key=lambda item: (
+                    item["kind"],
+                    float(item["start"]),
+                    float(item["end"]),
+                    item["group_id"],
+                ),
+            ),
+        )
+
+        for group in groups:
+            self.assertIn(group["kind"], ("undercut", "draft_violation"))
+            self.assertLessEqual(float(group["start"]), float(group["end"]))
+            self.assertEqual(group["labels"], sorted(set(group["labels"])))
+            self.assertGreaterEqual(int(group["band_count"]), len(group["labels"]))
+            self.assertGreaterEqual(float(group["span"]), 0.0)
+
+        self.assertIn("groups=", result_a["manufacturability_summary"])
+        self.assertIn("calibration=", result_a["manufacturability_summary"])
+
+        inputs = result_a["manufacturability_calibration_inputs"]
+        self.assertEqual(
+            int(inputs["overlay_group_count"]),
+            int(result_a["manufacturability_overlay_group_count"]),
+        )
+
+    def test_slice_k_k3_external_mouldanalysis_properties_remain_unchanged(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+        self.assertIn("manufacturability_overlay_groups", result)
+        self.assertIn("manufacturability_calibration_version", result)
+        self.assertIn("groups=", result["manufacturability_summary"])
+        self.assertIn("calibration=", result["manufacturability_summary"])
+
+        doc_name = "CompositesMouldSliceKk3PropertyStabilityIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            internal_only_fields = (
+                "manufacturability_overlay_groups",
+                "manufacturability_overlay_group_count",
+                "manufacturability_overlay_group_summary",
+                "manufacturability_calibration_version",
+                "manufacturability_calibration_inputs",
+                "manufacturability_calibration_weights",
+            )
+            for internal_field in internal_only_fields:
+                self.assertNotIn(internal_field, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_l_l0_manufacturability_payload_forwarding_contract_is_complete(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        payload_contract = {
+            "manufacturability_overlay_groups": list,
+            "manufacturability_overlay_group_count": int,
+            "manufacturability_overlay_group_summary": str,
+            "manufacturability_overlay_cluster_summary": str,
+            "manufacturability_overlay_top_clusters": list,
+            "manufacturability_calibration_version": str,
+            "manufacturability_calibration_inputs": dict,
+            "manufacturability_calibration_weights": dict,
+        }
+
+        ready_result = analyze_source_shape(self._make_concave_overhang_general_shape())
+        waiting_result = analyze_source_shape(None)
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+        fail_result = analyze_source_shape(normalization_fail_shape)
+
+        for path_name, result in (
+            ("ready", ready_result),
+            ("waiting", waiting_result),
+            ("normalization_fail", fail_result),
+        ):
+            with self.subTest(path=path_name):
+                for field_name, expected_type in payload_contract.items():
+                    self.assertIn(field_name, result)
+                    self.assertIsInstance(result[field_name], expected_type)
+
+                self.assertEqual(
+                    int(result["manufacturability_overlay_group_count"]),
+                    len(result["manufacturability_overlay_groups"]),
+                )
+                self.assertLessEqual(
+                    len(result["manufacturability_overlay_top_clusters"]),
+                    3,
+                )
+                self.assertIn(
+                    "clusters=",
+                    result["manufacturability_overlay_cluster_summary"],
+                )
+
+        self.assertEqual(waiting_result["manufacturability_status"], "not_applicable")
+        self.assertEqual(waiting_result["manufacturability_overlay_status"], "not_applicable")
+        self.assertEqual(waiting_result["manufacturability_overlay_top_clusters"], [])
+
+        self.assertEqual(fail_result["status"], "Fail")
+        self.assertEqual(fail_result["manufacturability_status"], "not_applicable")
+        self.assertEqual(fail_result["manufacturability_overlay_top_clusters"], [])
+
+    def test_slice_l_l1_fixture_matrix_calibration_contract_and_bounds(self):
+        from freecad.Composites.tools.mould_analysis import (
+            MANUFACTURABILITY_CALIBRATION_VERSION,
+            analyze_source_shape,
+        )
+
+        fixtures = (
+            ("sphere", self._make_mould_reference_sphere),
+            ("box", self._make_mould_reference_box),
+            ("rotated_box", self._make_mould_reference_rotated_box),
+            ("lofted_shell", self._make_mould_reference_lofted_shell),
+            (
+                "internal_opening_recess",
+                self._make_internal_opening_recess_general_shape,
+            ),
+            ("concave_overhang", self._make_concave_overhang_general_shape),
+        )
+
+        for fixture_name, shape_factory in fixtures:
+            with self.subTest(shape=fixture_name):
+                result = analyze_source_shape(shape_factory())
+
+                self.assertIn("manufacturability_calibration_version", result)
+                self.assertEqual(
+                    result["manufacturability_calibration_version"],
+                    MANUFACTURABILITY_CALIBRATION_VERSION,
+                )
+
+                self.assertIn("manufacturability_calibration_inputs", result)
+                self.assertIn("manufacturability_calibration_weights", result)
+                self.assertIn("manufacturability_score_breakdown", result)
+
+                inputs = result["manufacturability_calibration_inputs"]
+                for key in (
+                    "draft_violation_count",
+                    "undercut_count",
+                    "backface_area_ratio",
+                    "multipart_piece_count",
+                    "multipart_excess_piece_count",
+                    "overlay_group_count",
+                    "draft_saturation_count",
+                    "undercut_saturation_count",
+                    "multipart_saturation_count",
+                    "group_density_saturation_count",
+                    "backface_saturation_ratio",
+                ):
+                    self.assertIn(key, inputs)
+
+                weights = result["manufacturability_calibration_weights"]
+                for key in (
+                    "draft_weight",
+                    "undercut_weight",
+                    "backface_weight",
+                    "multipart_weight",
+                    "group_density_weight",
+                ):
+                    self.assertIn(key, weights)
+                    self.assertGreaterEqual(float(weights[key]), 0.0)
+                    self.assertLessEqual(float(weights[key]), 1.0)
+
+                self.assertGreater(
+                    sum(float(weights[key]) for key in weights),
+                    0.0,
+                )
+
+                breakdown = result["manufacturability_score_breakdown"]
+                for key in (
+                    "draft_component",
+                    "undercut_component",
+                    "backface_component",
+                    "multipart_component",
+                    "group_density_component",
+                    "total",
+                ):
+                    self.assertIn(key, breakdown)
+                    self.assertGreaterEqual(float(breakdown[key]), 0.0)
+                    self.assertLessEqual(float(breakdown[key]), 1.0)
+
+                metrics = result["manufacturability_metrics"]
+                self.assertGreaterEqual(float(metrics["risk_index"]), 0.0)
+                self.assertLessEqual(float(metrics["risk_index"]), 1.0)
+                self.assertIn(metrics["risk_class"], ("low", "medium", "high"))
+
+    def test_slice_l_l1b_fixture_matrix_risk_ordering_is_reasonable_and_stable(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        fixtures = {
+            "sphere": self._make_mould_reference_sphere,
+            "box": self._make_mould_reference_box,
+            "internal_opening_recess": self._make_internal_opening_recess_general_shape,
+            "concave_overhang": self._make_concave_overhang_general_shape,
+        }
+
+        risk_indices = {}
+        for fixture_name, shape_factory in fixtures.items():
+            result = analyze_source_shape(shape_factory())
+            risk_indices[fixture_name] = float(
+                result["manufacturability_metrics"]["risk_index"]
+            )
+
+        simple_baseline = risk_indices["box"]
+        complex_floor = min(
+            risk_indices["internal_opening_recess"],
+            risk_indices["concave_overhang"],
+        )
+        self.assertGreaterEqual(
+            complex_floor,
+            simple_baseline - 1.0e-9,
+            msg=f"Unexpected risk ordering: {risk_indices}",
+        )
+        self.assertGreaterEqual(
+            risk_indices["internal_opening_recess"],
+            risk_indices["sphere"] * 0.5,
+            msg=f"Unexpectedly low recess risk: {risk_indices}",
+        )
+
+    def test_slice_l_l1c_calibration_payload_is_deterministic_across_repeat_runs(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        fixtures = (
+            self._make_mould_reference_sphere,
+            self._make_mould_reference_box,
+            self._make_mould_reference_rotated_box,
+            self._make_mould_reference_lofted_shell,
+            self._make_internal_opening_recess_general_shape,
+            self._make_concave_overhang_general_shape,
+        )
+
+        for shape_factory in fixtures:
+            with self.subTest(shape=shape_factory.__name__):
+                result_a = analyze_source_shape(shape_factory())
+                result_b = analyze_source_shape(shape_factory())
+
+                for field_name in (
+                    "manufacturability_calibration_version",
+                    "manufacturability_calibration_inputs",
+                    "manufacturability_calibration_weights",
+                    "manufacturability_score_breakdown",
+                    "manufacturability_metrics",
+                    "manufacturability_summary",
+                ):
+                    self.assertEqual(
+                        canonicalize(result_a[field_name]),
+                        canonicalize(result_b[field_name]),
+                    )
+
+    def test_slice_l_l2_cluster_labels_and_summary_contract_is_exposed(self):
+        import Part
+
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertIn("manufacturability_overlay_cluster_summary", result)
+        self.assertIn("manufacturability_overlay_top_clusters", result)
+        self.assertIsInstance(result["manufacturability_overlay_cluster_summary"], str)
+        self.assertIsInstance(result["manufacturability_overlay_top_clusters"], list)
+        self.assertIn("clusters=", result["manufacturability_overlay_cluster_summary"])
+        self.assertIn("cap=", result["manufacturability_overlay_cluster_summary"])
+
+        groups = result["manufacturability_overlay_groups"]
+        for group in groups:
+            self.assertIn("cluster_label", group)
+            self.assertIn("severity_tier", group)
+            self.assertIsInstance(group["cluster_label"], str)
+            self.assertIn(group["severity_tier"], ("low", "medium", "high"))
+
+        for cluster in result["manufacturability_overlay_top_clusters"]:
+            for key in (
+                "group_id",
+                "kind",
+                "cluster_label",
+                "severity_tier",
+                "start",
+                "end",
+                "span",
+                "band_count",
+            ):
+                self.assertIn(key, cluster)
+
+        waiting_result = analyze_source_shape(None)
+        self.assertEqual(waiting_result["manufacturability_overlay_top_clusters"], [])
+
+        solid_a = Part.makeBox(10, 10, 10)
+        solid_b = Part.makeBox(8, 8, 8)
+        solid_b.translate(FreeCAD.Vector(20, 0, 0))
+        normalization_fail_shape = Part.makeCompound([solid_a, solid_b])
+        fail_result = analyze_source_shape(normalization_fail_shape)
+        self.assertEqual(fail_result["manufacturability_overlay_top_clusters"], [])
+
+    def test_slice_l_l2b_cluster_labels_and_summary_are_deterministic_and_sorted(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        def canonicalize(value):
+            if isinstance(value, float):
+                rounded = round(value, 9)
+                return 0.0 if rounded == -0.0 else rounded
+            if isinstance(value, dict):
+                return {key: canonicalize(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [canonicalize(item) for item in value]
+            return value
+
+        result_a = analyze_source_shape(self._make_concave_overhang_general_shape())
+        result_b = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertEqual(
+            canonicalize(result_a["manufacturability_overlay_groups"]),
+            canonicalize(result_b["manufacturability_overlay_groups"]),
+        )
+        self.assertEqual(
+            canonicalize(result_a["manufacturability_overlay_top_clusters"]),
+            canonicalize(result_b["manufacturability_overlay_top_clusters"]),
+        )
+        self.assertEqual(
+            result_a["manufacturability_overlay_cluster_summary"],
+            result_b["manufacturability_overlay_cluster_summary"],
+        )
+
+        groups = result_a["manufacturability_overlay_groups"]
+        self.assertEqual(
+            groups,
+            sorted(
+                groups,
+                key=lambda item: (
+                    item["kind"],
+                    float(item["start"]),
+                    float(item["end"]),
+                    item["group_id"],
+                ),
+            ),
+        )
+
+        top_clusters = result_a["manufacturability_overlay_top_clusters"]
+        self.assertEqual(
+            [cluster["group_id"] for cluster in top_clusters],
+            [group["group_id"] for group in groups[: len(top_clusters)]],
+        )
+
+    def test_slice_l_l2c_cluster_summary_is_bounded(self):
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        default_result = mould_analysis_module.analyze_source_shape(
+            self._make_concave_overhang_general_shape()
+        )
+        self.assertLessEqual(
+            len(default_result["manufacturability_overlay_top_clusters"]),
+            3,
+        )
+
+        with mock.patch.object(
+            mould_analysis_module,
+            "MAX_OVERLAY_CLUSTER_SUMMARY_ITEMS",
+            1,
+        ):
+            bounded_result = mould_analysis_module.analyze_source_shape(
+                self._make_concave_overhang_general_shape()
+            )
+
+        self.assertLessEqual(
+            len(bounded_result["manufacturability_overlay_top_clusters"]),
+            1,
+        )
+        self.assertIn(
+            "cap=1",
+            bounded_result["manufacturability_overlay_cluster_summary"],
+        )
+
+    def test_slice_l_l3_recommendations_align_with_cluster_semantics(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+        recommendations = result["manufacturability_recommendations"]
+
+        self.assertEqual(recommendations, sorted(recommendations))
+        self.assertEqual(len(recommendations), len(set(recommendations)))
+
+        groups = result["manufacturability_overlay_groups"]
+        if any(group["kind"] == "undercut" for group in groups):
+            self.assertIn("target_largest_undercut_group", recommendations)
+        if any(group["kind"] == "draft_violation" for group in groups):
+            self.assertIn("target_largest_draft_group", recommendations)
+
+        if any(
+            group["kind"] == "undercut" and group["severity_tier"] == "high"
+            for group in groups
+        ):
+            self.assertIn("prioritize_high_severity_undercut_cluster", recommendations)
+
+        if any(
+            group["kind"] == "draft_violation" and group["severity_tier"] == "high"
+            for group in groups
+        ):
+            self.assertIn("prioritize_high_severity_draft_cluster", recommendations)
+
+    def test_slice_l_l3b_external_mouldanalysis_properties_remain_unchanged(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+        self.assertIn("manufacturability_overlay_cluster_summary", result)
+        self.assertIn("manufacturability_overlay_top_clusters", result)
+
+        doc_name = "CompositesMouldSliceLl3bPropertyStabilityIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+            doc.recompute()
+
+            internal_only_fields = (
+                "manufacturability_overlay_groups",
+                "manufacturability_overlay_group_count",
+                "manufacturability_overlay_group_summary",
+                "manufacturability_overlay_cluster_summary",
+                "manufacturability_overlay_top_clusters",
+                "manufacturability_calibration_version",
+                "manufacturability_calibration_inputs",
+                "manufacturability_calibration_weights",
+            )
+            for internal_field in internal_only_fields:
+                self.assertNotIn(internal_field, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_l_l3c_summary_tokens_include_cluster_and_calibration_context(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        for token in (
+            "clusters=",
+            "calibration=",
+            "group_density_weight=",
+            "draft_sat=",
+            "undercut_sat=",
+        ):
+            self.assertIn(token, result["manufacturability_summary"])
+
+        self.assertIn("top_clusters=", result["manufacturability_overlay_summary"])
+
+        for token in ("clusters=", "top_clusters=", "cap="):
+            self.assertIn(token, result["manufacturability_overlay_cluster_summary"])
+
+        self.assertIn("manufacturability=", result["summary"])
+        self.assertTrue(result["validation_checks"])
+
     def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
         import Part
 
@@ -859,6 +1881,27 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
             "split_strategy_attempts",
             "validation_reason_codes",
             "validation_reasons",
+            "multipart_execution_status",
+            "multipart_execution_summary",
+            "multipart_execution_attempts",
+            "multipart_piece_count",
+            "manufacturability_status",
+            "manufacturability_summary",
+            "manufacturability_metrics",
+            "manufacturability_overlay_status",
+            "manufacturability_overlay_summary",
+            "manufacturability_overlay_bands",
+            "manufacturability_overlay_groups",
+            "manufacturability_overlay_group_count",
+            "manufacturability_overlay_group_summary",
+            "manufacturability_overlay_cluster_summary",
+            "manufacturability_overlay_top_clusters",
+            "manufacturability_pull_direction",
+            "manufacturability_recommendations",
+            "manufacturability_score_breakdown",
+            "manufacturability_calibration_version",
+            "manufacturability_calibration_inputs",
+            "manufacturability_calibration_weights",
         )
 
         for fixture_name, shape_factory, source_factory in fixtures:
