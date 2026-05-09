@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Active execution (Slice B in progress)  
+**Status:** Active execution (Slice C complete; Slice D next)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -31,10 +31,16 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `b5` `7dc3584`: preferred-score coherence with geometry terms,
   - `b6` `af5a5b3`: preferred-vs-best diagnostics (candidate-match/fallback) in result summary + validation checks.
 
+- **Slice C (P0): completed through c4 checkpoints**
+  - `c1` `2669ccd`: deterministic split-strategy planner skeleton with selected strategy diagnostics,
+  - `c2` `f0962b3`: deterministic attempt loop with non-aborting fallback behavior and attempt trace payload,
+  - `c3` `cfd4b0a`: per-strategy undercut/draft scoring for attempt evaluation and selection,
+  - `c4` `f116371`: complete deterministic planner diagnostics including scored alternatives and explicit selection reasoning.
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**31 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**33 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -216,4 +222,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Start **Slice C** by introducing a deterministic candidate-strategy planner skeleton that can evaluate bounded split attempts per top-ranked draw directions while preserving the current external `MouldAnalysis` property names.
+Start **Slice D** by hardening split-generation validation semantics (strict null-shape failure handling, structured warning/fail reasons, and preview-object consistency on degraded states) while preserving current external `MouldAnalysis` property names.

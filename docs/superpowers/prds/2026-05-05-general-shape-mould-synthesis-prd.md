@@ -27,12 +27,13 @@ The system must:
   - `b4`: rank/margin-to-best diagnostics,
   - `b5`: preferred score coherence with geometry terms,
   - `b6`: preferred-vs-best diagnostics (candidate match vs fallback) rolled into summary + validation checks.
+- **Slice C complete through c4**: deterministic candidate planner now returns selected strategy, scored alternatives, attempt diagnostics, and explicit selection rationale.
 - Dedicated mould integration module now covers the required real fixtures:
   - sphere,
   - box,
   - rotated off-axis box,
   - generic lofted shell.
-- Current gate status: FreeCAD integration suite passing (31 tests) with known non-fatal TopoShape mapper warnings.
+- Current gate status: FreeCAD integration suite passing (33 tests) with known non-fatal TopoShape mapper warnings.
 
 ---
 
