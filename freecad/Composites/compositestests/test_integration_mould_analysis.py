@@ -38,6 +38,16 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         shape.rotate(FreeCAD.Vector(0, 0, 0), FreeCAD.Vector(1, 1, 0), 33.0)
         return shape
 
+    def _make_concave_overhang_general_shape(self):
+        import Part
+
+        stem = Part.makeBox(10, 10, 20)
+        cap = Part.makeBox(20, 20, 5)
+        cap.translate(FreeCAD.Vector(-5, -5, 20))
+        notch = Part.makeBox(6, 6, 4)
+        notch.translate(FreeCAD.Vector(2, 2, 18))
+        return stem.fuse(cap).cut(notch)
+
     def _make_mould_reference_lofted_shell(self):
         import Part
 
@@ -194,6 +204,43 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
 
         self.assertIn("normalization", result["summary"].lower())
         self.assertIn("split_strategy=selected=", result["summary"])
+
+    def test_slice_e_e2_concave_overhang_general_shape_is_warning_with_reason_codes(self):
+        from freecad.Composites.tools import mould_analysis as mould_analysis_module
+
+        shape = self._make_concave_overhang_general_shape()
+        result_a = mould_analysis_module.analyze_source_shape(shape)
+        result_b = mould_analysis_module.analyze_source_shape(shape)
+
+        self.assertIn(result_a["status"], ("Warning", "Fail"))
+        if result_a["status"] == "Warning":
+            self.assertEqual(result_a["validation_status"], "Warning")
+        else:
+            self.assertEqual(result_a["validation_status"], "Fail")
+
+        self.assertTrue(result_a["validation_reasons"])
+        self.assertTrue(result_a["validation_reason_codes"])
+        self.assertEqual(
+            result_a["validation_reason_codes"],
+            [reason["code"] for reason in result_a["validation_reasons"]],
+        )
+
+        expected_payload = mould_analysis_module._validation_reason_payload(
+            result_a["validation_checks"]
+        )
+        self.assertEqual(result_a["validation_reasons"], expected_payload["reasons"])
+        self.assertEqual(
+            result_a["validation_reason_codes"], expected_payload["reason_codes"]
+        )
+
+        self.assertEqual(
+            result_a["validation_reasons"],
+            result_b["validation_reasons"],
+        )
+        self.assertEqual(
+            result_a["validation_reason_codes"],
+            result_b["validation_reason_codes"],
+        )
 
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
