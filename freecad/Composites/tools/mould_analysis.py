@@ -22,6 +22,11 @@ NORMALIZATION_CONFIDENCE_FAIL = "fail"
 GEOMETRY_BACKFACE_WEIGHT = 0.25
 MAX_SPLIT_STRATEGIES = 2
 
+DECOMPOSITION_PLAN_STATUS_NOT_APPLICABLE = "not_applicable"
+DECOMPOSITION_PLAN_STATUS_NOT_REQUIRED = "not_required"
+DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART = "consider_multipart"
+DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED = "multipart_required"
+
 
 def _safe_copy_shape(shape):
     try:
@@ -209,6 +214,128 @@ def _dedupe_preserve_order(items):
 
 def _normalization_reason_flags(reason_flags, hint_flags):
     return _dedupe_preserve_order(list(reason_flags) + list(hint_flags))
+
+
+def _decomposition_plan_status(analysis_status, validation_status):
+    if (
+        analysis_status == "Waiting for source"
+        or validation_status == "Waiting for source"
+    ):
+        return DECOMPOSITION_PLAN_STATUS_NOT_APPLICABLE
+    if analysis_status == "Fail" or validation_status == "Fail":
+        return DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED
+    if analysis_status == "Warning" or validation_status == "Warning":
+        return DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART
+    if analysis_status == "Ready" and validation_status == "Pass":
+        return DECOMPOSITION_PLAN_STATUS_NOT_REQUIRED
+    return DECOMPOSITION_PLAN_STATUS_CONSIDER_MULTIPART
+
+
+def _clean_decomposition_regions(regions):
+    cleaned = []
+    for region in regions or []:
+        text = str(region or "").strip()
+        if not text:
+            continue
+        if text in ("None", "No source shape available."):
+            continue
+        cleaned.append(text)
+    return cleaned
+
+
+def _decomposition_plan_regions(undercut_regions, draft_violation_regions):
+    regions = []
+    regions.extend(
+        f"undercut:{region}"
+        for region in _clean_decomposition_regions(undercut_regions)
+    )
+    regions.extend(
+        f"draft:{region}"
+        for region in _clean_decomposition_regions(draft_violation_regions)
+    )
+    return _dedupe_preserve_order(regions)
+
+
+def _decomposition_plan_candidates(
+    decomposition_plan_status,
+    undercut_count,
+    draft_violation_count,
+):
+    if decomposition_plan_status in (
+        DECOMPOSITION_PLAN_STATUS_NOT_APPLICABLE,
+        DECOMPOSITION_PLAN_STATUS_NOT_REQUIRED,
+    ):
+        return []
+
+    candidates = []
+    if decomposition_plan_status == DECOMPOSITION_PLAN_STATUS_MULTIPART_REQUIRED:
+        candidates.append("multipart_baseline_required")
+    else:
+        candidates.append("multipart_baseline_optional")
+
+    if undercut_count > 0:
+        candidates.append("split_for_undercut_relief")
+    if draft_violation_count > 0:
+        candidates.append("split_for_draft_relief")
+    if undercut_count <= 0 and draft_violation_count <= 0:
+        candidates.append("split_for_validation_recovery")
+
+    return _dedupe_preserve_order(candidates)
+
+
+def _decomposition_plan_summary(
+    decomposition_plan_status,
+    analysis_status,
+    validation_status,
+    undercut_count,
+    draft_violation_count,
+    candidates,
+    regions,
+):
+    return (
+        f"decomposition={decomposition_plan_status}; "
+        f"analysis_status={analysis_status}, validation_status={validation_status}, "
+        f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
+        f"candidates={len(candidates)}, regions={len(regions)}"
+    )
+
+
+def _decomposition_readiness_payload(
+    analysis_status,
+    validation_status,
+    undercut_count,
+    draft_violation_count,
+    undercut_regions,
+    draft_violation_regions,
+):
+    decomposition_plan_status = _decomposition_plan_status(
+        analysis_status,
+        validation_status,
+    )
+    decomposition_plan_candidates = _decomposition_plan_candidates(
+        decomposition_plan_status,
+        int(undercut_count or 0),
+        int(draft_violation_count or 0),
+    )
+    decomposition_plan_regions = _decomposition_plan_regions(
+        undercut_regions,
+        draft_violation_regions,
+    )
+    decomposition_plan_summary = _decomposition_plan_summary(
+        decomposition_plan_status,
+        analysis_status,
+        validation_status,
+        int(undercut_count or 0),
+        int(draft_violation_count or 0),
+        decomposition_plan_candidates,
+        decomposition_plan_regions,
+    )
+    return {
+        "decomposition_plan_status": decomposition_plan_status,
+        "decomposition_plan_summary": decomposition_plan_summary,
+        "decomposition_plan_candidates": decomposition_plan_candidates,
+        "decomposition_plan_regions": decomposition_plan_regions,
+    }
 
 
 def _format_vector(vec):
@@ -1159,9 +1286,20 @@ def _append_normalization_validation_check(validation, normalization):
 
 
 def _base_analysis_result():
+    decomposition_payload = _decomposition_readiness_payload(
+        "Waiting for source",
+        "Waiting for source",
+        0,
+        0,
+        ["No source shape available."],
+        ["No source shape available."],
+    )
     return {
         "status": "Waiting for source",
-        "summary": "Select a solid to begin mould analysis.",
+        "summary": (
+            "Select a solid to begin mould analysis. "
+            f"decomposition={decomposition_payload['decomposition_plan_status']}"
+        ),
         "shape": Part.Shape(),
         "draw_direction_score": 0.0,
         "best_draw_direction": default_mould_analysis_draw_direction,
@@ -1204,6 +1342,10 @@ def _base_analysis_result():
         "validation_checks": ["No source shape available."],
         "validation_reasons": [],
         "validation_reason_codes": [],
+        "decomposition_plan_status": decomposition_payload["decomposition_plan_status"],
+        "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
+        "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
+        "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
         "normalization_confidence": NORMALIZATION_CONFIDENCE_FAIL,
         "normalization_source_type": "none",
         "normalization_summary": "Normalization failed: source shape is missing or null.",
@@ -1461,6 +1603,14 @@ def analyze_source_shape(
         normalization_validation_summary = (
             "Validation fail: normalization did not produce an effective solid."
         )
+        decomposition_payload = _decomposition_readiness_payload(
+            "Fail",
+            "Fail",
+            0,
+            0,
+            [],
+            [],
+        )
         result.update(
             {
                 "status": "Fail",
@@ -1468,6 +1618,7 @@ def analyze_source_shape(
                     "Source fail for mould analysis; "
                     f"normalization={normalization['confidence']} ({normalization['summary']}), "
                     "split_strategy=not_applicable(normalization_failed), "
+                    f"decomposition={decomposition_payload['decomposition_plan_status']}, "
                     f"validation={normalization_validation_summary}"
                 ),
                 "validation_status": "Fail",
@@ -1475,6 +1626,10 @@ def analyze_source_shape(
                 "validation_checks": normalization_failure_checks,
                 "validation_reasons": normalization_failure_payload["reasons"],
                 "validation_reason_codes": normalization_failure_payload["reason_codes"],
+                "decomposition_plan_status": decomposition_payload["decomposition_plan_status"],
+                "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
+                "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
+                "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
                 "parting_surface_status": "Fail",
                 "parting_surface_summary": "No parting surface generated because normalization failed.",
                 "parting_curve_summary": "No parting surface generated because normalization failed.",
@@ -1629,6 +1784,15 @@ def analyze_source_shape(
     else:
         status = "Ready"
 
+    decomposition_payload = _decomposition_readiness_payload(
+        status,
+        validation["status"],
+        undercut_count,
+        draft_violation_count,
+        undercut_regions,
+        draft_violation_regions,
+    )
+
     summary = (
         f"Source {status.lower()} for mould analysis; "
         f"normalization={normalization['confidence']} ({normalization['summary']}), "
@@ -1640,6 +1804,7 @@ def analyze_source_shape(
         f"preferred_diag={preferred_direction_summary}, "
         f"split_strategy={split_strategy_summary}, "
         f"split_attempts={len(split_strategy_attempt_diagnostics)}, "
+        f"decomposition={decomposition_payload['decomposition_plan_status']}, "
         f"undercuts={undercut_count}, draft_violations={draft_violation_count}, "
         f"parting_surface={parting['summary']}, "
         f"mould_halves={mould_halves['summary']}, "
@@ -1691,6 +1856,10 @@ def analyze_source_shape(
             "validation_checks": validation["checks"],
             "validation_reasons": validation_reasons,
             "validation_reason_codes": validation_reason_codes,
+            "decomposition_plan_status": decomposition_payload["decomposition_plan_status"],
+            "decomposition_plan_summary": decomposition_payload["decomposition_plan_summary"],
+            "decomposition_plan_candidates": decomposition_payload["decomposition_plan_candidates"],
+            "decomposition_plan_regions": decomposition_payload["decomposition_plan_regions"],
         }
     )
     return result

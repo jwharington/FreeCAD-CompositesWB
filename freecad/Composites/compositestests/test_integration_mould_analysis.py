@@ -569,6 +569,99 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         finally:
             FreeCAD.closeDocument(doc_name)
 
+    def test_slice_g_g1_decomposition_readiness_contract_is_exposed_and_property_names_stable(self):
+        from freecad.Composites.features.MouldAnalysis import MouldAnalysisFP, is_mould_analysis
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        ready_result_a = analyze_source_shape(self._make_mould_reference_box())
+        ready_result_b = analyze_source_shape(self._make_mould_reference_box())
+
+        decomposition_contract = {
+            "decomposition_plan_status": str,
+            "decomposition_plan_summary": str,
+            "decomposition_plan_candidates": list,
+            "decomposition_plan_regions": list,
+        }
+
+        for field_name, expected_type in decomposition_contract.items():
+            self.assertIn(field_name, ready_result_a)
+            self.assertIsInstance(ready_result_a[field_name], expected_type)
+
+        self.assertEqual(ready_result_a["status"], "Ready")
+        self.assertEqual(ready_result_a["validation_status"], "Pass")
+        self.assertEqual(ready_result_a["decomposition_plan_status"], "not_required")
+        self.assertEqual(ready_result_a["decomposition_plan_candidates"], [])
+        self.assertEqual(ready_result_a["decomposition_plan_regions"], [])
+        self.assertIn("decomposition=not_required", ready_result_a["summary"])
+        self.assertIn("decomposition=not_required", ready_result_a["decomposition_plan_summary"])
+
+        for field_name in decomposition_contract:
+            self.assertEqual(ready_result_a[field_name], ready_result_b[field_name])
+
+        doc_name = "CompositesMouldSliceGg1DecompositionContractIntegrationTest"
+
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "SourceSolid")
+            source.Shape = self._make_mould_reference_box()
+
+            obj = doc.addObject("Part::FeaturePython", "MouldAnalysis")
+            MouldAnalysisFP(obj, source)
+
+            self.assertTrue(is_mould_analysis(obj))
+
+            property_names_before = tuple(obj.PropertiesList)
+            doc.recompute()
+            property_names_after_first_recompute = tuple(obj.PropertiesList)
+            doc.recompute()
+            property_names_after_second_recompute = tuple(obj.PropertiesList)
+
+            self.assertEqual(property_names_before, property_names_after_first_recompute)
+            self.assertEqual(
+                property_names_after_first_recompute,
+                property_names_after_second_recompute,
+            )
+
+            expected_property_names = (
+                "Source",
+                "PreferredDrawDirection",
+                "AnalysisStatus",
+                "DrawDirectionScore",
+                "BestDrawDirection",
+                "DrawDirectionRanking",
+                "UndercutCount",
+                "UndercutSummary",
+                "UndercutRegions",
+                "DraftViolationCount",
+                "DraftViolationSummary",
+                "DraftViolationRegions",
+                "PartingSurfaceStatus",
+                "PartingSurfaceNormal",
+                "PartingSurfaceOffset",
+                "PartingSurfaceArea",
+                "PartingSurfaceSummary",
+                "PartingSurface",
+                "MouldHalvesStatus",
+                "MouldHalvesSummary",
+                "MouldHalfA",
+                "MouldHalfB",
+                "ValidationStatus",
+                "ValidationSummary",
+                "ValidationChecks",
+                "AnalysisSummary",
+            )
+
+            for property_name in expected_property_names:
+                self.assertIn(property_name, obj.PropertiesList)
+
+            for internal_contract_name in decomposition_contract:
+                self.assertNotIn(internal_contract_name, obj.PropertiesList)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
     def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
         import Part
 
