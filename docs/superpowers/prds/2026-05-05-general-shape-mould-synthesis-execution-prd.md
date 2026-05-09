@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Active execution (Slice D complete; Slice E next)  
+**Status:** Active execution (Slice E complete; Slice F next)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -44,10 +44,17 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `d4` `e7e60f6`: structured deterministic validation reason payload (`validation_reasons`, `validation_reason_codes`) (`test_slice_d_d4_structured_reason_codes_are_present_and_stable`),
   - `d5` `bb7b7bc`: preview child coherence across fail→recovery recompute (`test_slice_d_d5_preview_children_remain_coherent_across_fail_and_recovery`).
 
+- **Slice E (P0): completed through e5 checkpoints**
+  - `e1` `90bfcd8`: convex baseline general-shape integration coverage (`test_slice_e_e1_convex_baseline_general_shape_is_ready`),
+  - `e2` `e105d62`: concave/overhang warning diagnostics with deterministic reason codes (`test_slice_e_e2_concave_overhang_general_shape_is_warning_with_reason_codes`),
+  - `e3` `2498290`: internal opening/recess degraded/fail semantics coverage (`test_slice_e_e3_internal_opening_recess_general_shape_can_fail_explicitly`),
+  - `e4` `b4cda82`: shell-like normalization/status contract coverage (`test_slice_e_e4_shell_like_source_reports_normalization_and_status_contract`),
+  - `e5` `8883449`: status-matrix/property-contract stability across representative fixtures (`test_slice_e_e5_general_shape_status_matrix_keeps_property_contract_stable`).
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**38 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**43 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -229,4 +236,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Start **Slice E** by expanding general-shape fixtures/assertions (including degraded/fail semantic checks on complex geometry) while preserving current external `MouldAnalysis` property names.
+Start **Slice F** by finalizing diagnostics/user-facing summaries and documentation contracts, then run full stabilization gates while preserving current external `MouldAnalysis` property names.
