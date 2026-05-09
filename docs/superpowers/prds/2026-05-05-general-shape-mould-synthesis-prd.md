@@ -159,6 +159,12 @@ This is still an early heuristic path (`WORK-IN-PROGRESS` in command tooltip), n
   - split candidate outcomes,
   - validation checks,
   - approximation/degradation reasons.
+- Current implemented top-level contract from `analyze_source_shape` includes:
+  - status/summary: `status`, `summary`,
+  - validation: `validation_status`, `validation_summary`, `validation_checks`, `validation_reasons`, `validation_reason_codes`,
+  - split planning: `split_strategy_summary`, `split_strategy_diagnostics`, `split_strategy_attempts`,
+  - normalization: `normalization_confidence`, `normalization_source_type`, `normalization_summary`, `normalization_reason_flags`.
+- Status semantics are strict: null geometry is hard-fail, degraded-but-usable halves are warning-grade; representative fixture re-runs must remain deterministic for the above diagnostics fields.
 
 ### FR-7 Interface stability
 - Keep `MouldAnalysis` object stable and backward-compatible for existing users/tests.
