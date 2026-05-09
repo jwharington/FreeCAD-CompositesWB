@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-05  
 **Repository:** `FreeCAD-CompositesWB`  
-**Status:** Active PRD (implementation in progress)  
+**Status:** Implemented baseline complete (Slices A-F delivered)  
 **Related spec:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
 ---
@@ -30,6 +30,7 @@ The system must:
 - **Slice C complete through c4**: deterministic candidate planner now returns selected strategy, scored alternatives, attempt diagnostics, and explicit selection rationale.
 - **Slice D complete through d5**: strict null-geometry fail contract, degraded-but-usable warning semantics, structured validation reason payload (`validation_reasons` / `validation_reason_codes`), and preview-child coherence across fail→recovery recomputes.
 - **Slice E complete through e5**: dedicated general-shape integration coverage for convex baseline, concave/overhang, internal opening/recess, shell-like normalization contract, and cross-fixture status/property contract matrix.
+- **Slice F complete through f4**: diagnostics schema/property contract lock, user-facing summary coherence hardening, representative fixture determinism matrix checks, and formal diagnostics/validation contract documentation.
 - Dedicated mould integration module now covers the required real fixtures:
   - sphere,
   - box,
@@ -37,7 +38,7 @@ The system must:
   - generic lofted shell,
   - concave/overhang composite,
   - internal opening/recess shape.
-- Current gate status: FreeCAD integration suite passing (43 tests) with known non-fatal TopoShape mapper warnings.
+- Current gate status: FreeCAD integration suite passing (46 tests) and fishnet native suite passing (66 tests), with known non-fatal TopoShape mapper warnings in integration output.
 
 ---
 

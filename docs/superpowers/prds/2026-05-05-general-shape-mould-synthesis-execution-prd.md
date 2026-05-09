@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Active execution (Slice E complete; Slice F next)  
+**Status:** Execution complete (Slices A-F complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -51,10 +51,17 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `e4` `b4cda82`: shell-like normalization/status contract coverage (`test_slice_e_e4_shell_like_source_reports_normalization_and_status_contract`),
   - `e5` `8883449`: status-matrix/property-contract stability across representative fixtures (`test_slice_e_e5_general_shape_status_matrix_keeps_property_contract_stable`).
 
+- **Slice F (P1): completed through f4 checkpoints**
+  - `f1` `9923cde`: diagnostics schema + external property contract guard (`test_slice_f_f1_diagnostics_schema_and_property_names_are_stable`),
+  - `f2` `2ec491e`: user-facing summary/status coherence + reason payload reuse (`test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent`),
+  - `f3` `8b5230f`: representative fixture determinism matrix (`test_slice_f_f3_representative_fixture_determinism_matrix`),
+  - `f4` `b692082`: diagnostics/validation contract documentation in spec + PRD.
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**43 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**46 tests**).
+- Fishnet native suite (`run_fishnet_native_tests.py`): passing (**66 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -236,4 +243,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Start **Slice F** by finalizing diagnostics/user-facing summaries and documentation contracts, then run full stabilization gates while preserving current external `MouldAnalysis` property names.
+Execution PRD scope is complete through **Slice F**. Next follow-on work should branch from this baseline toward multipart/decomposition planning while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
