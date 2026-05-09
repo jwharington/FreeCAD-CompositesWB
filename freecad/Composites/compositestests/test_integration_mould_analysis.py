@@ -348,6 +348,60 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
                 )
             )
 
+    def test_slice_e_e5_general_shape_status_matrix_keeps_property_contract_stable(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        fixtures = (
+            ("convex_baseline", self._make_mould_reference_box()),
+            ("concave_overhang", self._make_concave_overhang_general_shape()),
+            (
+                "internal_opening_recess",
+                self._make_internal_opening_recess_general_shape(),
+            ),
+            ("shell_like", self._make_mould_reference_lofted_shell()),
+        )
+
+        contract_types = {
+            "status": str,
+            "summary": str,
+            "validation_status": str,
+            "validation_summary": str,
+            "validation_checks": list,
+            "parting_surface_status": str,
+            "mould_halves_status": str,
+            "split_strategy_summary": str,
+            "split_strategy_diagnostics": list,
+            "split_strategy_attempts": list,
+            "validation_reasons": list,
+            "validation_reason_codes": list,
+        }
+
+        statuses = []
+
+        for fixture_name, shape in fixtures:
+            with self.subTest(shape=fixture_name):
+                result = analyze_source_shape(shape)
+
+                for field_name, expected_type in contract_types.items():
+                    self.assertIn(field_name, result)
+                    self.assertIsInstance(result[field_name], expected_type)
+
+                self.assertNotEqual(result["status"], "Waiting for source")
+                self.assertEqual(
+                    result["validation_reason_codes"],
+                    [reason["code"] for reason in result["validation_reasons"]],
+                )
+
+                for reason in result["validation_reasons"]:
+                    self.assertIsInstance(reason, dict)
+                    self.assertIn("code", reason)
+                    self.assertIsInstance(reason["code"], str)
+
+                statuses.append(result["status"])
+
+        self.assertIn("Ready", statuses)
+        self.assertTrue(any(status in ("Warning", "Fail") for status in statuses))
+
     def test_mould_candidate_ranking_is_deterministic_for_rotated_box(self):
         from freecad.Composites.tools.mould_analysis import analyze_source_shape
 
