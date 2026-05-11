@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Execution complete (Slices A-M complete)  
+**Status:** Execution complete (Slices A-N complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -93,10 +93,16 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `m3` `3d76f69`: concave/overhang multipart-readiness signal remains explicit after heuristic correction (`test_slice_m_m3_concave_overhang_still_reports_multipart_relevant_signal`),
   - external `MouldAnalysis` interface/property names remain unchanged (internal diagnostics-only refinement).
 
+- **Slice N (P1): completed through n3 checkpoints**
+  - `n1` `857b7d1`: `make_moulds(...)` now returns cavity-first output by default (blank minus source) with non-intersection contract coverage (`test_slice_n_n1_make_moulds_returns_non_intersecting_cavity`),
+  - `n2` `857b7d1`: repeat-run determinism coverage for cavity output volume/intersection behavior (`test_slice_n_n2_make_moulds_repeat_run_is_deterministic`),
+  - `n3` `857b7d1`: deterministic fail-closed fallback when boolean subtraction fails (returns null shape + warning contract) (`test_slice_n_n3_make_moulds_boolean_failure_returns_null_shape`),
+  - external `MouldAnalysis` interface/property names remain unchanged.
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**74/74 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**77/77 tests**).
 - Fishnet native suite (`run_fishnet_native_tests.py`): passing (**106 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
@@ -397,4 +403,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Execution PRD scope is complete through **Slice M**. **Immediate next task:** define and approve the post-M slice scope (candidate: cavity-first mould output semantics plus reporting polish continuation) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
+Execution PRD scope is complete through **Slice N**. **Immediate next task:** define and approve the post-N slice scope (candidate: cavity-output UX/reporting polish continuation) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
