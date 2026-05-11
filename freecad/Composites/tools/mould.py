@@ -9,6 +9,12 @@ from .part_plane import part_plane
 
 default_mould_buffer = [30, 5, 30]
 
+MOULD_GENERATION_STATUS_OK = "ok"
+MOULD_GENERATION_STATUS_FAIL_CLOSED = "fail_closed"
+MOULD_GENERATION_REASON_OK = "ok"
+MOULD_GENERATION_REASON_CUT_EXCEPTION = "cut_exception"
+MOULD_GENERATION_REASON_CUT_INVALID_OR_NULL = "cut_invalid_or_null"
+
 
 def _build_mould_blank(shape, buffer=default_mould_buffer):
     ll = Vector(
@@ -80,16 +86,29 @@ def _cut_source_from_blank(blank_shape, source_shape):
     return blank_shape.cut(source_shape)
 
 
-def make_moulds(shape, buffer=default_mould_buffer):
+def _mould_generation_result(shape, status, reason_code, summary):
+    return {
+        "shape": shape,
+        "status": status,
+        "reason_code": reason_code,
+        "summary": summary,
+    }
+
+
+def make_moulds_with_diagnostics(shape, buffer=default_mould_buffer):
     blank_shape = _build_mould_blank(shape, buffer)
 
     try:
         cavity_shape = _cut_source_from_blank(blank_shape, shape)
-    except Exception as exc:
-        FreeCAD.Console.PrintWarning(
-            f"Composites Mould: cavity boolean cut failed ({exc}); returning null shape.\n"
+    except Exception:
+        summary = "cavity boolean cut failed; returning null shape."
+        FreeCAD.Console.PrintWarning(f"Composites Mould: {summary}\n")
+        return _mould_generation_result(
+            Part.Shape(),
+            MOULD_GENERATION_STATUS_FAIL_CLOSED,
+            MOULD_GENERATION_REASON_CUT_EXCEPTION,
+            summary,
         )
-        return Part.Shape()
 
     if (
         cavity_shape is None
@@ -98,9 +117,22 @@ def make_moulds(shape, buffer=default_mould_buffer):
         or not hasattr(cavity_shape, "isValid")
         or not cavity_shape.isValid()
     ):
-        FreeCAD.Console.PrintWarning(
-            "Composites Mould: cavity boolean cut produced invalid/null shape; returning null shape.\n"
+        summary = "cavity boolean cut produced invalid/null shape; returning null shape."
+        FreeCAD.Console.PrintWarning(f"Composites Mould: {summary}\n")
+        return _mould_generation_result(
+            Part.Shape(),
+            MOULD_GENERATION_STATUS_FAIL_CLOSED,
+            MOULD_GENERATION_REASON_CUT_INVALID_OR_NULL,
+            summary,
         )
-        return Part.Shape()
 
-    return cavity_shape
+    return _mould_generation_result(
+        cavity_shape,
+        MOULD_GENERATION_STATUS_OK,
+        MOULD_GENERATION_REASON_OK,
+        "cavity boolean cut succeeded.",
+    )
+
+
+def make_moulds(shape, buffer=default_mould_buffer):
+    return make_moulds_with_diagnostics(shape, buffer)["shape"]

@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import FreeCAD
 import FreeCADGui
 
 from .. import (
     MOULD_TOOL_ICON,
 )
-from ..tools.mould import make_moulds
+from ..tools.mould import (
+    MOULD_GENERATION_STATUS_OK,
+    make_moulds_with_diagnostics,
+)
 from .Command import BaseCommand
 from .VPCompositePart import (
     CompositePartFP,
@@ -48,11 +52,34 @@ class MouldFP(CompositePartFP):
             locked=True,
         ).ZOverhang = "5.0 mm"
 
+        obj.addProperty(
+            "App::PropertyString",
+            "GenerationStatus",
+            "Mould",
+            "Deterministic mould-generation status",
+            locked=True,
+        ).GenerationStatus = "pending"
+
+        obj.addProperty(
+            "App::PropertyString",
+            "GenerationSummary",
+            "Mould",
+            "Deterministic mould-generation summary",
+            locked=True,
+        ).GenerationSummary = "not computed"
+
         super().__init__(obj)
 
     def execute(self, fp):
         buffer = [fp.XOverhang.Value, fp.YOverhang.Value, fp.ZOverhang.Value]
-        fp.Shape = make_moulds(fp.Source.Shape, buffer)
+        diagnostics = make_moulds_with_diagnostics(fp.Source.Shape, buffer)
+        fp.Shape = diagnostics["shape"]
+        fp.GenerationStatus = diagnostics["status"]
+        fp.GenerationSummary = diagnostics["summary"]
+        if diagnostics["status"] != MOULD_GENERATION_STATUS_OK:
+            FreeCAD.Console.PrintWarning(
+                f"Composites Mould: {diagnostics['summary']}\n"
+            )
 
 
 class ViewProviderMould(VPCompositePart):

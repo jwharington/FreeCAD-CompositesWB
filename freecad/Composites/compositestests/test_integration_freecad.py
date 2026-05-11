@@ -463,6 +463,115 @@ class TestFreeCADIntegration(unittest.TestCase):
         self.assertTrue(first_result.isNull())
         self.assertTrue(second_result.isNull())
 
+    def test_slice_o_o1_make_moulds_with_diagnostics_exposes_fail_closed_reason_codes(self):
+        import freecad.Composites.tools.mould as mould_tool
+
+        source_shape = self._make_rotated_mould_source_shape()
+        original_cut = mould_tool._cut_source_from_blank
+
+        def _failing_cut(_blank_shape, _source_shape):
+            raise RuntimeError("forced cut failure")
+
+        mould_tool._cut_source_from_blank = _failing_cut
+        try:
+            first_result = mould_tool.make_moulds_with_diagnostics(source_shape)
+            second_result = mould_tool.make_moulds_with_diagnostics(source_shape)
+        finally:
+            mould_tool._cut_source_from_blank = original_cut
+
+        self.assertEqual(first_result["status"], "fail_closed")
+        self.assertEqual(first_result["reason_code"], "cut_exception")
+        self.assertEqual(
+            first_result["summary"],
+            "cavity boolean cut failed; returning null shape.",
+        )
+        self.assertTrue(first_result["shape"].isNull())
+
+        self.assertEqual(second_result["status"], first_result["status"])
+        self.assertEqual(second_result["reason_code"], first_result["reason_code"])
+        self.assertEqual(second_result["summary"], first_result["summary"])
+        self.assertTrue(second_result["shape"].isNull())
+
+    def test_slice_o_o2_mould_feature_recompute_exposes_generation_status_and_summary(self):
+        import FreeCADGui
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.Mould import MouldFP
+
+        doc_name = "CompositesMouldSliceOO2IntegrationTest"
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "Source")
+            source.Shape = self._make_rotated_mould_source_shape()
+            mould_obj = doc.addObject("Part::FeaturePython", "Mould")
+            MouldFP(mould_obj, source)
+            doc.recompute()
+
+            self.assertEqual(mould_obj.GenerationStatus, "ok")
+            self.assertEqual(mould_obj.GenerationSummary, "cavity boolean cut succeeded.")
+            self.assertFalse(mould_obj.Shape.isNull())
+            self.assertTrue(mould_obj.Shape.isValid())
+
+            intersection = mould_obj.Shape.common(source.Shape)
+            intersection_volume = 0.0 if intersection.isNull() else float(intersection.Volume)
+            self.assertAlmostEqual(intersection_volume, 0.0, places=8)
+        finally:
+            FreeCAD.closeDocument(doc_name)
+
+    def test_slice_o_o3_mould_feature_fail_closed_status_is_repeat_run_deterministic(self):
+        import FreeCADGui
+        import freecad.Composites.tools.mould as mould_tool
+
+        if not hasattr(FreeCADGui, "addCommand"):
+            FreeCADGui.addCommand = lambda *args, **kwargs: None
+
+        from freecad.Composites.features.Mould import MouldFP
+
+        doc_name = "CompositesMouldSliceOO3IntegrationTest"
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
+        original_cut = mould_tool._cut_source_from_blank
+
+        def _failing_cut(_blank_shape, _source_shape):
+            raise RuntimeError("forced cut failure")
+
+        mould_tool._cut_source_from_blank = _failing_cut
+        doc = FreeCAD.newDocument(doc_name)
+        try:
+            source = doc.addObject("Part::Feature", "Source")
+            source.Shape = self._make_rotated_mould_source_shape()
+            mould_obj = doc.addObject("Part::FeaturePython", "Mould")
+            MouldFP(mould_obj, source)
+
+            doc.recompute()
+            first_status = mould_obj.GenerationStatus
+            first_summary = mould_obj.GenerationSummary
+            first_is_null = mould_obj.Shape.isNull()
+
+            doc.recompute()
+            second_status = mould_obj.GenerationStatus
+            second_summary = mould_obj.GenerationSummary
+            second_is_null = mould_obj.Shape.isNull()
+
+            self.assertEqual(first_status, "fail_closed")
+            self.assertEqual(second_status, first_status)
+            self.assertEqual(
+                first_summary,
+                "cavity boolean cut failed; returning null shape.",
+            )
+            self.assertEqual(second_summary, first_summary)
+            self.assertTrue(first_is_null)
+            self.assertTrue(second_is_null)
+        finally:
+            mould_tool._cut_source_from_blank = original_cut
+            FreeCAD.closeDocument(doc_name)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
