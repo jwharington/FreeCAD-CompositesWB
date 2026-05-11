@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Execution complete (Slices A-N complete)  
+**Status:** Execution complete (Slices A-O complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -99,11 +99,16 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `n3` `857b7d1`: deterministic fail-closed fallback when boolean subtraction fails (returns null shape + warning contract) (`test_slice_n_n3_make_moulds_boolean_failure_returns_null_shape`),
   - external `MouldAnalysis` interface/property names remain unchanged.
 
+- **Slice O (P1): completed through o3 checkpoints**
+  - `o1` `4a59614`: deterministic mould-generation diagnostics helper + fail-closed reason/status codes (`ok`, `cut_exception`, `cut_invalid_or_null`) are exposed by `make_moulds_with_diagnostics(...)` while preserving `make_moulds(...)` signature,
+  - `o2` `4a59614`: `Mould` FeaturePython recompute now surfaces deterministic UX properties (`GenerationStatus`, `GenerationSummary`) for cavity-generation outcomes without changing external `MouldAnalysis` interface/property names,
+  - `o3` `4a59614`: repeat-run deterministic integration coverage for fail-closed status/summary behaviour (`test_slice_o_o3_mould_feature_fail_closed_status_is_repeat_run_deterministic`) alongside `o1/o2` contract tests.
+
 ### Current gate status
 
-- `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**77/77 tests**).
-- Fishnet native suite (`run_fishnet_native_tests.py`): passing (**106 tests**).
+- `python -m py_compile` on touched mould feature/tool + integration test files: passing.
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**80/80 tests**).
+- Fishnet native suite (`run_fishnet_native_tests.py`): passing (**106/106 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -403,4 +408,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Execution PRD scope is complete through **Slice N**. **Immediate next task:** define and approve the post-N slice scope (candidate: cavity-output UX/reporting polish continuation) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
+Execution PRD scope is complete through **Slice O**. **Immediate next task:** define and approve the post-O slice scope (candidate: extend cavity-contract reporting into `MouldAnalysis` payloads/gallery outputs) while preserving the stabilized external `MouldAnalysis` interface and diagnostics contract.

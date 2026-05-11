@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-05  
 **Repository:** `FreeCAD-CompositesWB`  
-**Status:** Implemented baseline complete (Slices A-N delivered)  
+**Status:** Implemented baseline complete (Slices A-O delivered)  
 **Related spec:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
 ---
@@ -39,6 +39,7 @@ The system must:
 - **Slice L complete through l3**: calibration-matrix payload stabilization across fixture-matrix checks, clustered grouped-overlay summaries/top-clusters, and deterministic recommendation/summary alignment with external property stability.
 - **Slice M complete through m3**: rotated convex/off-axis false-positive suppression for draft/undercut diagnostics, repeat-run deterministic violation payload checks, and preserved concave/overhang multipart-readiness signal, with external `MouldAnalysis` property names unchanged.
 - **Slice N complete through n3**: cavity-first mould output semantics are now default in `make_moulds(...)` (blank minus source), with deterministic repeat-run behavior and fail-closed null-shape fallback coverage for boolean failures, while leaving external `MouldAnalysis` property names unchanged.
+- **Slice O complete through o3**: deterministic mould-generation diagnostics (`make_moulds_with_diagnostics(...)` reason/status contract), deterministic `Mould` recompute UX status/summary properties (`GenerationStatus`, `GenerationSummary`), and repeat-run fail-closed determinism coverage are implemented without changing external `MouldAnalysis` property names.
 - Dedicated mould integration module now covers the required real fixtures:
   - sphere,
   - box,
@@ -46,7 +47,7 @@ The system must:
   - generic lofted shell,
   - concave/overhang composite,
   - internal opening/recess shape.
-- Current gate status: FreeCAD integration suite passing (77/77 tests) and fishnet native suite passing (106 tests), with known non-fatal TopoShape mapper warnings in integration output.
+- Current gate status: FreeCAD integration suite passing (80/80 tests) and fishnet native suite passing (106/106 tests), with known non-fatal TopoShape mapper warnings in integration output.
 
 ---
 
@@ -264,6 +265,9 @@ This is still an early heuristic path (`WORK-IN-PROGRESS` in command tooltip), n
 
 ### Phase 12 — Slice N (completed: cavity-first mould output semantics)
 - Updated mould generation so `make_moulds(...)` defaults to cavity-first output (mould blank with source removed), added deterministic repeat-run checks, and added fail-closed null-shape behavior for boolean-failure paths while preserving external `MouldAnalysis` properties.
+
+### Phase 13 — Slice O (completed: cavity-output UX diagnostics contract)
+- Added deterministic mould-generation diagnostics helper contracts (`ok` / `cut_exception` / `cut_invalid_or_null`), surfaced deterministic `Mould` recompute UX properties (`GenerationStatus`, `GenerationSummary`), and added repeat-run deterministic fail-closed integration coverage while preserving external `MouldAnalysis` properties.
 
 ---
 
