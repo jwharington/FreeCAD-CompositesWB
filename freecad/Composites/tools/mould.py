@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import FreeCAD
 import Part
 from FreeCAD import Vector
 
@@ -9,7 +10,7 @@ from .part_plane import part_plane
 default_mould_buffer = [30, 5, 30]
 
 
-def make_moulds(shape, buffer=default_mould_buffer):
+def _build_mould_blank(shape, buffer=default_mould_buffer):
     ll = Vector(
         shape.BoundBox.XMin - buffer[0],
         shape.BoundBox.YMin - buffer[1],
@@ -68,9 +69,38 @@ def make_moulds(shape, buffer=default_mould_buffer):
         if i + 1 == n:
             get_wire(ur.z)
 
-    part_plane_obj = Part.makeLoft(
+    return Part.makeLoft(
         wires,
         solid=solid,
         ruled=True,
     )
-    return part_plane_obj
+
+
+def _cut_source_from_blank(blank_shape, source_shape):
+    return blank_shape.cut(source_shape)
+
+
+def make_moulds(shape, buffer=default_mould_buffer):
+    blank_shape = _build_mould_blank(shape, buffer)
+
+    try:
+        cavity_shape = _cut_source_from_blank(blank_shape, shape)
+    except Exception as exc:
+        FreeCAD.Console.PrintWarning(
+            f"Composites Mould: cavity boolean cut failed ({exc}); returning null shape.\n"
+        )
+        return Part.Shape()
+
+    if (
+        cavity_shape is None
+        or not hasattr(cavity_shape, "isNull")
+        or cavity_shape.isNull()
+        or not hasattr(cavity_shape, "isValid")
+        or not cavity_shape.isValid()
+    ):
+        FreeCAD.Console.PrintWarning(
+            "Composites Mould: cavity boolean cut produced invalid/null shape; returning null shape.\n"
+        )
+        return Part.Shape()
+
+    return cavity_shape
