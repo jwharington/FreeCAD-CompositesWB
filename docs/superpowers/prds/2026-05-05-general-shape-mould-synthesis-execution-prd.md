@@ -1,7 +1,7 @@
 # Execution PRD: General-Shape Mould Synthesis (Two-Piece First)
 
 **Date:** 2026-05-05  
-**Status:** Execution complete (Slices A-L complete)  
+**Status:** Execution complete (Slices A-M complete)  
 **Parent PRD:** `docs/superpowers/prds/2026-05-05-general-shape-mould-synthesis-prd.md`  
 **Spec reference:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
@@ -13,7 +13,7 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
 
 **Target behavior:** best-effort two-piece synthesis with explicit `Ready / Warning / Fail` outcomes and deterministic diagnostics.
 
-## 1.1) Progress Snapshot (2026-05-09)
+## 1.1) Progress Snapshot (2026-05-12)
 
 ### Completed slices/checkpoints
 
@@ -87,11 +87,17 @@ Deliver a production-credible `MouldAnalysis` pipeline for general BRep shapes w
   - `l2`: cluster-level grouped-overlay reporting payload (`manufacturability_overlay_cluster_summary`, `manufacturability_overlay_top_clusters`) with deterministic summary/top-cluster semantics,
   - `l3`: recommendation/summary alignment with cluster-calibration context plus external `MouldAnalysis` property stability guard.
 
+- **Slice M (P1): completed through m3 checkpoints**
+  - `m1` `3d76f69`: rotated convex/off-axis fixture no longer emits false draft/undercut violations (`test_slice_m_m1_rotated_convex_box_avoids_false_draft_and_undercut_flags`),
+  - `m2` `3d76f69`: repeat-run determinism checks for rotated-fixture violation diagnostics (`test_slice_m_m2_rotated_box_violation_diagnostics_are_repeat_run_deterministic`),
+  - `m3` `3d76f69`: concave/overhang multipart-readiness signal remains explicit after heuristic correction (`test_slice_m_m3_concave_overhang_still_reports_multipart_relevant_signal`),
+  - external `MouldAnalysis` interface/property names remain unchanged (internal diagnostics-only refinement).
+
 ### Current gate status
 
 - `python -m py_compile` on touched mould analysis + tests: passing.
-- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**71/71 tests**).
-- Fishnet native suite (`run_fishnet_native_tests.py`): passing (**66 tests**).
+- FreeCAD integration suite (`run_freecad_integration_tests.py`): passing (**74/74 tests**).
+- Fishnet native suite (`run_fishnet_native_tests.py`): passing (**106 tests**).
 - Known runtime noise remains non-fatal: TopoShape mapper warnings from OCC/TopoShape expansion.
 
 ---
@@ -391,4 +397,4 @@ Mitigation: deterministic ordering rules, explicit fallback policy, strict valid
 
 ## 8) Immediate Next Task
 
-Execution PRD scope is complete through **Slice L**. **Immediate next task (Slice M)**: extend manufacturability calibration validation and reporting polish (cluster labeling/visual semantics) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.
+Execution PRD scope is complete through **Slice M**. **Immediate next task:** define and approve the post-M slice scope (candidate: cavity-first mould output semantics plus reporting polish continuation) while preserving the stabilized `MouldAnalysis` external interface and diagnostics contract.

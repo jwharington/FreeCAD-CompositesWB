@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-05  
 **Repository:** `FreeCAD-CompositesWB`  
-**Status:** Implemented baseline complete (Slices A-L delivered)  
+**Status:** Implemented baseline complete (Slices A-M delivered)  
 **Related spec:** `docs/superpowers/specs/2026-04-29-general-shape-mould-synthesis-design.md`
 
 ---
@@ -17,7 +17,7 @@ The system must:
 - Support shell-like composite inputs by normalizing to an effective moulding solid when thickness/laminate data exists.
 - Return explicit **Ready / Warning / Fail** outcomes with actionable diagnostics.
 
-## 1.1) Implementation Progress Snapshot (2026-05-09)
+## 1.1) Implementation Progress Snapshot (2026-05-12)
 
 - **Slice A complete** (normalization confidence contract, strict thickness-hint gating, normalization diagnostics in `AnalysisSummary` and `ValidationChecks`).
 - **Slice B advanced through b6** with deterministic geometry-aware ranking diagnostics:
@@ -37,6 +37,7 @@ The system must:
 - **Slice J complete through j3**: manufacturability payload contract (metrics/overlay/recommendations), deterministic overlay-band ordering and pull-direction summaries, and risk/recommendation stability without external property expansion.
 - **Slice K complete through k3**: grouped manufacturability overlay semantics (`manufacturability_overlay_groups` + summary/count), calibration scaffolding payloads (`manufacturability_calibration_*`), and group-aware recommendation alignment with external property stability.
 - **Slice L complete through l3**: calibration-matrix payload stabilization across fixture-matrix checks, clustered grouped-overlay summaries/top-clusters, and deterministic recommendation/summary alignment with external property stability.
+- **Slice M complete through m3**: rotated convex/off-axis false-positive suppression for draft/undercut diagnostics, repeat-run deterministic violation payload checks, and preserved concave/overhang multipart-readiness signal, with external `MouldAnalysis` property names unchanged.
 - Dedicated mould integration module now covers the required real fixtures:
   - sphere,
   - box,
@@ -44,7 +45,7 @@ The system must:
   - generic lofted shell,
   - concave/overhang composite,
   - internal opening/recess shape.
-- Current gate status: FreeCAD integration suite passing (71/71 tests) and fishnet native suite passing (66 tests), with known non-fatal TopoShape mapper warnings in integration output.
+- Current gate status: FreeCAD integration suite passing (74/74 tests) and fishnet native suite passing (106 tests), with known non-fatal TopoShape mapper warnings in integration output.
 
 ---
 
@@ -257,8 +258,8 @@ This is still an early heuristic path (`WORK-IN-PROGRESS` in command tooltip), n
 ### Phase 10 — Slice L (calibration matrix + grouped reporting)
 - Stabilize manufacturability score behavior across a broader fixture matrix and add cluster-level grouped-overlay report semantics while preserving external `MouldAnalysis` properties.
 
-### Phase 11 — Slice M follow-on (calibration refinement + reporting polish)
-- Extend calibration validation and grouped-overlay reporting polish (cluster labels/visual semantics) while preserving external `MouldAnalysis` properties.
+### Phase 11 — Slice M (completed: calibration refinement + reporting polish + rotated/off-axis draft diagnostics hardening)
+- Extended calibration/reporting follow-on with deterministic rotated/off-axis draft diagnostics hardening, while preserving external `MouldAnalysis` properties.
 
 ---
 
