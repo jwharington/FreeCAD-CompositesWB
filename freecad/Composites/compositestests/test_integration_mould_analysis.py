@@ -1767,6 +1767,56 @@ class TestMouldAnalysisIntegration(unittest.TestCase):
         self.assertIn("manufacturability=", result["summary"])
         self.assertTrue(result["validation_checks"])
 
+    def test_slice_m_m1_rotated_convex_box_avoids_false_draft_and_undercut_flags(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_mould_reference_rotated_box())
+
+        self.assertIn(result["status"], ("Ready", "Warning"))
+        self.assertEqual(result["undercut_count"], 0)
+        self.assertEqual(result["draft_violation_count"], 0)
+        self.assertEqual(result["undercut_regions"], ["None"])
+        self.assertEqual(result["draft_violation_regions"], ["None"])
+
+    def test_slice_m_m2_rotated_box_violation_diagnostics_are_repeat_run_deterministic(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        shape_a = self._make_mould_reference_rotated_box()
+        shape_b = self._make_mould_reference_rotated_box()
+
+        result_a = analyze_source_shape(shape_a)
+        result_b = analyze_source_shape(shape_b)
+
+        stable_fields = (
+            "status",
+            "validation_status",
+            "undercut_count",
+            "draft_violation_count",
+            "undercut_regions",
+            "draft_violation_regions",
+            "decomposition_plan_status",
+            "decomposition_plan_summary",
+            "multipart_execution_status",
+            "multipart_piece_count",
+        )
+        for field_name in stable_fields:
+            self.assertEqual(result_a[field_name], result_b[field_name])
+
+    def test_slice_m_m3_concave_overhang_still_reports_multipart_relevant_signal(self):
+        from freecad.Composites.tools.mould_analysis import analyze_source_shape
+
+        result = analyze_source_shape(self._make_concave_overhang_general_shape())
+
+        self.assertGreater(result["draft_violation_count"], 0)
+        self.assertIn(
+            result["decomposition_plan_status"],
+            ("consider_multipart", "multipart_required"),
+        )
+        self.assertIn(
+            result["multipart_execution_status"],
+            ("prototyped", "not_attempted"),
+        )
+
     def test_slice_f_f2_user_facing_summaries_are_concise_and_status_coherent(self):
         import Part
 
