@@ -695,6 +695,8 @@ namespace fishnet_internal
             long reject_out_of_range_count = 0;
             long reject_small_area_count = 0;
             long reject_short_edge_count = 0;
+            long reject_edge_ratio_count = 0;
+            long reject_long_edge_count = 0;
             long reject_self_intersection_count = 0;
             long reject_triangle_reuse_count = 0;
             long reject_overlap_count = 0;
@@ -705,6 +707,8 @@ namespace fishnet_internal
             double triangle_coverage_ratio = 0.0;
             double min_uv_area_threshold = 0.0;
             double min_shared_edge_uv_threshold = 0.0;
+            double max_uv_edge_ratio_threshold = 0.0;
+            double max_uv_edge_length_threshold = 0.0;
         };
 
         PreviewQuadBuildOutcome build_geodesic_preview_quads(
@@ -764,8 +768,10 @@ namespace fishnet_internal
 
             const double kMinUvArea = std::max(1e-18, (u_range * v_range) * 1e-8);
             const double kMinSharedUvEdge = std::max(1e-12, uv_diag * 1e-8);
+            const double kMaxUvEdgeRatio = 6.0;
             outcome.min_uv_area_threshold = kMinUvArea;
             outcome.min_shared_edge_uv_threshold = kMinSharedUvEdge;
+            outcome.max_uv_edge_ratio_threshold = kMaxUvEdgeRatio;
 
             auto process_edge = [&](int a, int b, int opposite, int tri_index) {
                 const std::uint64_t key = edge_key(a, b);
@@ -822,6 +828,27 @@ namespace fishnet_internal
                     return;
                 }
 
+                const auto edge_len = [](const UvPoint2 &p, const UvPoint2 &q) {
+                    return std::hypot(q.u - p.u, q.v - p.v);
+                };
+                const std::array<double, 4> quad_edge_lengths{
+                    edge_len(uv_quad[0], uv_quad[1]),
+                    edge_len(uv_quad[1], uv_quad[2]),
+                    edge_len(uv_quad[2], uv_quad[3]),
+                    edge_len(uv_quad[3], uv_quad[0])};
+                const double quad_edge_min = *std::min_element(quad_edge_lengths.begin(), quad_edge_lengths.end());
+                const double quad_edge_max = *std::max_element(quad_edge_lengths.begin(), quad_edge_lengths.end());
+                if (!(quad_edge_min > kMinSharedUvEdge))
+                {
+                    ++outcome.reject_short_edge_count;
+                    return;
+                }
+                if (quad_edge_max > (kMaxUvEdgeRatio * quad_edge_min))
+                {
+                    ++outcome.reject_edge_ratio_count;
+                    return;
+                }
+
                 Candidate c{};
                 c.tri0 = first.tri_index;
                 c.tri1 = tri_index;
@@ -843,6 +870,28 @@ namespace fishnet_internal
 
             outcome.leftover_open_edge_count = static_cast<long>(first_edge.size());
             outcome.candidate_count = static_cast<long>(candidates.size());
+
+            constexpr double kMaxUvEdgeLengthScale = 4.0;
+            double max_uv_edge_length_threshold = std::numeric_limits<double>::infinity();
+            if (!candidates.empty())
+            {
+                std::vector<double> shared_lengths;
+                shared_lengths.reserve(candidates.size());
+                for (const Candidate &candidate : candidates)
+                {
+                    shared_lengths.push_back(candidate.score);
+                }
+                const size_t mid = shared_lengths.size() / 2;
+                std::nth_element(shared_lengths.begin(), shared_lengths.begin() + static_cast<std::ptrdiff_t>(mid), shared_lengths.end());
+                const double median_shared = shared_lengths[mid];
+                if (std::isfinite(median_shared) && median_shared > 0.0)
+                {
+                    max_uv_edge_length_threshold = kMaxUvEdgeLengthScale * median_shared;
+                }
+            }
+            outcome.max_uv_edge_length_threshold = std::isfinite(max_uv_edge_length_threshold)
+                                                      ? max_uv_edge_length_threshold
+                                                      : 0.0;
 
             std::sort(candidates.begin(), candidates.end(), [](const Candidate &lhs, const Candidate &rhs) {
                 if (lhs.score == rhs.score)
@@ -877,6 +926,22 @@ namespace fishnet_internal
                 {
                     continue;
                 }
+
+                if (std::isfinite(max_uv_edge_length_threshold) && max_uv_edge_length_threshold > 0.0)
+                {
+                    const auto edge_len = [](const UvPoint2 &p, const UvPoint2 &q) {
+                        return std::hypot(q.u - p.u, q.v - p.v);
+                    };
+                    const double quad_edge_max = std::max(
+                        std::max(edge_len(candidate.uv_quad[0], candidate.uv_quad[1]), edge_len(candidate.uv_quad[1], candidate.uv_quad[2])),
+                        std::max(edge_len(candidate.uv_quad[2], candidate.uv_quad[3]), edge_len(candidate.uv_quad[3], candidate.uv_quad[0])));
+                    if (quad_edge_max > max_uv_edge_length_threshold)
+                    {
+                        ++outcome.reject_long_edge_count;
+                        continue;
+                    }
+                }
+
                 if (enforce_overlap_filter)
                 {
                     bool overlaps_selected = false;
@@ -1321,6 +1386,14 @@ namespace fishnet_internal
                 quad_outcome.reject_short_edge_count);
             set_dict_long(
                 diagnostics,
+                "geodesic_preview_quad_reject_edge_ratio_count",
+                quad_outcome.reject_edge_ratio_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_long_edge_count",
+                quad_outcome.reject_long_edge_count);
+            set_dict_long(
+                diagnostics,
                 "geodesic_preview_quad_reject_self_intersection_count",
                 quad_outcome.reject_self_intersection_count);
             set_dict_long(
@@ -1359,6 +1432,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_preview_quad_min_shared_edge_uv_threshold",
                 quad_outcome.min_shared_edge_uv_threshold);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_max_edge_ratio_threshold",
+                quad_outcome.max_uv_edge_ratio_threshold);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_max_edge_length_threshold",
+                quad_outcome.max_uv_edge_length_threshold);
 
             set_dict_string(
                 diagnostics,
@@ -1438,6 +1519,8 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_out_of_range_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_small_area_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_short_edge_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_edge_ratio_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_long_edge_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_self_intersection_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_triangle_reuse_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_overlap_count", 0);
@@ -1448,6 +1531,8 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_preview_quad_triangle_coverage_ratio", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_min_uv_area_threshold", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_min_shared_edge_uv_threshold", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_max_edge_ratio_threshold", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_max_edge_length_threshold", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");

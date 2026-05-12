@@ -5008,6 +5008,22 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertGreaterEqual(
                 int(
                     diagnostics.get(
+                        "geodesic_preview_quad_reject_edge_ratio_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quad_reject_long_edge_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
                         "geodesic_preview_quad_reject_self_intersection_count", -1
                     )
                 ),
@@ -5041,6 +5057,22 @@ class TestFishnetSolver(unittest.TestCase):
                 float(
                     diagnostics.get(
                         "geodesic_preview_quad_min_shared_edge_uv_threshold", -1.0
+                    )
+                ),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_max_edge_ratio_threshold", -1.0
+                    )
+                ),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_max_edge_length_threshold", -1.0
                     )
                 ),
                 0.0,
