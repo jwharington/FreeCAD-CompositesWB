@@ -182,8 +182,11 @@ namespace fishnet_internal
     void attach_solver_metadata(PyObject *result, PyObject *params_copy, const char *termination_reason, bool converged, PyObject *diagnostics);
 
     std::pair<double, bool> resolve_edge_rel_tolerance(PyObject *params_copy);
+    std::pair<double, bool> resolve_edge_rel_tolerance(const NormalizedParams &params);
     int resolve_relax_iterations(PyObject *params_copy);
+    int resolve_relax_iterations(const NormalizedParams &params);
     double read_nominal_edge_length(PyObject *params_copy);
+    double read_nominal_edge_length(const NormalizedParams &params);
 
     SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(const NormalizedParams &params);
     SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(PyObject *params_copy);

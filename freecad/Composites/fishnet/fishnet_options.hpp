@@ -51,13 +51,5 @@ namespace fishnet_internal
 
     GeometrySolverConfig build_geometry_solver_config(PyObject *params_copy, size_t native_face_count);
     GeometrySolverConfig build_geometry_solver_config(const NormalizedParams &params, size_t native_face_count);
-    std::pair<double, bool> resolve_edge_rel_tolerance(PyObject *params_copy);
-    std::pair<double, bool> resolve_edge_rel_tolerance(const NormalizedParams &params);
-    int resolve_relax_iterations(PyObject *params_copy);
-    int resolve_relax_iterations(const NormalizedParams &params);
-    double read_nominal_edge_length(PyObject *params_copy);
-    double read_nominal_edge_length(const NormalizedParams &params);
-    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(const NormalizedParams &params);
-    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(PyObject *params_copy);
 
 } // namespace fishnet_internal
