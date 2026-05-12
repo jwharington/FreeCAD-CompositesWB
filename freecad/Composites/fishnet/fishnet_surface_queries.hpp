@@ -38,6 +38,17 @@ bool native_face_normal_at(
     Vec3 &out
 );
 
+bool native_face_tangent_frame_at(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double u,
+    double v,
+    Vec3 &point,
+    Vec3 &du,
+    Vec3 &dv,
+    Vec3 &normal
+);
+
 TopAbs_State native_face_point_state(const TopoDS_Face &face, const gp_Pnt &point, double tolerance);
 
 bool native_face_is_inside(const TopoDS_Face &face, const gp_Pnt &point, double tolerance);
@@ -91,6 +102,45 @@ bool solve_uv_two_distance_constraints_spheresurface(
     double v0,
     double v1,
     ExperimentalSolveStats *stats
+);
+
+enum class GeodesicStepFailureReason : unsigned char
+{
+    None = 0,
+    DegenerateFrame,
+    SingularMetric,
+    Stalled,
+    OutsideFace,
+    EvaluationFailed,
+};
+
+struct GeodesicStepResult
+{
+    bool success{false};
+    double u{0.0};
+    double v{0.0};
+    Vec3 point{0.0, 0.0, 0.0};
+    Vec3 normal{0.0, 0.0, 1.0};
+    Vec3 tangent{1.0, 0.0, 0.0};
+    TopAbs_State face_state{TopAbs_UNKNOWN};
+    int backtrack_attempts{0};
+    int candidate_attempt_count{0};
+    int candidate_outside_face_reject_count{0};
+    int candidate_evaluation_failure_count{0};
+    GeodesicStepFailureReason failure_reason{GeodesicStepFailureReason::None};
+};
+
+GeodesicStepResult geodesic_like_step(
+    const TopoDS_Face &face,
+    const BRepAdaptor_Surface &surface,
+    double u,
+    double v,
+    const Vec3 &tangent_direction,
+    double step_length,
+    double u0,
+    double u1,
+    double v0,
+    double v1
 );
 
 int native_face_divisions(

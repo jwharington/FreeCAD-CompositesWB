@@ -19,3 +19,15 @@ enum class CurrentNodeSolverMode {
     SphereSurface,
 };
 
+enum class FacePointState : unsigned char {
+    Unknown = 0,
+    In = 1,
+    On = 2,
+    Out = 3,
+};
+
+inline bool face_point_state_is_inside(FacePointState state)
+{
+    return state == FacePointState::In || state == FacePointState::On;
+}
+

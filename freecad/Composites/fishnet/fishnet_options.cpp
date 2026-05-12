@@ -3,6 +3,8 @@
 
 #include "fishnet_options.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -20,6 +22,7 @@ namespace fishnet_internal
         constexpr double kDegreesToRadians = 0.017453292519943295;
         constexpr int kDefaultSurfaceSpacingRelaxIterationsAcp = 12;
         constexpr int kDefaultRelaxIterations = 120;
+        constexpr double kDefaultSurfaceSpacingStrictTolerance = 0.02;
 
         bool dict_has_key(PyObject *params, const char *key)
         {
@@ -28,6 +31,148 @@ namespace fishnet_internal
                 return false;
             }
             return PyDict_GetItemString(params, key) != nullptr;
+        }
+
+        std::string lowercase_copy(std::string value)
+        {
+            std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c)
+                           { return static_cast<char>(std::tolower(c)); });
+            return value;
+        }
+
+        std::string parse_paper_alignment_mode(std::string value)
+        {
+            value = lowercase_copy(value);
+            if (value.empty() || value == "off" || value == "none" || value == "disabled" || value == "false")
+            {
+                return "off";
+            }
+            if (value == "diagnostics" || value == "diagnostic" || value == "diagnostics_only" || value == "diagnostics-only")
+            {
+                return "diagnostics_only";
+            }
+            if (value == "hybrid" || value == "hybrid_metric_cell" || value == "hybrid-metric-cell" || value == "metric_cell")
+            {
+                return "hybrid_metric_cell";
+            }
+            return "";
+        }
+
+        std::string parse_paper_alignment_profile(std::string value)
+        {
+            value = lowercase_copy(value);
+            if (value.empty() || value == "default")
+            {
+                return "default";
+            }
+            if (value == "off" || value == "none" || value == "disabled")
+            {
+                return "off";
+            }
+            if (value == "diagnostics" || value == "diagnostics_only" || value == "diagnostics-only" || value == "phase1_diagnostics")
+            {
+                return "diagnostics_only";
+            }
+            if (value == "phase1" || value == "paper_alignment_phase1" || value == "hybrid_metric_cell")
+            {
+                return "phase1";
+            }
+            return "";
+        }
+
+        void apply_paper_alignment_profile(PyObject *params_copy, SolverAlgorithmProfile &profile)
+        {
+            const bool has_mode = dict_has_key(params_copy, "paper_alignment_mode");
+            const std::string raw_mode = param_string(params_copy, "paper_alignment_mode", "");
+            const std::string parsed_mode = parse_paper_alignment_mode(raw_mode);
+
+            const bool has_profile = dict_has_key(params_copy, "paper_alignment_profile");
+            const std::string raw_profile = param_string(params_copy, "paper_alignment_profile", "");
+            const std::string parsed_profile = parse_paper_alignment_profile(raw_profile);
+
+            const bool has_enabled_flag = dict_has_key(params_copy, "paper_alignment");
+            const bool paper_alignment_enabled_flag = param_bool(params_copy, "paper_alignment", false);
+
+            std::string requested_mode = "off";
+            std::string requested_profile = "default";
+            std::string fallback = "none";
+
+            if (has_mode)
+            {
+                if (!parsed_mode.empty())
+                {
+                    requested_mode = parsed_mode;
+                }
+                else
+                {
+                    fallback = "invalid_requested_mode";
+                }
+            }
+            else if (has_enabled_flag && paper_alignment_enabled_flag)
+            {
+                requested_mode = "diagnostics_only";
+            }
+
+            if (has_profile)
+            {
+                if (!parsed_profile.empty())
+                {
+                    requested_profile = parsed_profile;
+                }
+                else if (fallback == "none")
+                {
+                    fallback = "invalid_requested_profile";
+                }
+            }
+
+            if (!has_mode)
+            {
+                if (requested_profile == "phase1")
+                {
+                    requested_mode = "hybrid_metric_cell";
+                }
+                else if (requested_profile == "diagnostics_only")
+                {
+                    requested_mode = "diagnostics_only";
+                }
+                else if (requested_profile == "off")
+                {
+                    requested_mode = "off";
+                }
+            }
+
+            std::string effective_mode = requested_mode;
+            std::string effective_profile = requested_profile;
+
+            if (!profile.acp_energy_mode && requested_mode != "off")
+            {
+                effective_mode = "off";
+                effective_profile = "default";
+                fallback = "requires_acp_energy_algorithm";
+            }
+            else if (requested_mode == "hybrid_metric_cell")
+            {
+                // Phase 1 hybrid hook: keep interior ACP behavior unchanged, but
+                // activate directional boundary-reference seeding.
+                effective_mode = "hybrid_metric_cell";
+                effective_profile = (requested_profile == "default") ? "phase1" : requested_profile;
+            }
+
+            if (effective_mode == "off")
+            {
+                effective_profile = "default";
+            }
+            else if (effective_profile == "default")
+            {
+                effective_profile = effective_mode == "hybrid_metric_cell" ? "phase1" : "diagnostics_only";
+            }
+
+            profile.paper_alignment_requested = requested_mode;
+            profile.paper_alignment_effective = effective_mode;
+            profile.paper_alignment_fallback = fallback;
+            profile.paper_alignment_profile_requested = requested_profile;
+            profile.paper_alignment_profile_effective = effective_profile;
+            profile.paper_alignment_enabled = (effective_mode != "off");
         }
 
     } // namespace
@@ -132,6 +277,7 @@ namespace fishnet_internal
     {
         NormalizedParams normalized;
         normalized.algorithm_profile = solver_algorithm_profile_from_params(params_copy);
+        apply_paper_alignment_profile(params_copy, normalized.algorithm_profile);
 
         normalized.steps = solver_iterations_from_params(params_copy);
         normalized.fabric_spacing = param_double(params_copy, "fabric_spacing", 0.0);
@@ -164,6 +310,9 @@ namespace fishnet_internal
             }
         }
 
+        normalized.boundary_extend = param_bool(params_copy, "boundary_extend", true);
+        normalized.boundary_trim = param_bool(params_copy, "boundary_trim", true);
+
         normalized.edge_length_tolerance_from_parameter = dict_has_key(params_copy, "edge_length_tolerance");
         normalized.edge_length_tolerance = kDefaultEdgeLengthTolerance;
         if (normalized.edge_length_tolerance_from_parameter)
@@ -174,6 +323,23 @@ namespace fishnet_internal
                 normalized.edge_length_tolerance = parsed_tol;
             }
         }
+
+        normalized.surface_spacing_strict = param_bool(params_copy, "surface_spacing_strict", false);
+        normalized.surface_spacing_edge_tolerance_from_parameter = dict_has_key(params_copy, "surface_spacing_edge_tolerance");
+        normalized.surface_spacing_edge_tolerance = kDefaultSurfaceSpacingStrictTolerance;
+        if (normalized.surface_spacing_edge_tolerance_from_parameter)
+        {
+            const double parsed_strict_tol = param_double(params_copy, "surface_spacing_edge_tolerance", kDefaultSurfaceSpacingStrictTolerance);
+            if (std::isfinite(parsed_strict_tol) && parsed_strict_tol > 0.0)
+            {
+                normalized.surface_spacing_edge_tolerance = parsed_strict_tol;
+            }
+        }
+
+        const bool has_surface_spacing_fail_on_violation = dict_has_key(params_copy, "surface_spacing_fail_on_violation");
+        normalized.surface_spacing_fail_on_violation = has_surface_spacing_fail_on_violation
+                                                           ? param_bool(params_copy, "surface_spacing_fail_on_violation", normalized.surface_spacing_strict)
+                                                           : normalized.surface_spacing_strict;
 
         normalized.material_model = param_string(params_copy, "material_model", "woven");
         normalized.ud_coefficient = param_double(params_copy, "ud_coefficient", 0.0);
@@ -277,6 +443,17 @@ namespace fishnet_internal
         config.surface_spacing_refine = config.acp_surface_spacing_mode;
 
         config.surface_spacing_relax_iterations = config.acp_surface_spacing_mode ? kDefaultSurfaceSpacingRelaxIterationsAcp : 3;
+        const SurfaceSpacingStrictPolicy strict_policy = resolve_surface_spacing_strict_policy(params);
+        config.surface_spacing_strict = strict_policy.enabled;
+        config.surface_spacing_fail_on_violation = strict_policy.fail_on_violation;
+        config.surface_spacing_edge_tolerance = strict_policy.tolerance;
+        config.boundary_extend = params.boundary_extend;
+        config.boundary_trim = params.boundary_trim;
+        config.paper_alignment_boundary_reference = params.algorithm_profile.paper_alignment_enabled;
+        config.paper_alignment_directional_reference =
+            params.algorithm_profile.paper_alignment_effective == "hybrid_metric_cell";
+        config.paper_alignment_has_reference_direction_request = params.has_draping_direction;
+        config.paper_alignment_reference_direction = params.draping_direction;
         if (params.has_surface_spacing_relax_iterations && params.surface_spacing_relax_iterations > 0)
         {
             config.surface_spacing_relax_iterations = params.surface_spacing_relax_iterations;
@@ -304,6 +481,11 @@ namespace fishnet_internal
 
     std::pair<double, bool> resolve_edge_rel_tolerance(const NormalizedParams &params)
     {
+        const SurfaceSpacingStrictPolicy strict_policy = resolve_surface_spacing_strict_policy(params);
+        if (strict_policy.enabled)
+        {
+            return {strict_policy.tolerance, strict_policy.tolerance_from_parameter};
+        }
         return {params.edge_length_tolerance, params.edge_length_tolerance_from_parameter};
     }
 
@@ -335,6 +517,46 @@ namespace fishnet_internal
     double read_nominal_edge_length(PyObject *params_copy)
     {
         return read_nominal_edge_length(normalize_params(params_copy));
+    }
+
+    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(const NormalizedParams &params)
+    {
+        SurfaceSpacingStrictPolicy policy;
+        policy.enabled = params.algorithm_profile.surface_spacing_mode && params.surface_spacing_strict;
+
+        if (!policy.enabled)
+        {
+            policy.tolerance = params.edge_length_tolerance;
+            policy.tolerance_from_parameter = params.edge_length_tolerance_from_parameter;
+            policy.fail_on_violation = false;
+            return policy;
+        }
+
+        policy.fail_on_violation = params.surface_spacing_fail_on_violation;
+        policy.tolerance = kDefaultSurfaceSpacingStrictTolerance;
+        policy.tolerance_from_parameter = false;
+
+        if (params.surface_spacing_edge_tolerance_from_parameter &&
+            std::isfinite(params.surface_spacing_edge_tolerance) &&
+            params.surface_spacing_edge_tolerance > 0.0)
+        {
+            policy.tolerance = params.surface_spacing_edge_tolerance;
+            policy.tolerance_from_parameter = true;
+        }
+        else if (params.edge_length_tolerance_from_parameter &&
+                 std::isfinite(params.edge_length_tolerance) &&
+                 params.edge_length_tolerance > 0.0)
+        {
+            policy.tolerance = params.edge_length_tolerance;
+            policy.tolerance_from_parameter = true;
+        }
+
+        return policy;
+    }
+
+    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(PyObject *params_copy)
+    {
+        return resolve_surface_spacing_strict_policy(normalize_params(params_copy));
     }
 
 } // namespace fishnet_internal

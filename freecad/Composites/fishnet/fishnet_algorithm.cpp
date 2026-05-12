@@ -34,9 +34,8 @@
 #include <TopoDS_Shape.hxx>
 
 #include "fishnet_acp_layout.hpp"
-#include "fishnet_result_api.hpp"
-#include "fishnet_sampling_api.hpp"
 #include "fishnet_algorithm_types.hpp"
+#include "fishnet_boundary_trim.hpp"
 #include "fishnet_diagnostics_api.hpp"
 #include "fishnet_layout_geometry_api.hpp"
 #include "fishnet_options.hpp"
@@ -53,6 +52,275 @@
 namespace fishnet_internal
 {
 
+    namespace
+    {
+        bool is_finite_vec3(const Vec3 &value)
+        {
+            return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+        }
+
+        Vec3 normalize_or_default(const Vec3 &value, const Vec3 &fallback)
+        {
+            if (!is_finite_vec3(value) || norm(value) <= kVectorZeroEpsilon)
+            {
+                return fallback;
+            }
+            Vec3 normalized = normalize(value);
+            if (!is_finite_vec3(normalized) || norm(normalized) <= kVectorZeroEpsilon)
+            {
+                return fallback;
+            }
+            return normalized;
+        }
+
+        const char *sanitize_seed_source(const std::string &source)
+        {
+            if (source == "params_seed_point_nearest")
+            {
+                return "params_seed_point_nearest";
+            }
+            if (source == "params_seed")
+            {
+                return "params_seed";
+            }
+            if (source == "default_zero")
+            {
+                return "default_zero";
+            }
+            if (source == "unresolved")
+            {
+                return "unresolved";
+            }
+            return "unresolved";
+        }
+
+        const char *sanitize_draping_source(const std::string &source)
+        {
+            if (source == "params_draping_direction_projected")
+            {
+                return "params_draping_direction_projected";
+            }
+            if (source == "bbox_extent_x")
+            {
+                return "bbox_extent_x";
+            }
+            if (source == "bbox_extent_y")
+            {
+                return "bbox_extent_y";
+            }
+            if (source == "default_unit_x")
+            {
+                return "default_unit_x";
+            }
+            return "default_unit_x";
+        }
+
+        double sanitize_nonnegative(double value)
+        {
+            if (!std::isfinite(value) || value < 0.0)
+            {
+                return 0.0;
+            }
+            return value;
+        }
+
+        double sanitize_alignment_cos(double value)
+        {
+            if (!std::isfinite(value))
+            {
+                return 0.0;
+            }
+            return std::clamp(value, -1.0, 1.0);
+        }
+
+        double point_distance(const Vec3 &a, const Vec3 &b)
+        {
+            const Vec3 delta = a - b;
+            const double dist2 = dot(delta, delta);
+            return std::sqrt(std::max(0.0, dist2));
+        }
+
+        struct SweepCoordinateMetadata
+        {
+            long seed_index_used{-1};
+            Vec3 seed_point_used{0.0, 0.0, 0.0};
+            Vec3 draping_direction_used{1.0, 0.0, 0.0};
+            std::string sweep_analysis_seed_source{"unresolved"};
+            double sweep_analysis_seed_point_request_distance{0.0};
+            std::string sweep_analysis_draping_direction_source{"default_unit_x"};
+            double sweep_analysis_draping_direction_request_alignment_cos{0.0};
+        };
+
+        SweepCoordinateMetadata resolve_sweep_coordinate_metadata(
+            const std::vector<Vec3> &mesh_points,
+            const std::vector<Vec3> &local_points,
+            const Vec3 &x_axis,
+            const Vec3 &y_axis,
+            const NormalizedParams &params,
+            bool acp_energy_mode,
+            const AcpPropagationSummary &acp_summary)
+        {
+            SweepCoordinateMetadata metadata;
+
+            int seed_index = -1;
+            if (acp_energy_mode)
+            {
+                seed_index = acp_summary.seed_index;
+                metadata.sweep_analysis_seed_source = sanitize_seed_source(acp_summary.sweep_analysis_seed_source);
+                metadata.sweep_analysis_seed_point_request_distance = sanitize_nonnegative(acp_summary.sweep_analysis_seed_point_request_distance);
+            }
+            else
+            {
+                if (params.has_seed &&
+                    params.seed >= 0 &&
+                    params.seed < static_cast<int>(mesh_points.size()))
+                {
+                    seed_index = params.seed;
+                    metadata.sweep_analysis_seed_source = "params_seed";
+                }
+                if (params.has_seed_point)
+                {
+                    const int nearest = nearest_point_index(mesh_points, params.seed_point);
+                    if (nearest >= 0)
+                    {
+                        seed_index = nearest;
+                        metadata.sweep_analysis_seed_source = "params_seed_point_nearest";
+                        metadata.sweep_analysis_seed_point_request_distance =
+                            sanitize_nonnegative(point_distance(mesh_points[static_cast<size_t>(nearest)], params.seed_point));
+                    }
+                }
+            }
+
+            if (seed_index >= 0 && seed_index < static_cast<int>(mesh_points.size()))
+            {
+                metadata.seed_index_used = static_cast<long>(seed_index);
+                metadata.seed_point_used = mesh_points[static_cast<size_t>(seed_index)];
+            }
+            else if (acp_energy_mode && !mesh_points.empty())
+            {
+                metadata.sweep_analysis_seed_source = "unresolved";
+            }
+
+            if (!is_finite_vec3(metadata.seed_point_used))
+            {
+                metadata.seed_point_used = {0.0, 0.0, 0.0};
+                metadata.seed_index_used = -1;
+                metadata.sweep_analysis_seed_source = "unresolved";
+            }
+            metadata.sweep_analysis_seed_source = sanitize_seed_source(metadata.sweep_analysis_seed_source);
+
+            Vec3 draping_direction = {1.0, 0.0, 0.0};
+            bool used_acp_direction = false;
+            if (acp_energy_mode)
+            {
+                draping_direction = acp_summary.draping_direction_used;
+                if (!is_finite_vec3(draping_direction) || norm(draping_direction) <= kVectorZeroEpsilon)
+                {
+                    draping_direction = acp_summary.primary_axis;
+                }
+                if (is_finite_vec3(draping_direction) && norm(draping_direction) > kVectorZeroEpsilon)
+                {
+                    used_acp_direction = true;
+                    metadata.sweep_analysis_draping_direction_source =
+                        sanitize_draping_source(acp_summary.sweep_analysis_draping_direction_source);
+                    metadata.sweep_analysis_draping_direction_request_alignment_cos =
+                        sanitize_alignment_cos(acp_summary.sweep_analysis_draping_direction_request_alignment_cos);
+                }
+            }
+            if (!used_acp_direction)
+            {
+                const PrimaryAxisSelectionInfo axis_selection =
+                    choose_primary_axis_with_analysis(local_points, x_axis, y_axis, &params);
+                draping_direction = axis_selection.axis;
+                metadata.sweep_analysis_draping_direction_source =
+                    sanitize_draping_source(axis_selection.source);
+                metadata.sweep_analysis_draping_direction_request_alignment_cos =
+                    sanitize_alignment_cos(axis_selection.request_alignment_cos);
+            }
+
+            metadata.draping_direction_used = normalize_or_default(draping_direction, {1.0, 0.0, 0.0});
+            metadata.sweep_analysis_draping_direction_source =
+                sanitize_draping_source(metadata.sweep_analysis_draping_direction_source);
+            metadata.sweep_analysis_draping_direction_request_alignment_cos =
+                sanitize_alignment_cos(metadata.sweep_analysis_draping_direction_request_alignment_cos);
+
+            return metadata;
+        }
+
+        void set_sweep_coordinate_fields(PyObject *dict, const SweepCoordinateMetadata &metadata)
+        {
+            set_dict_long(dict, "sweep_seed_index_used", metadata.seed_index_used);
+            set_dict_vec3(dict, "sweep_seed_point_used", metadata.seed_point_used);
+            set_dict_vec3(dict, "sweep_draping_direction_used", metadata.draping_direction_used);
+            set_dict_string(dict, "sweep_analysis_seed_source", metadata.sweep_analysis_seed_source);
+            set_dict_double(dict, "sweep_analysis_seed_point_request_distance", metadata.sweep_analysis_seed_point_request_distance);
+            set_dict_string(dict, "sweep_analysis_draping_direction_source", metadata.sweep_analysis_draping_direction_source);
+            set_dict_double(
+                dict,
+                "sweep_analysis_draping_direction_request_alignment_cos",
+                metadata.sweep_analysis_draping_direction_request_alignment_cos);
+        }
+
+        void attach_sweep_coordinate_metadata(PyObject *result, const SweepCoordinateMetadata &metadata)
+        {
+            if (!result || !PyDict_Check(result))
+            {
+                return;
+            }
+
+            set_sweep_coordinate_fields(result, metadata);
+
+            PyObject *diagnostics = PyDict_GetItemString(result, "diagnostics");
+            if (!diagnostics || !PyDict_Check(diagnostics))
+            {
+                diagnostics = PyDict_New();
+                if (!diagnostics)
+                {
+                    return;
+                }
+                PyDict_SetItemString(result, "diagnostics", diagnostics);
+                Py_DECREF(diagnostics);
+                diagnostics = PyDict_GetItemString(result, "diagnostics");
+            }
+            set_sweep_coordinate_fields(diagnostics, metadata);
+        }
+
+        void set_paper_alignment_fields(PyObject *dict, const SolverAlgorithmProfile &profile)
+        {
+            set_dict_string(dict, "paper_alignment_requested", profile.paper_alignment_requested);
+            set_dict_string(dict, "paper_alignment_effective", profile.paper_alignment_effective);
+            set_dict_string(dict, "paper_alignment_fallback", profile.paper_alignment_fallback);
+            set_dict_string(dict, "paper_alignment_profile_requested", profile.paper_alignment_profile_requested);
+            set_dict_string(dict, "paper_alignment_profile_effective", profile.paper_alignment_profile_effective);
+            set_dict_bool(dict, "paper_alignment_enabled", profile.paper_alignment_enabled);
+        }
+
+        void attach_paper_alignment_metadata(PyObject *result, const SolverAlgorithmProfile &profile)
+        {
+            if (!result || !PyDict_Check(result))
+            {
+                return;
+            }
+
+            set_paper_alignment_fields(result, profile);
+
+            PyObject *diagnostics = PyDict_GetItemString(result, "diagnostics");
+            if (!diagnostics || !PyDict_Check(diagnostics))
+            {
+                diagnostics = PyDict_New();
+                if (!diagnostics)
+                {
+                    return;
+                }
+                PyDict_SetItemString(result, "diagnostics", diagnostics);
+                Py_DECREF(diagnostics);
+                diagnostics = PyDict_GetItemString(result, "diagnostics");
+            }
+            set_paper_alignment_fields(diagnostics, profile);
+        }
+
+    } // namespace
+
     static void sample_geometry_faces(
         const std::vector<TopoDS_Face> &native_faces,
         const GeometrySolverConfig &config,
@@ -62,6 +330,9 @@ namespace fishnet_internal
         std::vector<Vec3> &layout_points,
         std::vector<std::array<int, 3>> &triangles,
         std::vector<std::vector<int>> &quads,
+        std::vector<std::array<double, 2>> &point_uv,
+        std::vector<unsigned char> &point_face_state,
+        std::vector<int> &point_face_indices,
         ExperimentalSolveStats &experimental_stats)
     {
         samples.clear();
@@ -70,6 +341,9 @@ namespace fishnet_internal
         layout_points.clear();
         triangles.clear();
         quads.clear();
+        point_uv.clear();
+        point_face_state.clear();
+        point_face_indices.clear();
 
         for (size_t i = 0; i < native_faces.size(); ++i)
         {
@@ -82,7 +356,12 @@ namespace fishnet_internal
                 config.max_shear_angle,
                 config.surface_spacing_refine,
                 config.surface_spacing_relax_iterations,
-                &experimental_stats);
+                config.boundary_extend,
+                &experimental_stats,
+                config.paper_alignment_boundary_reference,
+                config.paper_alignment_directional_reference,
+                config.paper_alignment_has_reference_direction_request,
+                config.paper_alignment_reference_direction);
             if (sample.points.empty() || sample.triangles.empty())
             {
                 continue;
@@ -96,6 +375,9 @@ namespace fishnet_internal
             int offset = static_cast<int>(points.size());
             points.insert(points.end(), sample.points.begin(), sample.points.end());
             layout_points.insert(layout_points.end(), sample.layout_points.begin(), sample.layout_points.end());
+            point_uv.insert(point_uv.end(), sample.point_uv.begin(), sample.point_uv.end());
+            point_face_state.insert(point_face_state.end(), sample.point_face_state.begin(), sample.point_face_state.end());
+            point_face_indices.insert(point_face_indices.end(), sample.points.size(), static_cast<int>(i));
             for (const auto &tri : sample.triangles)
             {
                 triangles.push_back({tri[0] + offset, tri[1] + offset, tri[2] + offset});
@@ -315,6 +597,7 @@ namespace fishnet_internal
         AcpObjectiveSummary objective_summary;
         std::vector<double> edge_targets;
         std::vector<double> edge_weights;
+        SweepCoordinateMetadata sweep_metadata;
     };
 
     static SolvePipelineOutput run_solve_pipeline(const SolvePipelineInput &p)
@@ -341,6 +624,15 @@ namespace fishnet_internal
             out.objective_summary,
             out.edge_targets,
             out.edge_weights);
+
+        out.sweep_metadata = resolve_sweep_coordinate_metadata(
+            p.points,
+            layout_solver.local_points(),
+            p.x_axis,
+            p.y_axis,
+            p.normalized_params,
+            p.acp_energy_mode,
+            out.acp_summary);
 
         layout_solver.relax(p.acp_energy_mode, out.edge_targets, out.edge_weights);
 
@@ -456,6 +748,26 @@ namespace fishnet_internal
             return quads_;
         }
 
+        const std::vector<std::array<double, 2>> &point_uv() const
+        {
+            return point_uv_;
+        }
+
+        const std::vector<unsigned char> &point_face_state() const
+        {
+            return point_face_state_;
+        }
+
+        const std::vector<int> &point_face_indices() const
+        {
+            return point_face_indices_;
+        }
+
+        const std::vector<TopoDS_Face> &native_faces() const
+        {
+            return native_faces_;
+        }
+
     private:
         bool adopt_params_copy(PyObject *params_copy, const NormalizedParams &normalized_params)
         {
@@ -502,6 +814,9 @@ namespace fishnet_internal
                 layout_points_,
                 triangles_,
                 quads_,
+                point_uv_,
+                point_face_state_,
+                point_face_indices_,
                 experimental_stats_);
         }
 
@@ -517,6 +832,9 @@ namespace fishnet_internal
         std::vector<Vec3> layout_points_;
         std::vector<std::array<int, 3>> triangles_;
         std::vector<std::vector<int>> quads_;
+        std::vector<std::array<double, 2>> point_uv_;
+        std::vector<unsigned char> point_face_state_;
+        std::vector<int> point_face_indices_;
     };
 
     class GeometrySolveTopology
@@ -627,6 +945,56 @@ namespace fishnet_internal
             &input.layout_points(),
         });
 
+        std::vector<Vec3> output_points = points;
+        std::vector<Vec3> output_layout_points = input.layout_points();
+        std::vector<std::array<int, 3>> output_triangles = triangles;
+        std::vector<std::vector<int>> output_quads = input.quads();
+        std::vector<Vec3> output_local_points = pipe.local_points;
+        std::vector<Vec3> output_fabric_points = pipe.fabric_points;
+        std::vector<std::array<double, 2>> output_point_uv = input.point_uv();
+        std::vector<int> output_point_face_indices = input.point_face_indices();
+        long trim_clipped_cell_count = 0;
+        long trim_generated_vertex_count = 0;
+
+        if (config.boundary_trim)
+        {
+            const BoundaryTrimInput trim_input{
+                input.native_faces(),
+                points,
+                pipe.local_points,
+                pipe.fabric_points,
+                input.layout_points(),
+                triangles,
+                input.quads(),
+                input.point_uv(),
+                input.point_face_state(),
+                input.point_face_indices(),
+            };
+            BoundaryTrimOutput trimmed = trim_boundary_cells(trim_input);
+            trim_clipped_cell_count = trimmed.clipped_cell_count;
+            trim_generated_vertex_count = trimmed.generated_trim_vertex_count;
+            if (!trimmed.triangles.empty() || !trimmed.quads.empty())
+            {
+                output_points = std::move(trimmed.mesh_points);
+                output_local_points = std::move(trimmed.local_points);
+                output_fabric_points = std::move(trimmed.fabric_points);
+                output_layout_points = std::move(trimmed.layout_points);
+                output_point_uv = std::move(trimmed.point_uv);
+                output_point_face_indices = std::move(trimmed.point_face_indices);
+                output_triangles = std::move(trimmed.triangles);
+                output_quads = std::move(trimmed.quads);
+            }
+        }
+
+        std::vector<std::vector<int>> output_loops_idx = boundary_loops(output_triangles);
+        std::vector<std::vector<Vec3>> output_loops_pts;
+        output_loops_pts.reserve(output_loops_idx.size());
+        for (const auto &loop : output_loops_idx)
+        {
+            output_loops_pts.push_back(loop_to_points(loop, output_fabric_points));
+        }
+        std::vector<std::array<double, 3>> output_strains = face_strains(output_triangles, output_local_points, normal);
+
         const GeometryResultBuildInput result_input{
             input.release_params_copy(),
             acp_energy_mode,
@@ -634,15 +1002,26 @@ namespace fishnet_internal
             input.experimental_stats(),
             input.samples(),
             input.face_indices(),
+            output_points,
+            output_layout_points,
+            output_triangles,
+            output_quads,
+            output_local_points,
+            output_fabric_points,
+            output_loops_idx,
+            output_loops_pts,
+            output_strains,
             points,
-            input.layout_points(),
             triangles,
             input.quads(),
-            pipe.local_points,
             pipe.fabric_points,
-            topology.loops_idx(),
-            pipe.loops_pts,
-            pipe.strains,
+            input.native_faces(),
+            output_point_uv,
+            output_point_face_indices,
+            topology.constrained_edges(),
+            pipe.edge_targets,
+            trim_clipped_cell_count,
+            trim_generated_vertex_count,
             origin,
             normal,
             x_axis,
@@ -653,10 +1032,11 @@ namespace fishnet_internal
             pipe.combined_objective_history,
             pipe.acp_summary,
             pipe.objective_summary,
-            topology.constrained_edges(),
-            pipe.edge_targets,
         };
-        return build_geometry_result_object(result_input);
+        PyObject *result = build_geometry_result_object(result_input);
+        attach_paper_alignment_metadata(result, normalized_params.algorithm_profile);
+        attach_sweep_coordinate_metadata(result, pipe.sweep_metadata);
+        return result;
     }
 
     class MeshSolveTopology
@@ -783,7 +1163,10 @@ namespace fishnet_internal
             pipe.acp_summary,
             pipe.objective_summary,
         };
-        return build_mesh_result_object(result_input);
+        PyObject *result = build_mesh_result_object(result_input);
+        attach_paper_alignment_metadata(result, request.algorithm_profile);
+        attach_sweep_coordinate_metadata(result, pipe.sweep_metadata);
+        return result;
     }
 
 } // namespace fishnet_internal

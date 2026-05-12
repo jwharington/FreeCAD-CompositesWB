@@ -7,6 +7,7 @@
 
 #include <gp_Pnt.hxx>
 
+#include "fishnet_face_state_utils.hpp"
 #include "fishnet_surface_queries.hpp"
 
 namespace fishnet_internal
@@ -21,6 +22,7 @@ namespace fishnet_internal
             double v{0.0};
             Vec3 point{0.0, 0.0, 0.0};
             Vec3 normal{0.0, 0.0, 1.0};
+            FacePointState face_state{FacePointState::Unknown};
             double objective{std::numeric_limits<double>::infinity()};
         };
 
@@ -286,10 +288,12 @@ namespace fishnet_internal
             double old_v,
             const Vec3 &new_point,
             const Vec3 &n,
+            FacePointState face_state,
             std::vector<Vec3> &points,
             std::vector<std::vector<double>> &grid_u,
             std::vector<std::vector<double>> &grid_v,
             std::vector<std::vector<Vec3>> &grid_normals,
+            std::vector<std::vector<FacePointState>> &grid_face_state,
             std::vector<std::vector<unsigned char>> &active_nodes)
         {
             points[static_cast<size_t>(idx)] = new_point;
@@ -299,6 +303,7 @@ namespace fishnet_internal
             }
             grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
             grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
+            grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)] = face_state;
             bool was_active = active_nodes[static_cast<size_t>(i)][static_cast<size_t>(j)] != 0;
             active_nodes[static_cast<size_t>(i)][static_cast<size_t>(j)] = 1;
             return (!was_active) || (std::abs(u - old_u) > 1.0e-9 || std::abs(v - old_v) > 1.0e-9);
@@ -371,6 +376,7 @@ namespace fishnet_internal
                 double max_adjacent_normal_angle,
                 double max_local_fold_ratio,
                 double max_shear_angle,
+                bool boundary_extend,
                 const std::vector<Vec3> &points,
                 const std::vector<Vec3> &seed_points,
                 const std::vector<std::vector<int>> &grid_indices,
@@ -381,6 +387,7 @@ namespace fishnet_internal
                   max_adjacent_normal_angle_(max_adjacent_normal_angle),
                   max_local_fold_ratio_(max_local_fold_ratio),
                   max_shear_angle_(max_shear_angle),
+                  boundary_extend_(boundary_extend),
                   points_(points),
                   seed_points_(seed_points),
                   grid_indices_(grid_indices),
@@ -417,7 +424,9 @@ namespace fishnet_internal
                     }
 
                     gp_Pnt p = surface_.Value(su, sv);
-                    if (!surface_queries::native_face_is_inside(face_, p, kFaceInsideTolerance))
+                    const FacePointState face_state = face_point_state_from_topabs(
+                        surface_queries::native_face_point_state(face_, p, kFaceInsideTolerance));
+                    if (!boundary_extend_ && !face_point_state_is_inside(face_state))
                     {
                         continue;
                     }
@@ -452,6 +461,7 @@ namespace fishnet_internal
                     best.v = sv;
                     best.point = cand_point;
                     best.normal = cand_n;
+                    best.face_state = face_state;
                     best.objective = objective;
                     have_candidate = true;
                 }
@@ -499,6 +509,7 @@ namespace fishnet_internal
             double max_adjacent_normal_angle_;
             double max_local_fold_ratio_;
             double max_shear_angle_;
+            bool boundary_extend_;
             const std::vector<Vec3> &points_;
             const std::vector<Vec3> &seed_points_;
             const std::vector<std::vector<int>> &grid_indices_;
@@ -514,6 +525,7 @@ namespace fishnet_internal
           max_adjacent_normal_angle_(input.max_adjacent_normal_angle),
           max_local_fold_ratio_(input.max_local_fold_ratio),
           max_shear_angle_(input.max_shear_angle),
+          boundary_extend_(input.boundary_extend),
           grid_(input.grid),
           u0_(input.u0),
           u1_(input.u1),
@@ -586,6 +598,7 @@ namespace fishnet_internal
             max_adjacent_normal_angle_,
             max_local_fold_ratio_,
             max_shear_angle_,
+            boundary_extend_,
             points_,
             grid_.seed_points,
             grid_.grid_indices,
@@ -612,10 +625,12 @@ namespace fishnet_internal
             old_v,
             best.point,
             best.normal,
+            best.face_state,
             points_,
             grid_.grid_u,
             grid_.grid_v,
             grid_.grid_normals,
+            grid_.grid_face_state,
             grid_.active_nodes);
     }
 

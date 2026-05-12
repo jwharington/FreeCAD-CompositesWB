@@ -5,6 +5,8 @@
 #include <array>
 #include <vector>
 
+#include <TopoDS_Face.hxx>
+
 #include "fishnet_options_api.hpp"
 #include "fishnet_sampling_api.hpp"
 
@@ -28,6 +30,17 @@ namespace fishnet_internal
         const std::vector<std::vector<int>> &loops_idx;
         const std::vector<std::vector<Vec3>> &loops_pts;
         const std::vector<std::array<double, 3>> &strains;
+        const std::vector<Vec3> &solver_points;
+        const std::vector<std::array<int, 3>> &solver_triangles;
+        const std::vector<std::vector<int>> &solver_quads;
+        const std::vector<Vec3> &solver_fabric_points;
+        const std::vector<TopoDS_Face> &native_faces;
+        const std::vector<std::array<double, 2>> &point_uv;
+        const std::vector<int> &point_face_indices;
+        const std::vector<std::pair<int, int>> &solver_constrained_edges;
+        const std::vector<double> &solver_edge_targets;
+        long trim_clipped_cell_count;
+        long trim_generated_vertex_count;
         const Vec3 &origin;
         const Vec3 &normal;
         const Vec3 &x_axis;
@@ -38,8 +51,6 @@ namespace fishnet_internal
         const std::vector<double> &combined_objective_history;
         const AcpPropagationSummary &acp_summary;
         const AcpObjectiveSummary &objective_summary;
-        const std::vector<std::pair<int, int>> &constrained_edges;
-        const std::vector<double> &edge_targets;
     };
 
     PyObject *build_geometry_result_object(const GeometryResultBuildInput &input);

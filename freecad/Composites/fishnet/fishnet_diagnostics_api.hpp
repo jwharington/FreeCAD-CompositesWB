@@ -2,6 +2,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include <string>
 #include <vector>
 
 #include "fishnet_algorithm_types.hpp"
@@ -88,6 +89,16 @@ namespace fishnet_internal
         const std::vector<long> &per_row_transitions_in_counts;
         const std::vector<long> &per_row_transitions_out_counts;
         const std::vector<TransitionEventSample> &transition_event_history;
+        bool surface_spacing_strict_enabled;
+        bool surface_spacing_strict_fail_on_violation;
+        double surface_spacing_strict_tolerance;
+        long surface_spacing_strict_edge_count;
+        long surface_spacing_strict_violation_count;
+        double surface_spacing_strict_max_rel_error;
+        bool surface_spacing_strict_pass;
+        long surface_spacing_strict_repair_passes;
+        std::string surface_spacing_strict_fail_reason;
+        bool surface_spacing_strict_force_nonconverged;
     };
 
     long coverage_point_count_for_quads(const std::vector<std::vector<int>> &quad_list);
@@ -115,6 +126,8 @@ namespace fishnet_internal
     void set_diag_long(PyObject *diagnostics, const char *key, long value);
     void set_diag_double(PyObject *diagnostics, const char *key, double value);
     void set_diag_string(PyObject *diagnostics, const char *key, const char *value);
+    void emit_sweep_signature_fields(PyObject *result, PyObject *diagnostics);
+    void emit_sweep_transition_event_summary_fields(PyObject *result, PyObject *diagnostics);
     void add_solver_diagnostics(
         PyObject *diagnostics,
         PyObject *params_copy,
@@ -150,7 +163,16 @@ namespace fishnet_internal
         const std::vector<long> &per_row_counts,
         const std::vector<long> &per_row_transitions_in_counts,
         const std::vector<long> &per_row_transitions_out_counts,
-        const std::vector<TransitionEventSample> &transition_event_history);
+        const std::vector<TransitionEventSample> &transition_event_history,
+        bool surface_spacing_strict_enabled,
+        bool surface_spacing_strict_fail_on_violation,
+        double surface_spacing_strict_tolerance,
+        long surface_spacing_strict_edge_count,
+        long surface_spacing_strict_violation_count,
+        double surface_spacing_strict_max_rel_error,
+        bool surface_spacing_strict_pass,
+        long surface_spacing_strict_repair_passes,
+        const std::string &surface_spacing_strict_fail_reason);
 
     void attach_result_diagnostics(
         PyObject *result,

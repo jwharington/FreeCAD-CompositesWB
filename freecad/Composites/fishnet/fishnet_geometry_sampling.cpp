@@ -32,6 +32,7 @@
 #include <TopoDS_Shape.hxx>
 
 #include "fishnet_boundary_atlas.hpp"
+#include "fishnet_face_state_utils.hpp"
 #include "fishnet_layout_geometry_api.hpp"
 #include "fishnet_kindrape_topology.hpp"
 #include "fishnet_sampling_api.hpp"
@@ -741,6 +742,18 @@ namespace fishnet_internal
 
     } // namespace
 
+    namespace
+    {
+        FacePointState classify_face_point_state(
+            const TopoDS_Face &face,
+            const gp_Pnt &point,
+            double tolerance)
+        {
+            return face_point_state_from_topabs(
+                surface_queries::native_face_point_state(face, point, tolerance));
+        }
+    } // namespace
+
     struct SamplingPhaseParams
     {
         const TopoDS_Face &face;
@@ -751,6 +764,11 @@ namespace fishnet_internal
         double max_shear_angle;
         bool surface_spacing_refine;
         int surface_spacing_relax_iterations;
+        bool boundary_extend;
+        bool paper_alignment_boundary_reference;
+        bool paper_alignment_directional_reference;
+        bool paper_alignment_has_reference_direction_request;
+        Vec3 paper_alignment_reference_direction;
         double u0;
         double u1;
         double v0;
@@ -783,7 +801,11 @@ namespace fishnet_internal
         {
             return -1;
         }
-        if (!surface_queries::native_face_is_inside(params.face, raw_point, kFaceInsideTolerance))
+        const FacePointState face_state = classify_face_point_state(
+            params.face,
+            raw_point,
+            kFaceInsideTolerance);
+        if (!params.boundary_extend && !face_point_state_is_inside(face_state))
         {
             return -1;
         }
@@ -800,16 +822,21 @@ namespace fishnet_internal
             point_normal = {0.0, 0.0, 1.0};
         }
         state.grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = point_normal;
+        state.grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)] = face_state;
         return slot;
     }
 
     std::pair<int, int> find_closest_seed_node(
         int divisions,
-        const std::vector<std::vector<int>> &grid_indices)
+        const std::vector<std::vector<int>> &grid_indices,
+        const std::vector<std::vector<FacePointState>> &grid_face_state)
     {
         const double mid = 0.5 * static_cast<double>(divisions);
-        double best_d2 = std::numeric_limits<double>::infinity();
-        std::pair<int, int> best{-1, -1};
+        double best_inside_d2 = std::numeric_limits<double>::infinity();
+        double best_any_d2 = std::numeric_limits<double>::infinity();
+        std::pair<int, int> best_inside{-1, -1};
+        std::pair<int, int> best_any{-1, -1};
+
         for (int i = 0; i <= divisions; ++i)
         {
             for (int j = 0; j <= divisions; ++j)
@@ -821,14 +848,31 @@ namespace fishnet_internal
                 double di = static_cast<double>(i) - mid;
                 double dj = static_cast<double>(j) - mid;
                 double d2 = di * di + dj * dj;
-                if (d2 < best_d2)
+
+                if (d2 < best_any_d2)
                 {
-                    best_d2 = d2;
-                    best = {i, j};
+                    best_any_d2 = d2;
+                    best_any = {i, j};
+                }
+
+                if (grid_face_state.empty())
+                {
+                    continue;
+                }
+                const FacePointState state = grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                if (!face_point_state_is_inside(state))
+                {
+                    continue;
+                }
+                if (d2 < best_inside_d2)
+                {
+                    best_inside_d2 = d2;
+                    best_inside = {i, j};
                 }
             }
         }
-        return best;
+
+        return best_inside.first >= 0 ? best_inside : best_any;
     }
 
     void initialize_active_nodes_mask(
@@ -866,6 +910,521 @@ namespace fishnet_internal
         }
     }
 
+    namespace
+    {
+        void reset_boundary_reference_stats(FaceSample &sample)
+        {
+            sample.boundary_reference_mode_enabled = 0;
+            sample.boundary_reference_fibre_count = 0;
+            sample.boundary_reference_arm_target_count = 0;
+            sample.boundary_reference_arm_attempt_count = 0;
+            sample.boundary_reference_arm_success_count = 0;
+            sample.boundary_reference_arm_boundary_hit_count = 0;
+            sample.boundary_reference_arm_failure_count = 0;
+            sample.boundary_reference_arm_success_ratio = 0.0;
+            sample.boundary_reference_seed_commit_success_count = 0;
+            sample.boundary_reference_seed_commit_failure_count = 0;
+            sample.boundary_reference_step_attempt_count = 0;
+            sample.boundary_reference_step_success_count = 0;
+            sample.boundary_reference_step_failure_count = 0;
+            sample.boundary_reference_step_success_ratio = 0.0;
+            sample.boundary_reference_step_backtrack_count = 0;
+            sample.boundary_reference_step_candidate_attempt_count = 0;
+            sample.boundary_reference_step_candidate_outside_face_count = 0;
+            sample.boundary_reference_step_candidate_evaluation_failure_count = 0;
+            sample.boundary_reference_step_terminal_state_in_count = 0;
+            sample.boundary_reference_step_terminal_state_on_count = 0;
+            sample.boundary_reference_step_terminal_state_unknown_count = 0;
+            sample.boundary_reference_failure_geodesic_step_count = 0;
+            sample.boundary_reference_failure_degenerate_frame_count = 0;
+            sample.boundary_reference_failure_singular_metric_count = 0;
+            sample.boundary_reference_failure_stalled_count = 0;
+            sample.boundary_reference_failure_outside_face_count = 0;
+            sample.boundary_reference_failure_evaluation_count = 0;
+            sample.boundary_reference_failure_unknown_count = 0;
+            sample.boundary_reference_failure_node_commit_count = 0;
+            sample.boundary_reference_covered_node_count = 0;
+            sample.boundary_reference_total_node_count = 0;
+            sample.boundary_reference_coverage_ratio = 0.0;
+        }
+
+        std::pair<int, int> uv_to_grid_indices(
+            const SamplingPhaseParams &params,
+            const SamplingGridState &state,
+            double u,
+            double v)
+        {
+            const double u_span = std::max(params.u1 - params.u0, 1.0e-9);
+            const double v_span = std::max(params.v1 - params.v0, 1.0e-9);
+            const double i_float = (u - params.u0) * static_cast<double>(state.divisions) / u_span;
+            const double j_float = (v - params.v0) * static_cast<double>(state.divisions) / v_span;
+            int i = static_cast<int>(std::llround(i_float));
+            int j = static_cast<int>(std::llround(j_float));
+            i = std::clamp(i, 0, state.divisions);
+            j = std::clamp(j, 0, state.divisions);
+            return {i, j};
+        }
+
+        bool face_state_is_usable(const SamplingPhaseParams &params, FacePointState state)
+        {
+            return params.boundary_extend || face_point_state_is_inside(state);
+        }
+
+        bool commit_boundary_reference_node(
+            const SamplingPhaseParams &params,
+            SamplingGridState &state,
+            std::vector<Vec3> &points,
+            int i,
+            int j,
+            double u,
+            double v,
+            std::unordered_set<int> &covered_nodes)
+        {
+            int idx = ensure_grid_node_at(params, state, i, j, points);
+            if (idx < 0 || idx >= static_cast<int>(points.size()))
+            {
+                return false;
+            }
+
+            Vec3 point{};
+            gp_Pnt raw_point{};
+            if (!surface_queries::native_face_value_at(params.face, params.surface, u, v, point, &raw_point))
+            {
+                return false;
+            }
+
+            const FacePointState face_state = face_point_state_from_topabs(
+                surface_queries::native_face_point_state(params.face, raw_point, kFaceInsideTolerance));
+            if (!face_state_is_usable(params, face_state))
+            {
+                return false;
+            }
+
+            Vec3 point_normal{0.0, 0.0, 1.0};
+            surface_queries::native_face_normal_at(params.face, params.surface, u, v, point_normal);
+            if (norm(point_normal) <= kVectorZeroEpsilon)
+            {
+                point_normal = {0.0, 0.0, 1.0};
+            }
+
+            state.grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)] = u;
+            state.grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)] = v;
+            state.grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = point_normal;
+            state.grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)] = face_state;
+            points[static_cast<size_t>(idx)] = point;
+            if (idx < static_cast<int>(state.seed_points.size()))
+            {
+                state.seed_points[static_cast<size_t>(idx)] = point;
+            }
+            if (!state.active_nodes.empty())
+            {
+                state.active_nodes[static_cast<size_t>(i)][static_cast<size_t>(j)] = 1;
+            }
+
+            covered_nodes.insert(idx);
+            return true;
+        }
+
+        void accumulate_boundary_reference_failure(
+            FaceSample &sample,
+            surface_queries::GeodesicStepFailureReason reason)
+        {
+            sample.boundary_reference_failure_geodesic_step_count += 1;
+            switch (reason)
+            {
+            case surface_queries::GeodesicStepFailureReason::DegenerateFrame:
+                sample.boundary_reference_failure_degenerate_frame_count += 1;
+                break;
+            case surface_queries::GeodesicStepFailureReason::SingularMetric:
+                sample.boundary_reference_failure_singular_metric_count += 1;
+                break;
+            case surface_queries::GeodesicStepFailureReason::Stalled:
+                sample.boundary_reference_failure_stalled_count += 1;
+                break;
+            case surface_queries::GeodesicStepFailureReason::OutsideFace:
+                sample.boundary_reference_failure_outside_face_count += 1;
+                break;
+            case surface_queries::GeodesicStepFailureReason::EvaluationFailed:
+                sample.boundary_reference_failure_evaluation_count += 1;
+                break;
+            default:
+                sample.boundary_reference_failure_unknown_count += 1;
+                break;
+            }
+        }
+
+        void accumulate_boundary_reference_step_sample(
+            FaceSample &sample,
+            const surface_queries::GeodesicStepResult &step_result)
+        {
+            sample.boundary_reference_step_backtrack_count += std::max(0, step_result.backtrack_attempts);
+            sample.boundary_reference_step_candidate_attempt_count += std::max(0, step_result.candidate_attempt_count);
+            sample.boundary_reference_step_candidate_outside_face_count += std::max(0, step_result.candidate_outside_face_reject_count);
+            sample.boundary_reference_step_candidate_evaluation_failure_count += std::max(0, step_result.candidate_evaluation_failure_count);
+
+            if (!step_result.success)
+            {
+                return;
+            }
+
+            switch (step_result.face_state)
+            {
+            case TopAbs_IN:
+                sample.boundary_reference_step_terminal_state_in_count += 1;
+                break;
+            case TopAbs_ON:
+                sample.boundary_reference_step_terminal_state_on_count += 1;
+                break;
+            default:
+                sample.boundary_reference_step_terminal_state_unknown_count += 1;
+                break;
+            }
+        }
+
+        Vec3 choose_reference_seed_tangent(
+            const SamplingPhaseParams &params,
+            double seed_u,
+            double seed_v,
+            Vec3 &seed_normal)
+        {
+            Vec3 seed_point{};
+            Vec3 du{};
+            Vec3 dv{};
+            seed_normal = {0.0, 0.0, 1.0};
+            if (!surface_queries::native_face_tangent_frame_at(
+                    params.face,
+                    params.surface,
+                    seed_u,
+                    seed_v,
+                    seed_point,
+                    du,
+                    dv,
+                    seed_normal))
+            {
+                return {1.0, 0.0, 0.0};
+            }
+
+            const Vec3 tangent_u = normalize(du - seed_normal * dot(du, seed_normal));
+            const Vec3 tangent_v = normalize(dv - seed_normal * dot(dv, seed_normal));
+
+            if (params.paper_alignment_directional_reference)
+            {
+                Vec3 primary{0.0, 0.0, 0.0};
+                if (params.paper_alignment_has_reference_direction_request)
+                {
+                    primary = normalize(
+                        params.paper_alignment_reference_direction -
+                        seed_normal * dot(params.paper_alignment_reference_direction, seed_normal));
+                }
+
+                if (norm(primary) <= kVectorZeroEpsilon)
+                {
+                    const double u_span = std::fabs(params.u1 - params.u0);
+                    const double v_span = std::fabs(params.v1 - params.v0);
+                    primary = u_span >= v_span ? tangent_u : tangent_v;
+                }
+
+                if (norm(primary) > kVectorZeroEpsilon)
+                {
+                    return primary;
+                }
+            }
+
+            Vec3 primary = tangent_u;
+            if (norm(primary) <= kVectorZeroEpsilon)
+            {
+                primary = tangent_v;
+            }
+            if (norm(primary) <= kVectorZeroEpsilon)
+            {
+                primary = {1.0, 0.0, 0.0};
+            }
+            return primary;
+        }
+
+        void trace_boundary_reference_arm(
+            const SamplingPhaseParams &params,
+            SamplingGridState &state,
+            std::vector<Vec3> &points,
+            FaceSample &sample,
+            double seed_u,
+            double seed_v,
+            const Vec3 &seed_tangent,
+            std::unordered_set<int> &covered_nodes)
+        {
+            sample.boundary_reference_arm_attempt_count += 1;
+
+            double u = seed_u;
+            double v = seed_v;
+            Vec3 tangent = seed_tangent;
+            bool arm_progress = false;
+            const int max_steps = std::max(8, state.divisions * 3);
+
+            for (int step = 0; step < max_steps; ++step)
+            {
+                sample.boundary_reference_step_attempt_count += 1;
+                const surface_queries::GeodesicStepResult step_result = surface_queries::geodesic_like_step(
+                    params.face,
+                    params.surface,
+                    u,
+                    v,
+                    tangent,
+                    std::max(0.75 * state.target_spacing_len, 1.0e-6),
+                    params.u0,
+                    params.u1,
+                    params.v0,
+                    params.v1);
+
+                if (!step_result.success)
+                {
+                    sample.boundary_reference_step_failure_count += 1;
+                    accumulate_boundary_reference_step_sample(sample, step_result);
+                    accumulate_boundary_reference_failure(sample, step_result.failure_reason);
+                    break;
+                }
+
+                auto [gi, gj] = uv_to_grid_indices(params, state, step_result.u, step_result.v);
+                if (!commit_boundary_reference_node(
+                        params,
+                        state,
+                        points,
+                        gi,
+                        gj,
+                        step_result.u,
+                        step_result.v,
+                        covered_nodes))
+                {
+                    sample.boundary_reference_step_failure_count += 1;
+                    sample.boundary_reference_failure_node_commit_count += 1;
+                    accumulate_boundary_reference_step_sample(sample, step_result);
+                    break;
+                }
+
+                sample.boundary_reference_step_success_count += 1;
+                accumulate_boundary_reference_step_sample(sample, step_result);
+                arm_progress = true;
+                u = step_result.u;
+                v = step_result.v;
+                tangent = step_result.tangent;
+
+                if (step_result.face_state == TopAbs_ON)
+                {
+                    sample.boundary_reference_arm_boundary_hit_count += 1;
+                    break;
+                }
+            }
+
+            if (arm_progress)
+            {
+                sample.boundary_reference_arm_success_count += 1;
+            }
+            else
+            {
+                sample.boundary_reference_arm_failure_count += 1;
+            }
+        }
+
+        bool boundary_reference_mode_enabled(const SamplingPhaseParams &params)
+        {
+            return params.paper_alignment_boundary_reference;
+        }
+
+        void build_boundary_reference_fibres(
+            const SamplingPhaseParams &params,
+            FaceSample &sample,
+            SamplingGridState &state)
+        {
+            const bool enabled = boundary_reference_mode_enabled(params);
+            sample.boundary_reference_mode_enabled = enabled ? 1 : 0;
+            if (!enabled)
+            {
+                return;
+            }
+
+            sample.boundary_reference_fibre_count = 2;
+            sample.boundary_reference_arm_target_count = sample.boundary_reference_fibre_count * 2;
+            if (state.seed_i_uv < 0 || state.seed_j_uv < 0)
+            {
+                sample.boundary_reference_seed_commit_failure_count += 1;
+                return;
+            }
+
+            const int seed_idx = ensure_grid_node_at(
+                params,
+                state,
+                state.seed_i_uv,
+                state.seed_j_uv,
+                sample.points);
+            if (seed_idx < 0)
+            {
+                sample.boundary_reference_seed_commit_failure_count += 1;
+                sample.boundary_reference_failure_node_commit_count += 1;
+                return;
+            }
+
+            const double seed_u = std::isfinite(state.grid_u[static_cast<size_t>(state.seed_i_uv)][static_cast<size_t>(state.seed_j_uv)])
+                                      ? state.grid_u[static_cast<size_t>(state.seed_i_uv)][static_cast<size_t>(state.seed_j_uv)]
+                                      : (params.u0 + (params.u1 - params.u0) * static_cast<double>(state.seed_i_uv) / static_cast<double>(state.divisions));
+            const double seed_v = std::isfinite(state.grid_v[static_cast<size_t>(state.seed_i_uv)][static_cast<size_t>(state.seed_j_uv)])
+                                      ? state.grid_v[static_cast<size_t>(state.seed_i_uv)][static_cast<size_t>(state.seed_j_uv)]
+                                      : (params.v0 + (params.v1 - params.v0) * static_cast<double>(state.seed_j_uv) / static_cast<double>(state.divisions));
+
+            std::unordered_set<int> covered_nodes;
+            covered_nodes.reserve(static_cast<size_t>(state.divisions * 2 + 4));
+            if (!commit_boundary_reference_node(
+                    params,
+                    state,
+                    sample.points,
+                    state.seed_i_uv,
+                    state.seed_j_uv,
+                    seed_u,
+                    seed_v,
+                    covered_nodes))
+            {
+                sample.boundary_reference_seed_commit_failure_count += 1;
+                sample.boundary_reference_failure_node_commit_count += 1;
+                return;
+            }
+            sample.boundary_reference_seed_commit_success_count += 1;
+
+            Vec3 seed_normal{};
+            Vec3 primary_tangent = choose_reference_seed_tangent(params, seed_u, seed_v, seed_normal);
+            Vec3 secondary_tangent = normalize(cross(seed_normal, primary_tangent));
+            if (norm(secondary_tangent) <= kVectorZeroEpsilon)
+            {
+                Vec3 ref = std::fabs(seed_normal.z) < kFallbackNormalAlignment ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+                secondary_tangent = normalize(cross(seed_normal, ref));
+            }
+            if (norm(secondary_tangent) <= kVectorZeroEpsilon)
+            {
+                secondary_tangent = normalize(cross(seed_normal, Vec3{0.0, 1.0, 0.0}));
+            }
+            if (norm(secondary_tangent) <= kVectorZeroEpsilon)
+            {
+                secondary_tangent = {0.0, 1.0, 0.0};
+            }
+
+            trace_boundary_reference_arm(
+                params,
+                state,
+                sample.points,
+                sample,
+                seed_u,
+                seed_v,
+                primary_tangent,
+                covered_nodes);
+            trace_boundary_reference_arm(
+                params,
+                state,
+                sample.points,
+                sample,
+                seed_u,
+                seed_v,
+                primary_tangent * -1.0,
+                covered_nodes);
+            trace_boundary_reference_arm(
+                params,
+                state,
+                sample.points,
+                sample,
+                seed_u,
+                seed_v,
+                secondary_tangent,
+                covered_nodes);
+            trace_boundary_reference_arm(
+                params,
+                state,
+                sample.points,
+                sample,
+                seed_u,
+                seed_v,
+                secondary_tangent * -1.0,
+                covered_nodes);
+
+            sample.boundary_reference_covered_node_count = static_cast<long>(covered_nodes.size());
+        }
+
+        void finalize_boundary_reference_stats(FaceSample &sample)
+        {
+            const long arm_outcomes =
+                std::max(0L, sample.boundary_reference_arm_success_count) +
+                std::max(0L, sample.boundary_reference_arm_failure_count);
+            if (sample.boundary_reference_arm_attempt_count < arm_outcomes)
+            {
+                sample.boundary_reference_arm_attempt_count = arm_outcomes;
+            }
+            else if (sample.boundary_reference_arm_attempt_count > arm_outcomes)
+            {
+                sample.boundary_reference_arm_failure_count +=
+                    sample.boundary_reference_arm_attempt_count - arm_outcomes;
+            }
+
+            const long step_outcomes =
+                std::max(0L, sample.boundary_reference_step_success_count) +
+                std::max(0L, sample.boundary_reference_step_failure_count);
+            if (sample.boundary_reference_step_attempt_count < step_outcomes)
+            {
+                sample.boundary_reference_step_attempt_count = step_outcomes;
+            }
+            else if (sample.boundary_reference_step_attempt_count > step_outcomes)
+            {
+                sample.boundary_reference_step_failure_count +=
+                    sample.boundary_reference_step_attempt_count - step_outcomes;
+            }
+
+            sample.boundary_reference_failure_geodesic_step_count =
+                std::max(0L, sample.boundary_reference_failure_degenerate_frame_count) +
+                std::max(0L, sample.boundary_reference_failure_singular_metric_count) +
+                std::max(0L, sample.boundary_reference_failure_stalled_count) +
+                std::max(0L, sample.boundary_reference_failure_outside_face_count) +
+                std::max(0L, sample.boundary_reference_failure_evaluation_count) +
+                std::max(0L, sample.boundary_reference_failure_unknown_count);
+
+            const long terminal_state_count =
+                std::max(0L, sample.boundary_reference_step_terminal_state_in_count) +
+                std::max(0L, sample.boundary_reference_step_terminal_state_on_count) +
+                std::max(0L, sample.boundary_reference_step_terminal_state_unknown_count);
+            if (terminal_state_count < sample.boundary_reference_step_success_count)
+            {
+                sample.boundary_reference_step_terminal_state_unknown_count +=
+                    sample.boundary_reference_step_success_count - terminal_state_count;
+            }
+
+            const long step_failure_accounted =
+                std::max(0L, sample.boundary_reference_failure_node_commit_count) +
+                std::max(0L, sample.boundary_reference_failure_geodesic_step_count);
+            if (step_failure_accounted < sample.boundary_reference_step_failure_count)
+            {
+                const long unresolved = sample.boundary_reference_step_failure_count - step_failure_accounted;
+                sample.boundary_reference_failure_unknown_count += unresolved;
+                sample.boundary_reference_failure_geodesic_step_count += unresolved;
+            }
+
+            if (sample.boundary_reference_arm_attempt_count > 0)
+            {
+                sample.boundary_reference_arm_success_ratio =
+                    static_cast<double>(sample.boundary_reference_arm_success_count) /
+                    static_cast<double>(sample.boundary_reference_arm_attempt_count);
+            }
+            else
+            {
+                sample.boundary_reference_arm_success_ratio = 0.0;
+            }
+
+            if (sample.boundary_reference_step_attempt_count > 0)
+            {
+                sample.boundary_reference_step_success_ratio =
+                    static_cast<double>(sample.boundary_reference_step_success_count) /
+                    static_cast<double>(sample.boundary_reference_step_attempt_count);
+            }
+            else
+            {
+                sample.boundary_reference_step_success_ratio = 0.0;
+            }
+        }
+
+    } // namespace
+
     void preseed_demand_growth_nodes(
         const SamplingPhaseParams &params,
         SamplingGridState &state,
@@ -879,7 +1438,9 @@ namespace fishnet_internal
         const int center_i = state.divisions / 2;
         const int center_j = state.divisions / 2;
         bool seeded = false;
+        bool have_fallback_seed = false;
         std::pair<int, int> seed_ij{center_i, center_j};
+        std::pair<int, int> fallback_seed{center_i, center_j};
 
         for (int radius = 0; radius <= state.divisions && !seeded; ++radius)
         {
@@ -891,13 +1452,30 @@ namespace fishnet_internal
             {
                 for (int j = j0; j <= j1 && !seeded; ++j)
                 {
-                    if (ensure_grid_node_at(params, state, i, j, points) >= 0)
+                    if (ensure_grid_node_at(params, state, i, j, points) < 0)
+                    {
+                        continue;
+                    }
+
+                    const FacePointState face_state = state.grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                    if (face_point_state_is_inside(face_state))
                     {
                         seed_ij = {i, j};
                         seeded = true;
                     }
+                    else if (!have_fallback_seed)
+                    {
+                        fallback_seed = {i, j};
+                        have_fallback_seed = true;
+                    }
                 }
             }
+        }
+
+        if (!seeded && have_fallback_seed)
+        {
+            seed_ij = fallback_seed;
+            seeded = true;
         }
 
         if (!seeded)
@@ -936,9 +1514,13 @@ namespace fishnet_internal
         state.grid_u.assign(static_cast<size_t>(state.divisions + 1), std::vector<double>(static_cast<size_t>(state.divisions + 1), std::numeric_limits<double>::quiet_NaN()));
         state.grid_v.assign(static_cast<size_t>(state.divisions + 1), std::vector<double>(static_cast<size_t>(state.divisions + 1), std::numeric_limits<double>::quiet_NaN()));
         state.grid_normals.assign(static_cast<size_t>(state.divisions + 1), std::vector<Vec3>(static_cast<size_t>(state.divisions + 1), Vec3{0.0, 0.0, 1.0}));
+        state.grid_face_state.assign(static_cast<size_t>(state.divisions + 1), std::vector<FacePointState>(static_cast<size_t>(state.divisions + 1), FacePointState::Unknown));
 
         sample.points.clear();
+        sample.point_uv.clear();
+        sample.point_face_state.clear();
         state.seed_points.clear();
+        reset_boundary_reference_stats(sample);
 
         preseed_demand_growth_nodes(params, state, sample.points);
 
@@ -948,7 +1530,7 @@ namespace fishnet_internal
         }
 
         state.target_spacing_len = std::max(params.max_length, 1.0e-6);
-        auto best_seed = find_closest_seed_node(state.divisions, state.grid_indices);
+        auto best_seed = find_closest_seed_node(state.divisions, state.grid_indices, state.grid_face_state);
         state.seed_i_uv = best_seed.first;
         state.seed_j_uv = best_seed.second;
 
@@ -959,6 +1541,11 @@ namespace fishnet_internal
             state.seed_j_uv,
             state.grid_indices,
             state.active_nodes);
+
+        build_boundary_reference_fibres(
+            params,
+            sample,
+            state);
     }
 
     template <typename EnsureGridNodeFn>
@@ -980,6 +1567,7 @@ namespace fishnet_internal
             params.max_adjacent_normal_angle,
             params.max_local_fold_ratio,
             params.max_shear_angle,
+            params.boundary_extend,
             state,
             params.u0,
             params.u1,
@@ -1012,6 +1600,7 @@ namespace fishnet_internal
                 params.u1,
                 params.v0,
                 params.v1,
+                params.boundary_extend,
                 sample.points,
                 params.experimental_stats,
             };
@@ -1113,6 +1702,53 @@ namespace fishnet_internal
             sample.surface_spacing_selected_quads = spacing_stats.selected_quads;
         }
 
+        long valid_grid_nodes = 0;
+        for (int i = 0; i <= state.divisions; ++i)
+        {
+            for (int j = 0; j <= state.divisions; ++j)
+            {
+                if (state.grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)] >= 0)
+                {
+                    valid_grid_nodes += 1;
+                }
+            }
+        }
+        sample.boundary_reference_total_node_count = valid_grid_nodes;
+        sample.boundary_reference_covered_node_count = std::clamp(
+            sample.boundary_reference_covered_node_count,
+            0L,
+            std::max(0L, sample.boundary_reference_total_node_count));
+        if (sample.boundary_reference_total_node_count > 0)
+        {
+            sample.boundary_reference_coverage_ratio =
+                static_cast<double>(sample.boundary_reference_covered_node_count) /
+                static_cast<double>(sample.boundary_reference_total_node_count);
+        }
+        else
+        {
+            sample.boundary_reference_coverage_ratio = 0.0;
+        }
+        finalize_boundary_reference_stats(sample);
+
+        sample.point_uv.assign(sample.points.size(), std::array<double, 2>{std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN()});
+        sample.point_face_state.assign(sample.points.size(), static_cast<unsigned char>(FacePointState::Unknown));
+        for (int i = 0; i <= state.divisions; ++i)
+        {
+            for (int j = 0; j <= state.divisions; ++j)
+            {
+                const int idx = state.grid_indices[static_cast<size_t>(i)][static_cast<size_t>(j)];
+                if (idx < 0 || idx >= static_cast<int>(sample.points.size()))
+                {
+                    continue;
+                }
+                sample.point_uv[static_cast<size_t>(idx)] = {
+                    state.grid_u[static_cast<size_t>(i)][static_cast<size_t>(j)],
+                    state.grid_v[static_cast<size_t>(i)][static_cast<size_t>(j)]};
+                sample.point_face_state[static_cast<size_t>(idx)] = static_cast<unsigned char>(
+                    state.grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)]);
+            }
+        }
+
         build_regular_layout_from_grid(
             state.divisions,
             state.grid_indices,
@@ -1142,7 +1778,12 @@ namespace fishnet_internal
         double max_shear_angle,
         bool surface_spacing_refine,
         int surface_spacing_relax_iterations,
-        ExperimentalSolveStats *experimental_stats)
+        bool boundary_extend,
+        ExperimentalSolveStats *experimental_stats,
+        bool paper_alignment_boundary_reference,
+        bool paper_alignment_directional_reference,
+        bool paper_alignment_has_reference_direction_request,
+        const Vec3 &paper_alignment_reference_direction)
     {
         (void)solver_mode;
 
@@ -1163,6 +1804,11 @@ namespace fishnet_internal
             max_shear_angle,
             surface_spacing_refine,
             surface_spacing_relax_iterations,
+            boundary_extend,
+            paper_alignment_boundary_reference,
+            paper_alignment_directional_reference,
+            paper_alignment_has_reference_direction_request,
+            paper_alignment_reference_direction,
             u0,
             u1,
             v0,
@@ -1224,7 +1870,12 @@ namespace fishnet_internal
         double max_shear_angle,
         bool surface_spacing_refine,
         int surface_spacing_relax_iterations,
-        ExperimentalSolveStats *experimental_stats)
+        bool boundary_extend,
+        ExperimentalSolveStats *experimental_stats,
+        bool paper_alignment_boundary_reference,
+        bool paper_alignment_directional_reference,
+        bool paper_alignment_has_reference_direction_request,
+        const Vec3 &paper_alignment_reference_direction)
     {
         return sample_face_impl(
             face,
@@ -1235,7 +1886,12 @@ namespace fishnet_internal
             max_shear_angle,
             surface_spacing_refine,
             surface_spacing_relax_iterations,
-            experimental_stats);
+            boundary_extend,
+            experimental_stats,
+            paper_alignment_boundary_reference,
+            paper_alignment_directional_reference,
+            paper_alignment_has_reference_direction_request,
+            paper_alignment_reference_direction);
     }
 
 } // namespace fishnet_internal

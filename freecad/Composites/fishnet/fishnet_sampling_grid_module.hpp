@@ -21,6 +21,7 @@ namespace fishnet_internal
         std::vector<std::vector<double>> grid_u;
         std::vector<std::vector<double>> grid_v;
         std::vector<std::vector<Vec3>> grid_normals;
+        std::vector<std::vector<FacePointState>> grid_face_state;
         std::vector<std::vector<unsigned char>> active_nodes;
     };
 

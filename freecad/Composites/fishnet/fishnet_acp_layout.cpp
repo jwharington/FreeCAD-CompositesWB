@@ -65,28 +65,34 @@ namespace fishnet_internal
         return best_idx;
     }
 
-    Vec3 choose_primary_axis(
+    PrimaryAxisSelectionInfo choose_primary_axis_with_analysis(
         const std::vector<Vec3> &local_points,
         const Vec3 &x_axis,
         const Vec3 &y_axis,
         const NormalizedParams *params)
     {
-        Vec3 requested_dir{};
-        const bool has_requested = params && params->has_draping_direction;
-        if (has_requested)
+        PrimaryAxisSelectionInfo selection;
+
+        Vec3 projected_request{0.0, 0.0, 0.0};
+        bool has_projectable_request = false;
+        if (params && params->has_draping_direction)
         {
-            requested_dir = params->draping_direction;
-        }
-        if (has_requested)
-        {
-            Vec3 projected = {
+            const Vec3 requested_dir = params->draping_direction;
+            projected_request = {
                 dot(requested_dir, x_axis),
                 dot(requested_dir, y_axis),
                 0.0,
             };
-            if (norm(projected) > kVectorZeroEpsilon)
+            if (std::isfinite(projected_request.x) &&
+                std::isfinite(projected_request.y) &&
+                std::isfinite(projected_request.z) &&
+                norm(projected_request) > kVectorZeroEpsilon)
             {
-                return normalize(projected);
+                has_projectable_request = true;
+                selection.axis = normalize(projected_request);
+                selection.source = "params_draping_direction_projected";
+                selection.request_alignment_cos = 1.0;
+                return selection;
             }
         }
 
@@ -105,12 +111,46 @@ namespace fishnet_internal
             }
             if ((max_x - min_x) >= (max_y - min_y))
             {
-                return {1.0, 0.0, 0.0};
+                selection.axis = {1.0, 0.0, 0.0};
+                selection.source = "bbox_extent_x";
             }
-            return {0.0, 1.0, 0.0};
+            else
+            {
+                selection.axis = {0.0, 1.0, 0.0};
+                selection.source = "bbox_extent_y";
+            }
+        }
+        else
+        {
+            selection.axis = {1.0, 0.0, 0.0};
+            selection.source = "default_unit_x";
         }
 
-        return {1.0, 0.0, 0.0};
+        if (has_projectable_request)
+        {
+            const Vec3 normalized_request = normalize(projected_request);
+            const Vec3 normalized_axis = normalize(selection.axis);
+            const double raw_alignment = dot(normalized_request, normalized_axis);
+            selection.request_alignment_cos = std::clamp(
+                std::isfinite(raw_alignment) ? raw_alignment : 0.0,
+                -1.0,
+                1.0);
+        }
+        else
+        {
+            selection.request_alignment_cos = 0.0;
+        }
+
+        return selection;
+    }
+
+    Vec3 choose_primary_axis(
+        const std::vector<Vec3> &local_points,
+        const Vec3 &x_axis,
+        const Vec3 &y_axis,
+        const NormalizedParams *params)
+    {
+        return choose_primary_axis_with_analysis(local_points, x_axis, y_axis, params).axis;
     }
 
     AcpPropagationSummary initialize_acp_layout(
@@ -129,14 +169,24 @@ namespace fishnet_internal
             return summary;
         }
 
-        summary.primary_axis = normalize(choose_primary_axis(local_points, x_axis, y_axis, params));
+        const PrimaryAxisSelectionInfo axis_selection =
+            choose_primary_axis_with_analysis(local_points, x_axis, y_axis, params);
+        summary.primary_axis = normalize(axis_selection.axis);
         if (norm(summary.primary_axis) <= kVectorZeroEpsilon)
         {
             summary.primary_axis = {1.0, 0.0, 0.0};
         }
+        summary.draping_direction_used = summary.primary_axis;
         summary.orthogonal_axis = {-summary.primary_axis.y, summary.primary_axis.x, 0.0};
+        summary.sweep_analysis_draping_direction_source = axis_selection.source;
+        summary.sweep_analysis_draping_direction_request_alignment_cos = std::clamp(
+            std::isfinite(axis_selection.request_alignment_cos) ? axis_selection.request_alignment_cos : 0.0,
+            -1.0,
+            1.0);
 
         int seed_index = 0;
+        summary.sweep_analysis_seed_source = "default_zero";
+        summary.sweep_analysis_seed_point_request_distance = 0.0;
         if (params)
         {
             if (params->has_seed &&
@@ -144,6 +194,7 @@ namespace fishnet_internal
                 params->seed < static_cast<int>(mesh_points.size()))
             {
                 seed_index = params->seed;
+                summary.sweep_analysis_seed_source = "params_seed";
             }
 
             if (params->has_seed_point)
@@ -152,10 +203,19 @@ namespace fishnet_internal
                 if (nearest >= 0)
                 {
                     seed_index = nearest;
+                    summary.sweep_analysis_seed_source = "params_seed_point_nearest";
+                    const Vec3 delta = mesh_points[static_cast<size_t>(nearest)] - params->seed_point;
+                    const double distance = std::sqrt(std::max(0.0, dot(delta, delta)));
+                    summary.sweep_analysis_seed_point_request_distance =
+                        (std::isfinite(distance) && distance >= 0.0) ? distance : 0.0;
                 }
             }
         }
         summary.seed_index = seed_index;
+        if (seed_index >= 0 && seed_index < static_cast<int>(mesh_points.size()))
+        {
+            summary.seed_point_used = mesh_points[static_cast<size_t>(seed_index)];
+        }
 
         const double nominal = (std::isfinite(nominal_edge_length) && nominal_edge_length > kVectorZeroEpsilon)
                                    ? nominal_edge_length

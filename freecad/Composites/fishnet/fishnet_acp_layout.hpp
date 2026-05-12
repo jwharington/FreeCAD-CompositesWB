@@ -14,6 +14,19 @@ namespace fishnet_internal
         size_t point_count,
         const std::vector<std::pair<int, int>> &edges);
     int nearest_point_index(const std::vector<Vec3> &points, const Vec3 &target);
+
+    struct PrimaryAxisSelectionInfo
+    {
+        Vec3 axis{1.0, 0.0, 0.0};
+        std::string source{"default_unit_x"};
+        double request_alignment_cos{0.0};
+    };
+
+    PrimaryAxisSelectionInfo choose_primary_axis_with_analysis(
+        const std::vector<Vec3> &local_points,
+        const Vec3 &x_axis,
+        const Vec3 &y_axis,
+        const NormalizedParams *params);
     Vec3 choose_primary_axis(
         const std::vector<Vec3> &local_points,
         const Vec3 &x_axis,

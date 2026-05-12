@@ -23,6 +23,7 @@ namespace fishnet_internal
         double u1;
         double v0;
         double v1;
+        bool boundary_extend;
         std::vector<Vec3> &points;
         ExperimentalSolveStats *experimental_stats;
     };

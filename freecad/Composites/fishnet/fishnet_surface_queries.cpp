@@ -41,6 +41,51 @@ namespace fishnet_internal
                 return std::max(lo, std::min(hi, x));
             }
 
+            Vec3 fallback_tangent_from_frame(const Vec3 &du, const Vec3 &dv, const Vec3 &normal)
+            {
+                Vec3 tangent = du;
+                tangent = tangent - normal * dot(tangent, normal);
+                if (norm(tangent) <= kVectorZeroEpsilon)
+                {
+                    tangent = dv - normal * dot(dv, normal);
+                }
+                if (norm(tangent) <= kVectorZeroEpsilon)
+                {
+                    Vec3 ref = std::fabs(normal.z) < kFallbackNormalAlignment ? Vec3{0.0, 0.0, 1.0} : Vec3{1.0, 0.0, 0.0};
+                    tangent = cross(ref, normal);
+                }
+                if (norm(tangent) <= kVectorZeroEpsilon)
+                {
+                    tangent = {1.0, 0.0, 0.0};
+                }
+                return normalize(tangent);
+            }
+
+            bool project_world_tangent_to_uv_rates(
+                const Vec3 &du,
+                const Vec3 &dv,
+                const Vec3 &target_tangent,
+                double &u_rate,
+                double &v_rate,
+                double &speed_sq)
+            {
+                const double g11 = dot(du, du);
+                const double g12 = dot(du, dv);
+                const double g22 = dot(dv, dv);
+                const double rhs_u = dot(du, target_tangent);
+                const double rhs_v = dot(dv, target_tangent);
+                const double det = g11 * g22 - g12 * g12;
+                if (!(std::isfinite(det) && std::abs(det) > 1.0e-16))
+                {
+                    return false;
+                }
+
+                u_rate = (rhs_u * g22 - rhs_v * g12) / det;
+                v_rate = (rhs_v * g11 - rhs_u * g12) / det;
+                speed_sq = g11 * u_rate * u_rate + 2.0 * g12 * u_rate * v_rate + g22 * v_rate * v_rate;
+                return std::isfinite(speed_sq) && speed_sq > kVectorZeroEpsilon;
+            }
+
             struct ConstraintEvaluator
             {
                 const BRepAdaptor_Surface &surface;
@@ -453,6 +498,179 @@ namespace fishnet_internal
             gp_Dir normal = props.Normal();
             out = {normal.X(), normal.Y(), normal.Z()};
             return true;
+        }
+
+        bool native_face_tangent_frame_at(
+            const TopoDS_Face &face,
+            const BRepAdaptor_Surface &surface,
+            double u,
+            double v,
+            Vec3 &point,
+            Vec3 &du,
+            Vec3 &dv,
+            Vec3 &normal)
+        {
+            gp_Pnt p;
+            gp_Vec du_vec;
+            gp_Vec dv_vec;
+            surface.D1(u, v, p, du_vec, dv_vec);
+            point = {p.X(), p.Y(), p.Z()};
+            du = {du_vec.X(), du_vec.Y(), du_vec.Z()};
+            dv = {dv_vec.X(), dv_vec.Y(), dv_vec.Z()};
+            if (!native_face_normal_at(face, surface, u, v, normal) || norm(normal) <= kVectorZeroEpsilon)
+            {
+                normal = normalize(cross(du, dv));
+            }
+            if (norm(normal) <= kVectorZeroEpsilon)
+            {
+                normal = {0.0, 0.0, 1.0};
+            }
+            return true;
+        }
+
+        GeodesicStepResult geodesic_like_step(
+            const TopoDS_Face &face,
+            const BRepAdaptor_Surface &surface,
+            double u,
+            double v,
+            const Vec3 &tangent_direction,
+            double step_length,
+            double u0,
+            double u1,
+            double v0,
+            double v1)
+        {
+            GeodesicStepResult result;
+            result.u = u;
+            result.v = v;
+            result.failure_reason = GeodesicStepFailureReason::EvaluationFailed;
+
+            if (!(std::isfinite(step_length) && step_length > kVectorZeroEpsilon))
+            {
+                result.failure_reason = GeodesicStepFailureReason::Stalled;
+                return result;
+            }
+
+            Vec3 point{};
+            Vec3 du{};
+            Vec3 dv{};
+            Vec3 normal{};
+            if (!native_face_tangent_frame_at(face, surface, u, v, point, du, dv, normal))
+            {
+                result.failure_reason = GeodesicStepFailureReason::EvaluationFailed;
+                return result;
+            }
+
+            Vec3 tangent = tangent_direction - normal * dot(tangent_direction, normal);
+            if (norm(tangent) <= kVectorZeroEpsilon)
+            {
+                tangent = fallback_tangent_from_frame(du, dv, normal);
+            }
+            else
+            {
+                tangent = normalize(tangent);
+            }
+            if (norm(tangent) <= kVectorZeroEpsilon)
+            {
+                result.failure_reason = GeodesicStepFailureReason::DegenerateFrame;
+                return result;
+            }
+
+            double u_rate = 0.0;
+            double v_rate = 0.0;
+            double speed_sq = 0.0;
+            if (!project_world_tangent_to_uv_rates(du, dv, tangent, u_rate, v_rate, speed_sq))
+            {
+                result.failure_reason = GeodesicStepFailureReason::SingularMetric;
+                return result;
+            }
+
+            const double step_scale = step_length / std::sqrt(speed_sq);
+            const double delta_u = u_rate * step_scale;
+            const double delta_v = v_rate * step_scale;
+            if (!(std::isfinite(delta_u) && std::isfinite(delta_v)))
+            {
+                result.failure_reason = GeodesicStepFailureReason::Stalled;
+                return result;
+            }
+
+            if (std::abs(delta_u) + std::abs(delta_v) <= 1.0e-12)
+            {
+                result.failure_reason = GeodesicStepFailureReason::Stalled;
+                return result;
+            }
+
+            constexpr int kBacktrackAttempts = 7;
+            for (int attempt = 0; attempt < kBacktrackAttempts; ++attempt)
+            {
+                result.candidate_attempt_count += 1;
+
+                const double alpha = std::ldexp(1.0, -attempt);
+                const double cand_u = clamp_value(u + alpha * delta_u, u0, u1);
+                const double cand_v = clamp_value(v + alpha * delta_v, v0, v1);
+                if (std::abs(cand_u - u) + std::abs(cand_v - v) <= 1.0e-12)
+                {
+                    continue;
+                }
+
+                Vec3 cand_point{};
+                gp_Pnt raw_point{};
+                if (!native_face_value_at(face, surface, cand_u, cand_v, cand_point, &raw_point))
+                {
+                    result.candidate_evaluation_failure_count += 1;
+                    result.failure_reason = GeodesicStepFailureReason::EvaluationFailed;
+                    continue;
+                }
+
+                TopAbs_State state = native_face_point_state(face, raw_point, kFaceInsideTolerance);
+                if (state == TopAbs_OUT)
+                {
+                    result.candidate_outside_face_reject_count += 1;
+                    result.failure_reason = GeodesicStepFailureReason::OutsideFace;
+                    continue;
+                }
+
+                Vec3 cand_normal{};
+                if (!native_face_normal_at(face, surface, cand_u, cand_v, cand_normal) || norm(cand_normal) <= kVectorZeroEpsilon)
+                {
+                    cand_normal = normal;
+                }
+
+                Vec3 transported = tangent - cand_normal * dot(tangent, cand_normal);
+                if (norm(transported) <= kVectorZeroEpsilon)
+                {
+                    Vec3 displacement = cand_point - point;
+                    transported = displacement - cand_normal * dot(displacement, cand_normal);
+                }
+                if (norm(transported) <= kVectorZeroEpsilon)
+                {
+                    transported = fallback_tangent_from_frame(du, dv, cand_normal);
+                }
+                transported = normalize(transported);
+                if (norm(transported) <= kVectorZeroEpsilon)
+                {
+                    result.failure_reason = GeodesicStepFailureReason::DegenerateFrame;
+                    continue;
+                }
+
+                result.success = true;
+                result.u = cand_u;
+                result.v = cand_v;
+                result.point = cand_point;
+                result.normal = cand_normal;
+                result.tangent = transported;
+                result.face_state = state;
+                result.backtrack_attempts = attempt;
+                result.failure_reason = GeodesicStepFailureReason::None;
+                return result;
+            }
+
+            result.backtrack_attempts = std::max(0, result.candidate_attempt_count - 1);
+            if (result.failure_reason == GeodesicStepFailureReason::None)
+            {
+                result.failure_reason = GeodesicStepFailureReason::OutsideFace;
+            }
+            return result;
         }
 
         TopAbs_State native_face_point_state(const TopoDS_Face &face, const gp_Pnt &point, double tolerance)

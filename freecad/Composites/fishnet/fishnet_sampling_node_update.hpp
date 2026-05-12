@@ -19,6 +19,7 @@ namespace fishnet_internal
         double max_adjacent_normal_angle;
         double max_local_fold_ratio;
         double max_shear_angle;
+        bool boundary_extend;
         SamplingGridState &grid;
         double u0;
         double u1;
@@ -47,6 +48,7 @@ namespace fishnet_internal
         double max_adjacent_normal_angle_;
         double max_local_fold_ratio_;
         double max_shear_angle_;
+        bool boundary_extend_;
         SamplingGridState &grid_;
         double u0_;
         double u1_;

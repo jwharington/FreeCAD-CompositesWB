@@ -143,10 +143,37 @@ fishnet_extension = Extension(
             "freecad", "Composites", "fishnet", "fishnet_boundary_atlas.cpp"
         ),
         os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_boundary_trim.cpp"
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_surface_queries.cpp"
         ),
         os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_diagnostics_result.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_diagnostics_signature.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_diagnostics_metadata.cpp"
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_diagnostics_support.cpp"
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_diagnostics_transition_quality.cpp",
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_diagnostics_aggregation.cpp",
+        ),
+        os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_solver_profile.cpp"
         ),
         os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_result_builder.cpp"

@@ -14,6 +14,12 @@ namespace fishnet_internal
     struct AcpPropagationSummary
     {
         int seed_index{0};
+        Vec3 seed_point_used{0.0, 0.0, 0.0};
+        Vec3 draping_direction_used{1.0, 0.0, 0.0};
+        std::string sweep_analysis_seed_source{"unresolved"};
+        double sweep_analysis_seed_point_request_distance{0.0};
+        std::string sweep_analysis_draping_direction_source{"default_unit_x"};
+        double sweep_analysis_draping_direction_request_alignment_cos{0.0};
         int primary_assigned{0};
         int orthogonal_assigned{0};
         int fill_assigned{0};
@@ -88,6 +94,14 @@ namespace fishnet_internal
         bool acp_energy_mode{false};
         bool surface_spacing_mode{false};
         std::string acp_strategy{"none"};
+
+        // Paper-alignment Phase 1 scaffold metadata.
+        std::string paper_alignment_requested{"off"};
+        std::string paper_alignment_effective{"off"};
+        std::string paper_alignment_fallback{"none"};
+        std::string paper_alignment_profile_requested{"default"};
+        std::string paper_alignment_profile_effective{"default"};
+        bool paper_alignment_enabled{false};
     };
 
     struct NormalizedParams
@@ -110,8 +124,16 @@ namespace fishnet_internal
         bool has_surface_spacing_relax_iterations{false};
         int surface_spacing_relax_iterations{0};
 
+        bool boundary_extend{true};
+        bool boundary_trim{true};
+
         bool edge_length_tolerance_from_parameter{false};
         double edge_length_tolerance{0.0};
+
+        bool surface_spacing_strict{false};
+        bool surface_spacing_edge_tolerance_from_parameter{false};
+        double surface_spacing_edge_tolerance{0.02};
+        bool surface_spacing_fail_on_violation{false};
 
         std::string material_model{"woven"};
         double ud_coefficient{0.0};
@@ -139,6 +161,14 @@ namespace fishnet_internal
         Vec3 draping_direction{1.0, 0.0, 0.0};
     };
 
+    struct SurfaceSpacingStrictPolicy
+    {
+        bool enabled{false};
+        bool fail_on_violation{false};
+        bool tolerance_from_parameter{false};
+        double tolerance{0.02};
+    };
+
     bool try_parse_param_vec3(PyObject *params, const char *key, Vec3 &out);
     double param_double(PyObject *params, const char *key, double fallback);
     bool param_bool(PyObject *params, const char *key, bool fallback);
@@ -154,5 +184,8 @@ namespace fishnet_internal
     std::pair<double, bool> resolve_edge_rel_tolerance(PyObject *params_copy);
     int resolve_relax_iterations(PyObject *params_copy);
     double read_nominal_edge_length(PyObject *params_copy);
+
+    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(const NormalizedParams &params);
+    SurfaceSpacingStrictPolicy resolve_surface_spacing_strict_policy(PyObject *params_copy);
 
 } // namespace fishnet_internal

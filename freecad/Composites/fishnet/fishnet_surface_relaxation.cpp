@@ -5,6 +5,7 @@
 
 #include <gp_Pnt.hxx>
 
+#include "fishnet_face_state_utils.hpp"
 #include "fishnet_surface_queries.hpp"
 
 namespace fishnet_internal
@@ -120,7 +121,9 @@ namespace fishnet_internal
                         }
 
                         gp_Pnt p = input.surface.Value(su, sv);
-                        if (!surface_queries::native_face_is_inside(input.face, p, kFaceInsideTolerance))
+                        const FacePointState face_state = face_point_state_from_topabs(
+                            surface_queries::native_face_point_state(input.face, p, kFaceInsideTolerance));
+                        if (!input.boundary_extend && !face_point_state_is_inside(face_state))
                         {
                             return;
                         }
@@ -157,6 +160,9 @@ namespace fishnet_internal
                     {
                         input.grid.grid_normals[static_cast<size_t>(i)][static_cast<size_t>(j)] = normal;
                     }
+                    gp_Pnt best_p = input.surface.Value(best_u, best_v);
+                    input.grid.grid_face_state[static_cast<size_t>(i)][static_cast<size_t>(j)] = face_point_state_from_topabs(
+                        surface_queries::native_face_point_state(input.face, best_p, kFaceInsideTolerance));
                     changed = true;
                 }
             }
