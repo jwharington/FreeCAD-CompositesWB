@@ -4966,7 +4966,15 @@ class TestFishnetSolver(unittest.TestCase):
                     len(result.get("warp_weft_points", [])),
                     expected_v,
                 )
-                self.assertGreater(len(result.get("fabric_quads", [])), 0)
+                self.assertEqual(
+                    len(result.get("fabric_quads", [])),
+                    int(
+                        diagnostics.get(
+                            "geodesic_preview_quad_selected_count",
+                            -1,
+                        )
+                    ),
+                )
             else:
                 self.assertEqual(len(result.get("fabric_points", [])), 0)
                 self.assertEqual(len(result.get("warp_weft_points", [])), 0)
@@ -4990,6 +4998,22 @@ class TestFishnetSolver(unittest.TestCase):
                 0,
             )
             self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quad_reject_overlap_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quad_reject_self_intersection_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
                 float(
                     diagnostics.get(
                         "geodesic_preview_quad_triangle_coverage_ratio", -1.0
@@ -5005,6 +5029,22 @@ class TestFishnetSolver(unittest.TestCase):
                 ),
                 1.0,
             )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_min_uv_area_threshold", -1.0
+                    )
+                ),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_min_shared_edge_uv_threshold", -1.0
+                    )
+                ),
+                0.0,
+            )
 
             quality_gate_enabled = bool(
                 diagnostics.get("geodesic_preview_quality_gate_enabled")
@@ -5019,7 +5059,23 @@ class TestFishnetSolver(unittest.TestCase):
                 quality_gate_enabled,
                 False,
             )
-            if preview_ready:
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quality_min_selected_quads", -1
+                    )
+                ),
+                1,
+            )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quality_min_triangle_coverage", -1.0
+                    )
+                ),
+                0.0,
+            )
+            if preview_ready and quality_gate_enabled:
                 self.assertTrue(quality_pass)
                 self.assertEqual(quality_fail_reason, "")
 

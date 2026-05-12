@@ -531,36 +531,159 @@ namespace fishnet_internal
             return (static_cast<std::uint64_t>(lo) << 32) | static_cast<std::uint64_t>(hi);
         }
 
-        std::vector<int> ordered_quad_by_geodesic_uv(
-            const std::array<int, 4> &verts,
+        double quad_uv_area_signed(
+            const std::vector<int> &ordered,
             const std::vector<double> &phi_gx,
             const std::vector<double> &phi_gy)
         {
-            std::vector<int> order{verts[0], verts[1], verts[2], verts[3]};
-            double cu = 0.0;
-            double cv = 0.0;
-            for (int idx : order)
+            if (ordered.size() < 4)
             {
-                cu += phi_gx[static_cast<size_t>(idx)];
-                cv += phi_gy[static_cast<size_t>(idx)];
+                return 0.0;
             }
-            cu *= 0.25;
-            cv *= 0.25;
+            double area2 = 0.0;
+            for (size_t idx = 0; idx < ordered.size(); ++idx)
+            {
+                const int a = ordered[idx];
+                const int b = ordered[(idx + 1) % ordered.size()];
+                const double xa = phi_gx[static_cast<size_t>(a)];
+                const double ya = phi_gy[static_cast<size_t>(a)];
+                const double xb = phi_gx[static_cast<size_t>(b)];
+                const double yb = phi_gy[static_cast<size_t>(b)];
+                area2 += xa * yb - xb * ya;
+            }
+            return area2 * 0.5;
+        }
 
-            std::sort(order.begin(), order.end(), [&](int lhs, int rhs) {
-                const double ul = phi_gx[static_cast<size_t>(lhs)] - cu;
-                const double vl = phi_gy[static_cast<size_t>(lhs)] - cv;
-                const double ur = phi_gx[static_cast<size_t>(rhs)] - cu;
-                const double vr = phi_gy[static_cast<size_t>(rhs)] - cv;
-                const double al = std::atan2(vl, ul);
-                const double ar = std::atan2(vr, ur);
-                if (al == ar)
+        std::vector<int> ordered_quad_from_triangle_pair(
+            int shared_a,
+            int shared_b,
+            int opposite_a,
+            int opposite_b,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy)
+        {
+            std::vector<int> order0{shared_a, opposite_a, shared_b, opposite_b};
+            std::vector<int> order1{shared_a, opposite_b, shared_b, opposite_a};
+
+            const double area0 = std::abs(quad_uv_area_signed(order0, phi_gx, phi_gy));
+            const double area1 = std::abs(quad_uv_area_signed(order1, phi_gx, phi_gy));
+            std::vector<int> chosen = (area1 > area0) ? order1 : order0;
+
+            if (quad_uv_area_signed(chosen, phi_gx, phi_gy) < 0.0)
+            {
+                std::reverse(chosen.begin(), chosen.end());
+            }
+            return chosen;
+        }
+
+        struct UvPoint2
+        {
+            double u = 0.0;
+            double v = 0.0;
+        };
+
+        std::array<UvPoint2, 4> uv_quad_points_from_ordered(
+            const std::vector<int> &ordered,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy)
+        {
+            std::array<UvPoint2, 4> out{};
+            if (ordered.size() < 4)
+            {
+                return out;
+            }
+            for (size_t i = 0; i < 4; ++i)
+            {
+                const int idx = ordered[i];
+                out[i] = UvPoint2{
+                    phi_gx[static_cast<size_t>(idx)],
+                    phi_gy[static_cast<size_t>(idx)]};
+            }
+            return out;
+        }
+
+        double orient2d(const UvPoint2 &a, const UvPoint2 &b, const UvPoint2 &c)
+        {
+            return (b.u - a.u) * (c.v - a.v) - (b.v - a.v) * (c.u - a.u);
+        }
+
+        bool uv_segments_properly_intersect(
+            const UvPoint2 &a,
+            const UvPoint2 &b,
+            const UvPoint2 &c,
+            const UvPoint2 &d)
+        {
+            constexpr double kEps = 1e-12;
+            const double o1 = orient2d(a, b, c);
+            const double o2 = orient2d(a, b, d);
+            const double o3 = orient2d(c, d, a);
+            const double o4 = orient2d(c, d, b);
+            return (o1 * o2 < -kEps) && (o3 * o4 < -kEps);
+        }
+
+        bool quad_uv_has_self_intersection(const std::array<UvPoint2, 4> &q)
+        {
+            return uv_segments_properly_intersect(q[0], q[1], q[2], q[3]) ||
+                   uv_segments_properly_intersect(q[1], q[2], q[3], q[0]);
+        }
+
+        bool convex_quad_overlaps_with_positive_area(
+            const std::array<UvPoint2, 4> &a,
+            const std::array<UvPoint2, 4> &b)
+        {
+            constexpr double kAxisEps = 1e-15;
+            constexpr double kOverlapEps = 1e-10;
+            double min_overlap = std::numeric_limits<double>::infinity();
+
+            auto test_axes = [&](const std::array<UvPoint2, 4> &poly) {
+                for (size_t i = 0; i < 4; ++i)
                 {
-                    return lhs < rhs;
+                    const UvPoint2 &p = poly[i];
+                    const UvPoint2 &q = poly[(i + 1) % 4];
+                    const double ex = q.u - p.u;
+                    const double ey = q.v - p.v;
+                    double ax = -ey;
+                    double ay = ex;
+                    const double n = std::sqrt(ax * ax + ay * ay);
+                    if (!(n > kAxisEps))
+                    {
+                        continue;
+                    }
+                    ax /= n;
+                    ay /= n;
+
+                    double a_min = std::numeric_limits<double>::infinity();
+                    double a_max = -std::numeric_limits<double>::infinity();
+                    double b_min = std::numeric_limits<double>::infinity();
+                    double b_max = -std::numeric_limits<double>::infinity();
+                    for (const UvPoint2 &pt : a)
+                    {
+                        const double d = ax * pt.u + ay * pt.v;
+                        a_min = std::min(a_min, d);
+                        a_max = std::max(a_max, d);
+                    }
+                    for (const UvPoint2 &pt : b)
+                    {
+                        const double d = ax * pt.u + ay * pt.v;
+                        b_min = std::min(b_min, d);
+                        b_max = std::max(b_max, d);
+                    }
+
+                    const double overlap = std::min(a_max, b_max) - std::max(a_min, b_min);
+                    if (!(overlap > kOverlapEps))
+                    {
+                        return false;
+                    }
+                    min_overlap = std::min(min_overlap, overlap);
                 }
-                return al < ar;
-            });
-            return order;
+                return true;
+            };
+
+            if (!test_axes(a) || !test_axes(b))
+            {
+                return false;
+            }
+            return min_overlap > kOverlapEps;
         }
 
         struct PreviewQuadBuildOutcome
@@ -572,12 +695,16 @@ namespace fishnet_internal
             long reject_out_of_range_count = 0;
             long reject_small_area_count = 0;
             long reject_short_edge_count = 0;
+            long reject_self_intersection_count = 0;
             long reject_triangle_reuse_count = 0;
+            long reject_overlap_count = 0;
             long leftover_open_edge_count = 0;
             double area_min = 0.0;
             double area_max = 0.0;
             double area_mean = 0.0;
             double triangle_coverage_ratio = 0.0;
+            double min_uv_area_threshold = 0.0;
+            double min_shared_edge_uv_threshold = 0.0;
         };
 
         PreviewQuadBuildOutcome build_geodesic_preview_quads(
@@ -606,35 +733,38 @@ namespace fishnet_internal
                 int tri1 = -1;
                 std::array<int, 4> canonical{};
                 std::vector<int> ordered;
+                std::array<UvPoint2, 4> uv_quad{};
                 double score = 0.0;
                 double area = 0.0;
             };
 
             auto quad_uv_area_abs = [&](const std::vector<int> &ordered) {
-                if (ordered.size() < 4)
-                {
-                    return 0.0;
-                }
-                double area2 = 0.0;
-                for (size_t idx = 0; idx < ordered.size(); ++idx)
-                {
-                    const int a = ordered[idx];
-                    const int b = ordered[(idx + 1) % ordered.size()];
-                    const double xa = phi_gx[static_cast<size_t>(a)];
-                    const double ya = phi_gy[static_cast<size_t>(a)];
-                    const double xb = phi_gx[static_cast<size_t>(b)];
-                    const double yb = phi_gy[static_cast<size_t>(b)];
-                    area2 += xa * yb - xb * ya;
-                }
-                return std::abs(area2) * 0.5;
+                return std::abs(quad_uv_area_signed(ordered, phi_gx, phi_gy));
             };
 
             std::unordered_map<std::uint64_t, EdgeInfo> first_edge;
             std::vector<Candidate> candidates;
             candidates.reserve(triangles.size());
 
-            constexpr double kMinUvArea = 1e-10;
-            constexpr double kMinSharedUvEdge = 1e-9;
+            double u_min = std::numeric_limits<double>::infinity();
+            double u_max = -std::numeric_limits<double>::infinity();
+            double v_min = std::numeric_limits<double>::infinity();
+            double v_max = -std::numeric_limits<double>::infinity();
+            for (size_t i = 0; i < vertex_count; ++i)
+            {
+                u_min = std::min(u_min, phi_gx[i]);
+                u_max = std::max(u_max, phi_gx[i]);
+                v_min = std::min(v_min, phi_gy[i]);
+                v_max = std::max(v_max, phi_gy[i]);
+            }
+            const double u_range = std::max(0.0, u_max - u_min);
+            const double v_range = std::max(0.0, v_max - v_min);
+            const double uv_diag = std::hypot(u_range, v_range);
+
+            const double kMinUvArea = std::max(1e-18, (u_range * v_range) * 1e-8);
+            const double kMinSharedUvEdge = std::max(1e-12, uv_diag * 1e-8);
+            outcome.min_uv_area_threshold = kMinUvArea;
+            outcome.min_shared_edge_uv_threshold = kMinSharedUvEdge;
 
             auto process_edge = [&](int a, int b, int opposite, int tri_index) {
                 const std::uint64_t key = edge_key(a, b);
@@ -662,7 +792,19 @@ namespace fishnet_internal
                     return;
                 }
 
-                std::vector<int> ordered = ordered_quad_by_geodesic_uv(verts, phi_gx, phi_gy);
+                std::vector<int> ordered = ordered_quad_from_triangle_pair(
+                    first.a,
+                    first.b,
+                    first.opposite,
+                    opposite,
+                    phi_gx,
+                    phi_gy);
+                const auto uv_quad = uv_quad_points_from_ordered(ordered, phi_gx, phi_gy);
+                if (quad_uv_has_self_intersection(uv_quad))
+                {
+                    ++outcome.reject_self_intersection_count;
+                    return;
+                }
                 const double uv_area = quad_uv_area_abs(ordered);
                 if (!(uv_area > kMinUvArea))
                 {
@@ -683,6 +825,7 @@ namespace fishnet_internal
                 c.tri0 = first.tri_index;
                 c.tri1 = tri_index;
                 c.canonical = canonical;
+                c.uv_quad = uv_quad;
                 c.ordered = std::move(ordered);
                 c.score = shared_edge_len;
                 c.area = uv_area;
@@ -710,6 +853,7 @@ namespace fishnet_internal
 
             std::vector<bool> triangle_used(triangles.size(), false);
             std::set<std::array<int, 4>> emitted;
+            std::vector<std::array<UvPoint2, 4>> selected_uv_quads;
             outcome.quads.reserve(candidates.size());
 
             double area_sum = 0.0;
@@ -732,7 +876,23 @@ namespace fishnet_internal
                 {
                     continue;
                 }
+                bool overlaps_selected = false;
+                for (const auto &existing_quad : selected_uv_quads)
+                {
+                    if (convex_quad_overlaps_with_positive_area(candidate.uv_quad, existing_quad))
+                    {
+                        overlaps_selected = true;
+                        break;
+                    }
+                }
+                if (overlaps_selected)
+                {
+                    ++outcome.reject_overlap_count;
+                    continue;
+                }
+
                 outcome.quads.push_back(candidate.ordered);
+                selected_uv_quads.push_back(candidate.uv_quad);
                 triangle_used[static_cast<size_t>(candidate.tri0)] = true;
                 triangle_used[static_cast<size_t>(candidate.tri1)] = true;
 
@@ -904,6 +1064,8 @@ namespace fishnet_internal
         const bool indices_valid = (invalid_index_count == 0);
 
         const bool is_mesh_input = std::string(kind) == "mesh";
+        constexpr long kMinSelectedQuadCount = 1;
+        constexpr double kMinTriangleCoverage = 0.15;
 
 #if FISHNET_HAS_GEOMETRY_CENTRAL
         const ProbeBundleOutcome bundle = run_probe_bundle(
@@ -924,15 +1086,21 @@ namespace fishnet_internal
             compute_probe.status == "success" &&
             pair_probe.status == "success";
         const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
-        const bool preview_quality_pass = quad_outcome.selected_count > 0;
+        const bool preview_quality_has_quads =
+            quad_outcome.selected_count >= kMinSelectedQuadCount;
+        const bool preview_quality_has_coverage =
+            quad_outcome.triangle_coverage_ratio >= kMinTriangleCoverage;
+        const bool preview_quality_pass =
+            preview_quality_has_quads && preview_quality_has_coverage;
         const bool quality_gate_failed =
             probe_ready && quality_gate_enabled && !preview_quality_pass;
         const bool preview_ready = probe_ready && !quality_gate_failed;
 
         const char *preview_status = is_mesh_input ? "mesh_field_preview" : "geometry_field_preview";
         const char *preview_phase = is_mesh_input ? "mesh_fields_v1" : "geometry_fields_v1";
-        const char *quality_fail_reason =
-            preview_quality_pass ? "" : "no_preview_quads_selected";
+        const char *quality_fail_reason = preview_quality_has_quads
+                                              ? (preview_quality_has_coverage ? "" : "low_triangle_coverage")
+                                              : "no_preview_quads_selected";
 
         PyObject *result = nullptr;
         if (preview_ready)
@@ -1019,6 +1187,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_preview_quality_gate_enabled",
                 quality_gate_enabled);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quality_min_selected_quads",
+                kMinSelectedQuadCount);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quality_min_triangle_coverage",
+                kMinTriangleCoverage);
             set_dict_bool(
                 diagnostics,
                 "geodesic_preview_quality_pass",
@@ -1026,7 +1202,7 @@ namespace fishnet_internal
             set_dict_string(
                 diagnostics,
                 "geodesic_preview_quality_fail_reason",
-                quality_gate_failed ? quality_fail_reason : "");
+                preview_quality_pass ? "" : quality_fail_reason);
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_lifecycle_probe_status",
@@ -1136,8 +1312,16 @@ namespace fishnet_internal
                 quad_outcome.reject_short_edge_count);
             set_dict_long(
                 diagnostics,
+                "geodesic_preview_quad_reject_self_intersection_count",
+                quad_outcome.reject_self_intersection_count);
+            set_dict_long(
+                diagnostics,
                 "geodesic_preview_quad_reject_triangle_reuse_count",
                 quad_outcome.reject_triangle_reuse_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_overlap_count",
+                quad_outcome.reject_overlap_count);
             set_dict_long(
                 diagnostics,
                 "geodesic_preview_quad_leftover_open_edge_count",
@@ -1158,6 +1342,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_preview_quad_triangle_coverage_ratio",
                 quad_outcome.triangle_coverage_ratio);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_min_uv_area_threshold",
+                quad_outcome.min_uv_area_threshold);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_min_shared_edge_uv_threshold",
+                quad_outcome.min_shared_edge_uv_threshold);
 
             set_dict_string(
                 diagnostics,
@@ -1226,6 +1418,8 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_min", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_max", 0.0);
             set_dict_bool(diagnostics, "geodesic_preview_quality_gate_enabled", quality_gate_enabled);
+            set_dict_long(diagnostics, "geodesic_preview_quality_min_selected_quads", kMinSelectedQuadCount);
+            set_dict_double(diagnostics, "geodesic_preview_quality_min_triangle_coverage", kMinTriangleCoverage);
             set_dict_bool(diagnostics, "geodesic_preview_quality_pass", false);
             set_dict_string(diagnostics, "geodesic_preview_quality_fail_reason", "");
             set_dict_long(diagnostics, "geodesic_preview_quad_candidate_count", 0);
@@ -1234,12 +1428,16 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_out_of_range_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_small_area_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_short_edge_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_self_intersection_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_triangle_reuse_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_overlap_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_leftover_open_edge_count", 0);
             set_dict_double(diagnostics, "geodesic_preview_quad_area_min", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_area_max", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_area_mean", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_triangle_coverage_ratio", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_min_uv_area_threshold", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_min_shared_edge_uv_threshold", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
