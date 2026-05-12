@@ -638,6 +638,25 @@ namespace fishnet_internal
 
             PyObject *empty_list = PyList_New(0);
             PyObject *mesh_points_list = build_vec3_list(points);
+
+            std::vector<Vec3> uv_points;
+            if (phi_gx.size() == points.size() && phi_gy.size() == points.size())
+            {
+                uv_points.reserve(points.size());
+                for (size_t idx = 0; idx < points.size(); ++idx)
+                {
+                    uv_points.push_back(Vec3{
+                        phi_gx[idx],
+                        phi_gy[idx],
+                        0.0});
+                }
+            }
+            else
+            {
+                uv_points = points;
+            }
+            PyObject *warp_weft_points_list = build_vec3_list(uv_points);
+
             std::vector<std::vector<int>> mesh_face_vec;
             mesh_face_vec.reserve(triangles.size());
             for (const auto &tri : triangles)
@@ -653,10 +672,11 @@ namespace fishnet_internal
                 points.size());
             PyObject *fabric_quads_list = build_quad_list(preview_quads);
 
-            if (!empty_list || !mesh_points_list || !mesh_faces_list || !fabric_quads_list)
+            if (!empty_list || !mesh_points_list || !warp_weft_points_list || !mesh_faces_list || !fabric_quads_list)
             {
                 Py_XDECREF(empty_list);
                 Py_XDECREF(mesh_points_list);
+                Py_XDECREF(warp_weft_points_list);
                 Py_XDECREF(mesh_faces_list);
                 Py_XDECREF(fabric_quads_list);
                 Py_DECREF(params_copy);
@@ -678,7 +698,7 @@ namespace fishnet_internal
                 "",
                 params_copy,
                 mesh_points_list,
-                mesh_points_list,
+                warp_weft_points_list,
                 fabric_quads_list,
                 empty_list,
                 empty_list,
@@ -702,6 +722,7 @@ namespace fishnet_internal
 
             Py_DECREF(empty_list);
             Py_DECREF(mesh_points_list);
+            Py_DECREF(warp_weft_points_list);
             Py_DECREF(mesh_faces_list);
             Py_DECREF(fabric_quads_list);
             Py_DECREF(params_copy);

@@ -4957,13 +4957,19 @@ class TestFishnetSolver(unittest.TestCase):
                 self.assertEqual(int(source_vertices[1]), -1)
 
             if preview_ready:
+                expected_v = int(diagnostics.get("geodesic_input_vertex_count", -1))
                 self.assertEqual(
                     len(result.get("fabric_points", [])),
-                    int(diagnostics.get("geodesic_input_vertex_count", -1)),
+                    expected_v,
+                )
+                self.assertEqual(
+                    len(result.get("warp_weft_points", [])),
+                    expected_v,
                 )
                 self.assertGreater(len(result.get("fabric_quads", [])), 0)
             else:
                 self.assertEqual(len(result.get("fabric_points", [])), 0)
+                self.assertEqual(len(result.get("warp_weft_points", [])), 0)
                 self.assertEqual(len(result.get("fabric_quads", [])), 0)
 
             self.assertEqual(
