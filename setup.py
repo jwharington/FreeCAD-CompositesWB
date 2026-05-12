@@ -188,6 +188,12 @@ fishnet_extension = Extension(
             "freecad",
             "Composites",
             "fishnet",
+            "fishnet_result_quad_filter.cpp",
+        ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
             "fishnet_result_surface_spacing_strict.cpp",
         ),
         os.path.join(
