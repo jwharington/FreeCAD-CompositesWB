@@ -563,15 +563,33 @@ namespace fishnet_internal
             return order;
         }
 
-        std::vector<std::vector<int>> build_geodesic_preview_quads(
+        struct PreviewQuadBuildOutcome
+        {
+            std::vector<std::vector<int>> quads;
+            long candidate_count = 0;
+            long selected_count = 0;
+            long reject_duplicate_vertex_count = 0;
+            long reject_out_of_range_count = 0;
+            long reject_small_area_count = 0;
+            long reject_short_edge_count = 0;
+            long reject_triangle_reuse_count = 0;
+            long leftover_open_edge_count = 0;
+            double area_min = 0.0;
+            double area_max = 0.0;
+            double area_mean = 0.0;
+            double triangle_coverage_ratio = 0.0;
+        };
+
+        PreviewQuadBuildOutcome build_geodesic_preview_quads(
             const std::vector<std::array<int, 3>> &triangles,
             const std::vector<double> &phi_gx,
             const std::vector<double> &phi_gy,
             size_t vertex_count)
         {
+            PreviewQuadBuildOutcome outcome{};
             if (phi_gx.size() < vertex_count || phi_gy.size() < vertex_count)
             {
-                return {};
+                return outcome;
             }
 
             struct EdgeInfo
@@ -589,6 +607,7 @@ namespace fishnet_internal
                 std::array<int, 4> canonical{};
                 std::vector<int> ordered;
                 double score = 0.0;
+                double area = 0.0;
             };
 
             auto quad_uv_area_abs = [&](const std::vector<int> &ordered) {
@@ -614,6 +633,9 @@ namespace fishnet_internal
             std::vector<Candidate> candidates;
             candidates.reserve(triangles.size());
 
+            constexpr double kMinUvArea = 1e-10;
+            constexpr double kMinSharedUvEdge = 1e-9;
+
             auto process_edge = [&](int a, int b, int opposite, int tri_index) {
                 const std::uint64_t key = edge_key(a, b);
                 const auto it = first_edge.find(key);
@@ -631,23 +653,31 @@ namespace fishnet_internal
                 std::sort(canonical.begin(), canonical.end());
                 if (canonical[0] == canonical[1] || canonical[1] == canonical[2] || canonical[2] == canonical[3])
                 {
+                    ++outcome.reject_duplicate_vertex_count;
                     return;
                 }
                 if (canonical[0] < 0 || static_cast<size_t>(canonical[3]) >= vertex_count)
                 {
+                    ++outcome.reject_out_of_range_count;
                     return;
                 }
 
                 std::vector<int> ordered = ordered_quad_by_geodesic_uv(verts, phi_gx, phi_gy);
                 const double uv_area = quad_uv_area_abs(ordered);
-                if (!(uv_area > 1e-12))
+                if (!(uv_area > kMinUvArea))
                 {
+                    ++outcome.reject_small_area_count;
                     return;
                 }
 
                 const double du = phi_gx[static_cast<size_t>(a)] - phi_gx[static_cast<size_t>(b)];
                 const double dv = phi_gy[static_cast<size_t>(a)] - phi_gy[static_cast<size_t>(b)];
                 const double shared_edge_len = std::sqrt(du * du + dv * dv);
+                if (!(shared_edge_len > kMinSharedUvEdge))
+                {
+                    ++outcome.reject_short_edge_count;
+                    return;
+                }
 
                 Candidate c{};
                 c.tri0 = first.tri_index;
@@ -655,6 +685,7 @@ namespace fishnet_internal
                 c.canonical = canonical;
                 c.ordered = std::move(ordered);
                 c.score = shared_edge_len;
+                c.area = uv_area;
                 candidates.push_back(std::move(c));
             };
 
@@ -666,6 +697,9 @@ namespace fishnet_internal
                 process_edge(tri[2], tri[0], tri[1], static_cast<int>(tri_i));
             }
 
+            outcome.leftover_open_edge_count = static_cast<long>(first_edge.size());
+            outcome.candidate_count = static_cast<long>(candidates.size());
+
             std::sort(candidates.begin(), candidates.end(), [](const Candidate &lhs, const Candidate &rhs) {
                 if (lhs.score == rhs.score)
                 {
@@ -676,8 +710,11 @@ namespace fishnet_internal
 
             std::vector<bool> triangle_used(triangles.size(), false);
             std::set<std::array<int, 4>> emitted;
-            std::vector<std::vector<int>> quads;
-            quads.reserve(candidates.size());
+            outcome.quads.reserve(candidates.size());
+
+            double area_sum = 0.0;
+            double area_min = std::numeric_limits<double>::infinity();
+            double area_max = 0.0;
 
             for (const Candidate &candidate : candidates)
             {
@@ -688,18 +725,37 @@ namespace fishnet_internal
                 if (triangle_used[static_cast<size_t>(candidate.tri0)] ||
                     triangle_used[static_cast<size_t>(candidate.tri1)])
                 {
+                    ++outcome.reject_triangle_reuse_count;
                     continue;
                 }
                 if (!emitted.insert(candidate.canonical).second)
                 {
                     continue;
                 }
-                quads.push_back(candidate.ordered);
+                outcome.quads.push_back(candidate.ordered);
                 triangle_used[static_cast<size_t>(candidate.tri0)] = true;
                 triangle_used[static_cast<size_t>(candidate.tri1)] = true;
+
+                area_sum += candidate.area;
+                area_min = std::min(area_min, candidate.area);
+                area_max = std::max(area_max, candidate.area);
             }
 
-            return quads;
+            outcome.selected_count = static_cast<long>(outcome.quads.size());
+            if (outcome.selected_count > 0)
+            {
+                outcome.area_min = std::isfinite(area_min) ? area_min : 0.0;
+                outcome.area_max = area_max;
+                outcome.area_mean = area_sum / static_cast<double>(outcome.selected_count);
+            }
+            if (!triangles.empty())
+            {
+                outcome.triangle_coverage_ratio = std::min(
+                    1.0,
+                    (2.0 * static_cast<double>(outcome.selected_count)) /
+                        static_cast<double>(triangles.size()));
+            }
+            return outcome;
         }
 
         PyObject *build_geodesic_mesh_preview_result(
@@ -707,7 +763,8 @@ namespace fishnet_internal
             const std::vector<Vec3> &points,
             const std::vector<std::array<int, 3>> &triangles,
             const std::vector<double> &phi_gx,
-            const std::vector<double> &phi_gy)
+            const std::vector<double> &phi_gy,
+            const PreviewQuadBuildOutcome &quad_outcome)
         {
             if (!params_copy)
             {
@@ -743,12 +800,7 @@ namespace fishnet_internal
             }
             PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
 
-            std::vector<std::vector<int>> preview_quads = build_geodesic_preview_quads(
-                triangles,
-                phi_gx,
-                phi_gy,
-                points.size());
-            PyObject *fabric_quads_list = build_quad_list(preview_quads);
+            PyObject *fabric_quads_list = build_quad_list(quad_outcome.quads);
 
             if (!empty_list || !mesh_points_list || !warp_weft_points_list || !mesh_faces_list || !fabric_quads_list)
             {
@@ -862,6 +914,11 @@ namespace fishnet_internal
         const LifecycleProbeOutcome &lifecycle_probe = bundle.lifecycle;
         const ComputeProbeOutcome &compute_probe = bundle.compute;
         const PairProbeOutcome &pair_probe = bundle.pair;
+        const PreviewQuadBuildOutcome quad_outcome = build_geodesic_preview_quads(
+            triangles,
+            pair_probe.phi_gx,
+            pair_probe.phi_gy,
+            points.size());
         const bool preview_ready =
             compute_probe.status == "success" &&
             pair_probe.status == "success";
@@ -876,7 +933,8 @@ namespace fishnet_internal
                 points,
                 triangles,
                 pair_probe.phi_gx,
-                pair_probe.phi_gy);
+                pair_probe.phi_gy,
+                quad_outcome);
         }
         else
         {
@@ -889,6 +947,7 @@ namespace fishnet_internal
             result = build_empty_geometry_result(message, params_copy);
         }
 #else
+        const PreviewQuadBuildOutcome quad_outcome{};
         const bool preview_ready = false;
         const char *preview_phase = "";
         char message[384];
@@ -1008,6 +1067,55 @@ namespace fishnet_internal
                 "geodesic_backend_pair_probe_phi_gy_max",
                 pair_probe.phi_gy_max);
 
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_candidate_count",
+                quad_outcome.candidate_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_selected_count",
+                quad_outcome.selected_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_duplicate_vertex_count",
+                quad_outcome.reject_duplicate_vertex_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_out_of_range_count",
+                quad_outcome.reject_out_of_range_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_small_area_count",
+                quad_outcome.reject_small_area_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_short_edge_count",
+                quad_outcome.reject_short_edge_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_triangle_reuse_count",
+                quad_outcome.reject_triangle_reuse_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_leftover_open_edge_count",
+                quad_outcome.leftover_open_edge_count);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_area_min",
+                quad_outcome.area_min);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_area_max",
+                quad_outcome.area_max);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_area_mean",
+                quad_outcome.area_mean);
+            set_dict_double(
+                diagnostics,
+                "geodesic_preview_quad_triangle_coverage_ratio",
+                quad_outcome.triangle_coverage_ratio);
+
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_prefactor_cache_status",
@@ -1074,6 +1182,18 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gx_max", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_min", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_max", 0.0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_candidate_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_selected_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_duplicate_vertex_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_out_of_range_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_small_area_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_short_edge_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_triangle_reuse_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_leftover_open_edge_count", 0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_area_min", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_area_max", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_area_mean", 0.0);
+            set_dict_double(diagnostics, "geodesic_preview_quad_triangle_coverage_ratio", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");

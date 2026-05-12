@@ -4972,6 +4972,40 @@ class TestFishnetSolver(unittest.TestCase):
                 self.assertEqual(len(result.get("warp_weft_points", [])), 0)
                 self.assertEqual(len(result.get("fabric_quads", [])), 0)
 
+            quad_candidates = int(
+                diagnostics.get("geodesic_preview_quad_candidate_count", -1)
+            )
+            quad_selected = int(
+                diagnostics.get("geodesic_preview_quad_selected_count", -1)
+            )
+            self.assertGreaterEqual(quad_candidates, 0)
+            self.assertGreaterEqual(quad_selected, 0)
+            self.assertGreaterEqual(quad_candidates, quad_selected)
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quad_reject_triangle_reuse_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_triangle_coverage_ratio", -1.0
+                    )
+                ),
+                0.0,
+            )
+            self.assertLessEqual(
+                float(
+                    diagnostics.get(
+                        "geodesic_preview_quad_triangle_coverage_ratio", 2.0
+                    )
+                ),
+                1.0,
+            )
+
             self.assertEqual(
                 diagnostics.get("geodesic_input_source"),
                 "mesh" if result is mesh_result else "geometry",
