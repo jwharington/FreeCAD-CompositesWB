@@ -4671,7 +4671,7 @@ class TestFishnetSolver(unittest.TestCase):
 
         if backend_build_enabled:
             self.assertTrue(mesh_result["valid"])
-            self.assertFalse(geom_result["valid"])
+            self.assertTrue(geom_result["valid"])
         else:
             self.assertFalse(mesh_result["valid"])
             self.assertFalse(geom_result["valid"])
@@ -4683,14 +4683,13 @@ class TestFishnetSolver(unittest.TestCase):
 
         for result in (mesh_result, geom_result):
             diagnostics = result.get("diagnostics", {})
-            mesh_preview_ready = bool(
+            preview_ready = bool(
                 backend_build_enabled
-                and result is mesh_result
                 and result.get("valid")
             )
 
             error = str(result.get("error", ""))
-            if mesh_preview_ready:
+            if preview_ready:
                 self.assertEqual(error, "")
             elif backend_build_enabled:
                 self.assertIn("geodesic_heat", error)
@@ -4706,8 +4705,8 @@ class TestFishnetSolver(unittest.TestCase):
                 diagnostics.get("geodesic_backend"), "geometry_central"
             )
             expected_status = (
-                "mesh_field_preview"
-                if mesh_preview_ready
+                ("mesh_field_preview" if result is mesh_result else "geometry_field_preview")
+                if preview_ready
                 else ("scaffold_not_implemented" if backend_build_enabled else "build_disabled")
             )
             self.assertEqual(
@@ -4727,20 +4726,26 @@ class TestFishnetSolver(unittest.TestCase):
             )
             self.assertEqual(
                 bool(diagnostics.get("geodesic_backend_runtime_ready")),
-                mesh_preview_ready,
+                preview_ready,
             )
             self.assertEqual(
                 bool(diagnostics.get("geodesic_backend_solver_ready")),
-                mesh_preview_ready,
+                preview_ready,
             )
             self.assertEqual(
                 diagnostics.get("geodesic_backend_phase"),
-                "mesh_fields_v1" if mesh_preview_ready else "scaffold_v1",
+                (
+                    "mesh_fields_v1"
+                    if result is mesh_result
+                    else "geometry_fields_v1"
+                )
+                if preview_ready
+                else "scaffold_v1",
             )
             self.assertEqual(
                 diagnostics.get("geodesic_backend_capability"),
                 "heat_fields_preview"
-                if mesh_preview_ready
+                if preview_ready
                 else ("headers_available" if backend_build_enabled else "not_compiled"),
             )
             probe_status = diagnostics.get(

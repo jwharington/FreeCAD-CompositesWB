@@ -650,13 +650,14 @@ namespace fishnet_internal
         const LifecycleProbeOutcome &lifecycle_probe = bundle.lifecycle;
         const ComputeProbeOutcome &compute_probe = bundle.compute;
         const PairProbeOutcome &pair_probe = bundle.pair;
-        const bool mesh_preview_ready =
-            is_mesh_input &&
+        const bool preview_ready =
             compute_probe.status == "success" &&
             pair_probe.status == "success";
+        const char *preview_status = is_mesh_input ? "mesh_field_preview" : "geometry_field_preview";
+        const char *preview_phase = is_mesh_input ? "mesh_fields_v1" : "geometry_fields_v1";
 
         PyObject *result = nullptr;
-        if (mesh_preview_ready)
+        if (preview_ready)
         {
             result = build_geodesic_mesh_preview_result(params_copy, points, triangles);
         }
@@ -671,7 +672,9 @@ namespace fishnet_internal
             result = build_empty_geometry_result(message, params_copy);
         }
 #else
-        const bool mesh_preview_ready = false;
+        const bool preview_ready = false;
+        const char *preview_status = "";
+        const char *preview_phase = "";
         char message[384];
         std::snprintf(
             message,
@@ -694,18 +697,18 @@ namespace fishnet_internal
             set_dict_bool(diagnostics, "geodesic_backend_build_enabled", backend_build_enabled);
             set_dict_string(diagnostics, "geodesic_backend_selected", "geometry_central");
             set_dict_bool(diagnostics, "geodesic_backend_compile_ready", backend_build_enabled);
-            set_dict_bool(diagnostics, "geodesic_backend_runtime_ready", backend_build_enabled && mesh_preview_ready);
-            set_dict_bool(diagnostics, "geodesic_backend_solver_ready", backend_build_enabled && mesh_preview_ready);
-            set_dict_string(diagnostics, "geodesic_backend_phase", mesh_preview_ready ? "mesh_fields_v1" : "scaffold_v1");
+            set_dict_bool(diagnostics, "geodesic_backend_runtime_ready", backend_build_enabled && preview_ready);
+            set_dict_bool(diagnostics, "geodesic_backend_solver_ready", backend_build_enabled && preview_ready);
+            set_dict_string(diagnostics, "geodesic_backend_phase", preview_ready ? preview_phase : "scaffold_v1");
 #if FISHNET_HAS_GEOMETRY_CENTRAL
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_capability",
-                mesh_preview_ready ? "heat_fields_preview" : "headers_available");
+                preview_ready ? "heat_fields_preview" : "headers_available");
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_status",
-                mesh_preview_ready ? "mesh_field_preview" : "scaffold_not_implemented");
+                preview_ready ? preview_status : "scaffold_not_implemented");
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_lifecycle_probe_status",
