@@ -711,7 +711,8 @@ namespace fishnet_internal
             const std::vector<std::array<int, 3>> &triangles,
             const std::vector<double> &phi_gx,
             const std::vector<double> &phi_gy,
-            size_t vertex_count)
+            size_t vertex_count,
+            bool enforce_overlap_filter)
         {
             PreviewQuadBuildOutcome outcome{};
             if (phi_gx.size() < vertex_count || phi_gy.size() < vertex_count)
@@ -876,19 +877,22 @@ namespace fishnet_internal
                 {
                     continue;
                 }
-                bool overlaps_selected = false;
-                for (const auto &existing_quad : selected_uv_quads)
+                if (enforce_overlap_filter)
                 {
-                    if (convex_quad_overlaps_with_positive_area(candidate.uv_quad, existing_quad))
+                    bool overlaps_selected = false;
+                    for (const auto &existing_quad : selected_uv_quads)
                     {
-                        overlaps_selected = true;
-                        break;
+                        if (convex_quad_overlaps_with_positive_area(candidate.uv_quad, existing_quad))
+                        {
+                            overlaps_selected = true;
+                            break;
+                        }
                     }
-                }
-                if (overlaps_selected)
-                {
-                    ++outcome.reject_overlap_count;
-                    continue;
+                    if (overlaps_selected)
+                    {
+                        ++outcome.reject_overlap_count;
+                        continue;
+                    }
                 }
 
                 outcome.quads.push_back(candidate.ordered);
@@ -1076,16 +1080,17 @@ namespace fishnet_internal
         const LifecycleProbeOutcome &lifecycle_probe = bundle.lifecycle;
         const ComputeProbeOutcome &compute_probe = bundle.compute;
         const PairProbeOutcome &pair_probe = bundle.pair;
+        const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
         const PreviewQuadBuildOutcome quad_outcome = build_geodesic_preview_quads(
             triangles,
             pair_probe.phi_gx,
             pair_probe.phi_gy,
-            points.size());
+            points.size(),
+            quality_gate_enabled);
 
         const bool probe_ready =
             compute_probe.status == "success" &&
             pair_probe.status == "success";
-        const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
         const bool preview_quality_has_quads =
             quad_outcome.selected_count >= kMinSelectedQuadCount;
         const bool preview_quality_has_coverage =
@@ -1186,6 +1191,10 @@ namespace fishnet_internal
             set_dict_bool(
                 diagnostics,
                 "geodesic_preview_quality_gate_enabled",
+                quality_gate_enabled);
+            set_dict_bool(
+                diagnostics,
+                "geodesic_preview_quad_overlap_filter_enabled",
                 quality_gate_enabled);
             set_dict_long(
                 diagnostics,
@@ -1418,6 +1427,7 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_min", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_max", 0.0);
             set_dict_bool(diagnostics, "geodesic_preview_quality_gate_enabled", quality_gate_enabled);
+            set_dict_bool(diagnostics, "geodesic_preview_quad_overlap_filter_enabled", quality_gate_enabled);
             set_dict_long(diagnostics, "geodesic_preview_quality_min_selected_quads", kMinSelectedQuadCount);
             set_dict_double(diagnostics, "geodesic_preview_quality_min_triangle_coverage", kMinTriangleCoverage);
             set_dict_bool(diagnostics, "geodesic_preview_quality_pass", false);

@@ -5049,6 +5049,9 @@ class TestFishnetSolver(unittest.TestCase):
             quality_gate_enabled = bool(
                 diagnostics.get("geodesic_preview_quality_gate_enabled")
             )
+            overlap_filter_enabled = bool(
+                diagnostics.get("geodesic_preview_quad_overlap_filter_enabled")
+            )
             quality_pass = bool(
                 diagnostics.get("geodesic_preview_quality_pass")
             )
@@ -5059,6 +5062,7 @@ class TestFishnetSolver(unittest.TestCase):
                 quality_gate_enabled,
                 False,
             )
+            self.assertEqual(overlap_filter_enabled, quality_gate_enabled)
             self.assertGreaterEqual(
                 int(
                     diagnostics.get(
@@ -5227,6 +5231,9 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(
             bool(diagnostics.get("geodesic_preview_quality_gate_enabled"))
+        )
+        self.assertTrue(
+            bool(diagnostics.get("geodesic_preview_quad_overlap_filter_enabled"))
         )
         self.assertFalse(
             bool(diagnostics.get("geodesic_preview_quality_pass"))
