@@ -4838,10 +4838,26 @@ class TestFishnetSolver(unittest.TestCase):
             pair_probe_source_y = int(
                 diagnostics.get("geodesic_backend_pair_probe_source_y", -1)
             )
+            pair_probe_source_z = int(
+                diagnostics.get("geodesic_backend_pair_probe_source_z", -1)
+            )
+            pair_probe_mapping_mode = str(
+                diagnostics.get("geodesic_backend_pair_probe_mapping_mode", "")
+            )
             if pair_probe_status == "success":
                 self.assertGreaterEqual(pair_probe_source_x, 0)
                 self.assertGreaterEqual(pair_probe_source_y, 0)
                 self.assertNotEqual(pair_probe_source_x, pair_probe_source_y)
+                self.assertIn(
+                    pair_probe_mapping_mode,
+                    {"pair_distance", "landmark_trilateration"},
+                )
+                if pair_probe_mapping_mode == "landmark_trilateration":
+                    self.assertGreaterEqual(pair_probe_source_z, 0)
+                    self.assertNotIn(
+                        pair_probe_source_z,
+                        {pair_probe_source_x, pair_probe_source_y},
+                    )
                 self.assertGreaterEqual(
                     float(
                         diagnostics.get(
@@ -4885,6 +4901,7 @@ class TestFishnetSolver(unittest.TestCase):
             else:
                 self.assertEqual(pair_probe_source_x, -1)
                 self.assertEqual(pair_probe_source_y, -1)
+                self.assertEqual(pair_probe_source_z, -1)
 
             cache_status = diagnostics.get(
                 "geodesic_backend_prefactor_cache_status"
@@ -5017,6 +5034,14 @@ class TestFishnetSolver(unittest.TestCase):
                 int(
                     diagnostics.get(
                         "geodesic_preview_quad_reject_long_edge_count", -1
+                    )
+                ),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_preview_quad_reject_fold_edge_count", -1
                     )
                 ),
                 0,
@@ -5210,6 +5235,14 @@ class TestFishnetSolver(unittest.TestCase):
         self.assertEqual(
             d0.get("geodesic_backend_pair_probe_source_y"),
             d1.get("geodesic_backend_pair_probe_source_y"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_pair_probe_source_z"),
+            d1.get("geodesic_backend_pair_probe_source_z"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_pair_probe_mapping_mode"),
+            d1.get("geodesic_backend_pair_probe_mapping_mode"),
         )
 
         self.assertEqual(

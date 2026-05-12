@@ -120,8 +120,10 @@ namespace fishnet_internal
         {
             std::string status = "skipped";
             std::string error;
+            std::string mapping_mode = "pair_distance";
             long source_x = -1;
             long source_y = -1;
+            long source_z = -1;
             double phi_gx_min = 0.0;
             double phi_gx_max = 0.0;
             double phi_gy_min = 0.0;
@@ -278,6 +280,140 @@ namespace fishnet_internal
                 return best_index;
             }
             return (source_x == 0) ? 1 : 0;
+        }
+
+        bool summarize_scalar_values(
+            const std::vector<double> &values,
+            double &out_min,
+            double &out_max)
+        {
+            if (values.empty())
+            {
+                out_min = 0.0;
+                out_max = 0.0;
+                return false;
+            }
+            double min_v = std::numeric_limits<double>::infinity();
+            double max_v = -std::numeric_limits<double>::infinity();
+            for (double value : values)
+            {
+                if (!std::isfinite(value))
+                {
+                    out_min = 0.0;
+                    out_max = 0.0;
+                    return false;
+                }
+                min_v = std::min(min_v, value);
+                max_v = std::max(max_v, value);
+            }
+            out_min = min_v;
+            out_max = max_v;
+            return true;
+        }
+
+        long resolve_pair_probe_source_vertex_z(
+            const std::vector<double> &distance_x,
+            const std::vector<double> &distance_y,
+            long source_x,
+            long source_y)
+        {
+            if (distance_x.size() < 3 || distance_x.size() != distance_y.size())
+            {
+                return -1;
+            }
+            long best_index = -1;
+            double best_score = -1.0;
+            for (size_t i = 0; i < distance_x.size(); ++i)
+            {
+                const long idx = static_cast<long>(i);
+                if (idx == source_x || idx == source_y)
+                {
+                    continue;
+                }
+                const double score = std::min(distance_x[i], distance_y[i]);
+                if (score > best_score)
+                {
+                    best_score = score;
+                    best_index = idx;
+                }
+            }
+            return best_index;
+        }
+
+        bool build_landmark_uv_mapping(
+            const std::vector<double> &distance_x,
+            const std::vector<double> &distance_y,
+            const std::vector<double> &distance_z,
+            long source_x,
+            long source_y,
+            long source_z,
+            std::vector<double> &out_u,
+            std::vector<double> &out_v,
+            std::string &out_error)
+        {
+            constexpr double kEps = 1e-12;
+            const size_t n = distance_x.size();
+            if (n == 0 || distance_y.size() != n || distance_z.size() != n)
+            {
+                out_error = "landmark mapping input size mismatch";
+                return false;
+            }
+            if (source_x < 0 || source_y < 0 || source_z < 0 ||
+                static_cast<size_t>(source_x) >= n ||
+                static_cast<size_t>(source_y) >= n ||
+                static_cast<size_t>(source_z) >= n)
+            {
+                out_error = "landmark mapping source index is invalid";
+                return false;
+            }
+
+            const double d01 = distance_x[static_cast<size_t>(source_y)];
+            const double d02 = distance_x[static_cast<size_t>(source_z)];
+            const double d12 = distance_y[static_cast<size_t>(source_z)];
+            if (!(d01 > kEps && d02 > kEps && d12 > kEps))
+            {
+                out_error = "landmark mapping anchor distances are degenerate";
+                return false;
+            }
+
+            const double x2 = (d02 * d02 - d12 * d12 + d01 * d01) / (2.0 * d01);
+            const double y2_sq = d02 * d02 - x2 * x2;
+            if (!(y2_sq > kEps))
+            {
+                out_error = "landmark mapping anchors are near-collinear";
+                return false;
+            }
+            const double y2 = std::sqrt(y2_sq);
+
+            out_u.assign(n, 0.0);
+            out_v.assign(n, 0.0);
+            for (size_t i = 0; i < n; ++i)
+            {
+                const double dx = distance_x[i];
+                const double dy = distance_y[i];
+                const double dz = distance_z[i];
+
+                const double u = (dx * dx - dy * dy + d01 * d01) / (2.0 * d01);
+                const double v = (dx * dx - dz * dz + x2 * x2 + y2 * y2 - 2.0 * u * x2) / (2.0 * y2);
+                if (!std::isfinite(u) || !std::isfinite(v))
+                {
+                    out_error = "landmark mapping produced non-finite coordinates";
+                    return false;
+                }
+                out_u[i] = u;
+                out_v[i] = v;
+            }
+
+            const double min_u = *std::min_element(out_u.begin(), out_u.end());
+            const double min_v = *std::min_element(out_v.begin(), out_v.end());
+            for (size_t i = 0; i < n; ++i)
+            {
+                out_u[i] -= min_u;
+                out_v[i] -= min_v;
+            }
+
+            out_error.clear();
+            return true;
         }
 
         ProbeBundleOutcome run_probe_bundle(
@@ -449,19 +585,89 @@ namespace fishnet_internal
                 }
 
                 const double pair_start_ms = now_ms();
-                const auto distance_gx = solver->computeDistance(surface_mesh->vertex(static_cast<size_t>(source_x)));
-                const auto distance_gy = solver->computeDistance(surface_mesh->vertex(static_cast<size_t>(source_y)));
+                const auto distance_x_field = solver->computeDistance(surface_mesh->vertex(static_cast<size_t>(source_x)));
+                const auto distance_y_field = solver->computeDistance(surface_mesh->vertex(static_cast<size_t>(source_y)));
                 const double pair_end_ms = now_ms();
                 bundle.pair.elapsed_ms = pair_end_ms - pair_start_ms;
 
-                bundle.pair.source_x = source_x;
-                bundle.pair.source_y = source_y;
-                if (!summarize_distance_field(*surface_mesh, distance_gx, bundle.pair.phi_gx_min, bundle.pair.phi_gx_max, &bundle.pair.phi_gx) ||
-                    !summarize_distance_field(*surface_mesh, distance_gy, bundle.pair.phi_gy_min, bundle.pair.phi_gy_max, &bundle.pair.phi_gy))
+                std::vector<double> distance_x_values;
+                std::vector<double> distance_y_values;
+                double distance_x_min = 0.0;
+                double distance_x_max = 0.0;
+                double distance_y_min = 0.0;
+                double distance_y_max = 0.0;
+                if (!summarize_distance_field(*surface_mesh, distance_x_field, distance_x_min, distance_x_max, &distance_x_values) ||
+                    !summarize_distance_field(*surface_mesh, distance_y_field, distance_y_min, distance_y_max, &distance_y_values))
                 {
                     bundle.pair.status = "failure";
                     bundle.pair.error = "distance field contains non-finite value";
                     return bundle;
+                }
+
+                bundle.pair.source_x = source_x;
+                bundle.pair.source_y = source_y;
+                bundle.pair.source_z = -1;
+                bundle.pair.mapping_mode = "pair_distance";
+                bundle.pair.phi_gx = distance_x_values;
+                bundle.pair.phi_gy = distance_y_values;
+                bundle.pair.phi_gx_min = distance_x_min;
+                bundle.pair.phi_gx_max = distance_x_max;
+                bundle.pair.phi_gy_min = distance_y_min;
+                bundle.pair.phi_gy_max = distance_y_max;
+
+                const long source_z = resolve_pair_probe_source_vertex_z(
+                    distance_x_values,
+                    distance_y_values,
+                    source_x,
+                    source_y);
+                if (source_z >= 0 && source_z < static_cast<long>(surface_mesh->nVertices()) &&
+                    source_z != source_x && source_z != source_y)
+                {
+                    const auto distance_z_field = solver->computeDistance(surface_mesh->vertex(static_cast<size_t>(source_z)));
+                    std::vector<double> distance_z_values;
+                    double distance_z_min = 0.0;
+                    double distance_z_max = 0.0;
+                    if (!summarize_distance_field(*surface_mesh, distance_z_field, distance_z_min, distance_z_max, &distance_z_values))
+                    {
+                        bundle.pair.status = "failure";
+                        bundle.pair.error = "distance field contains non-finite value";
+                        return bundle;
+                    }
+                    (void)distance_z_min;
+                    (void)distance_z_max;
+
+                    std::vector<double> landmark_u;
+                    std::vector<double> landmark_v;
+                    std::string landmark_error;
+                    if (build_landmark_uv_mapping(
+                            distance_x_values,
+                            distance_y_values,
+                            distance_z_values,
+                            source_x,
+                            source_y,
+                            source_z,
+                            landmark_u,
+                            landmark_v,
+                            landmark_error))
+                    {
+                        double map_u_min = 0.0;
+                        double map_u_max = 0.0;
+                        double map_v_min = 0.0;
+                        double map_v_max = 0.0;
+                        if (summarize_scalar_values(landmark_u, map_u_min, map_u_max) &&
+                            summarize_scalar_values(landmark_v, map_v_min, map_v_max))
+                        {
+                            bundle.pair.mapping_mode = "landmark_trilateration";
+                            bundle.pair.source_z = source_z;
+                            bundle.pair.phi_gx = std::move(landmark_u);
+                            bundle.pair.phi_gy = std::move(landmark_v);
+                            bundle.pair.phi_gx_min = map_u_min;
+                            bundle.pair.phi_gx_max = map_u_max;
+                            bundle.pair.phi_gy_min = map_v_min;
+                            bundle.pair.phi_gy_max = map_v_max;
+                        }
+                    }
+                    (void)landmark_error;
                 }
 
                 bundle.pair.status = "success";
@@ -697,6 +903,7 @@ namespace fishnet_internal
             long reject_short_edge_count = 0;
             long reject_edge_ratio_count = 0;
             long reject_long_edge_count = 0;
+            long reject_fold_edge_count = 0;
             long reject_self_intersection_count = 0;
             long reject_triangle_reuse_count = 0;
             long reject_overlap_count = 0;
@@ -745,6 +952,21 @@ namespace fishnet_internal
 
             auto quad_uv_area_abs = [&](const std::vector<int> &ordered) {
                 return std::abs(quad_uv_area_signed(ordered, phi_gx, phi_gy));
+            };
+
+            auto triangle_uv_area_signed = [&](int tri_index) {
+                if (tri_index < 0 || static_cast<size_t>(tri_index) >= triangles.size())
+                {
+                    return 0.0;
+                }
+                const auto &tri = triangles[static_cast<size_t>(tri_index)];
+                const double ax = phi_gx[static_cast<size_t>(tri[0])];
+                const double ay = phi_gy[static_cast<size_t>(tri[0])];
+                const double bx = phi_gx[static_cast<size_t>(tri[1])];
+                const double by = phi_gy[static_cast<size_t>(tri[1])];
+                const double cx = phi_gx[static_cast<size_t>(tri[2])];
+                const double cy = phi_gy[static_cast<size_t>(tri[2])];
+                return 0.5 * ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
             };
 
             std::unordered_map<std::uint64_t, EdgeInfo> first_edge;
@@ -796,6 +1018,14 @@ namespace fishnet_internal
                 if (canonical[0] < 0 || static_cast<size_t>(canonical[3]) >= vertex_count)
                 {
                     ++outcome.reject_out_of_range_count;
+                    return;
+                }
+
+                const double tri0_area = triangle_uv_area_signed(first.tri_index);
+                const double tri1_area = triangle_uv_area_signed(tri_index);
+                if ((tri0_area * tri1_area) < 0.0)
+                {
+                    ++outcome.reject_fold_edge_count;
                     return;
                 }
 
@@ -1343,6 +1573,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_backend_pair_probe_source_y",
                 pair_probe.source_y);
+            set_dict_long(
+                diagnostics,
+                "geodesic_backend_pair_probe_source_z",
+                pair_probe.source_z);
+            set_dict_string(
+                diagnostics,
+                "geodesic_backend_pair_probe_mapping_mode",
+                pair_probe.mapping_mode);
             set_dict_double(
                 diagnostics,
                 "geodesic_backend_pair_probe_phi_gx_min",
@@ -1392,6 +1630,10 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_preview_quad_reject_long_edge_count",
                 quad_outcome.reject_long_edge_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_preview_quad_reject_fold_edge_count",
+                quad_outcome.reject_fold_edge_count);
             set_dict_long(
                 diagnostics,
                 "geodesic_preview_quad_reject_self_intersection_count",
@@ -1503,6 +1745,8 @@ namespace fishnet_internal
             set_dict_string(diagnostics, "geodesic_backend_pair_probe_error", "");
             set_dict_long(diagnostics, "geodesic_backend_pair_probe_source_x", -1);
             set_dict_long(diagnostics, "geodesic_backend_pair_probe_source_y", -1);
+            set_dict_long(diagnostics, "geodesic_backend_pair_probe_source_z", -1);
+            set_dict_string(diagnostics, "geodesic_backend_pair_probe_mapping_mode", "skipped");
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gx_min", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gx_max", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_min", 0.0);
@@ -1521,6 +1765,7 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_short_edge_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_edge_ratio_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_long_edge_count", 0);
+            set_dict_long(diagnostics, "geodesic_preview_quad_reject_fold_edge_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_self_intersection_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_triangle_reuse_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_overlap_count", 0);
