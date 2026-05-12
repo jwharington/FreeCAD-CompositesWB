@@ -569,23 +569,57 @@ namespace fishnet_internal
             const std::vector<double> &phi_gy,
             size_t vertex_count)
         {
+            if (phi_gx.size() < vertex_count || phi_gy.size() < vertex_count)
+            {
+                return {};
+            }
+
             struct EdgeInfo
             {
                 int a = -1;
                 int b = -1;
                 int opposite = -1;
+                int tri_index = -1;
+            };
+
+            struct Candidate
+            {
+                int tri0 = -1;
+                int tri1 = -1;
+                std::array<int, 4> canonical{};
+                std::vector<int> ordered;
+                double score = 0.0;
+            };
+
+            auto quad_uv_area_abs = [&](const std::vector<int> &ordered) {
+                if (ordered.size() < 4)
+                {
+                    return 0.0;
+                }
+                double area2 = 0.0;
+                for (size_t idx = 0; idx < ordered.size(); ++idx)
+                {
+                    const int a = ordered[idx];
+                    const int b = ordered[(idx + 1) % ordered.size()];
+                    const double xa = phi_gx[static_cast<size_t>(a)];
+                    const double ya = phi_gy[static_cast<size_t>(a)];
+                    const double xb = phi_gx[static_cast<size_t>(b)];
+                    const double yb = phi_gy[static_cast<size_t>(b)];
+                    area2 += xa * yb - xb * ya;
+                }
+                return std::abs(area2) * 0.5;
             };
 
             std::unordered_map<std::uint64_t, EdgeInfo> first_edge;
-            std::set<std::array<int, 4>> emitted;
-            std::vector<std::vector<int>> quads;
+            std::vector<Candidate> candidates;
+            candidates.reserve(triangles.size());
 
-            auto process_edge = [&](int a, int b, int opposite) {
+            auto process_edge = [&](int a, int b, int opposite, int tri_index) {
                 const std::uint64_t key = edge_key(a, b);
                 const auto it = first_edge.find(key);
                 if (it == first_edge.end())
                 {
-                    first_edge.emplace(key, EdgeInfo{a, b, opposite});
+                    first_edge.emplace(key, EdgeInfo{a, b, opposite, tri_index});
                     return;
                 }
 
@@ -599,28 +633,72 @@ namespace fishnet_internal
                 {
                     return;
                 }
-                if (canonical[3] < 0 || static_cast<size_t>(canonical[3]) >= vertex_count)
-                {
-                    return;
-                }
-                if (phi_gx.size() < vertex_count || phi_gy.size() < vertex_count)
-                {
-                    return;
-                }
-                if (!emitted.insert(canonical).second)
+                if (canonical[0] < 0 || static_cast<size_t>(canonical[3]) >= vertex_count)
                 {
                     return;
                 }
 
-                quads.push_back(ordered_quad_by_geodesic_uv(verts, phi_gx, phi_gy));
+                std::vector<int> ordered = ordered_quad_by_geodesic_uv(verts, phi_gx, phi_gy);
+                const double uv_area = quad_uv_area_abs(ordered);
+                if (!(uv_area > 1e-12))
+                {
+                    return;
+                }
+
+                const double du = phi_gx[static_cast<size_t>(a)] - phi_gx[static_cast<size_t>(b)];
+                const double dv = phi_gy[static_cast<size_t>(a)] - phi_gy[static_cast<size_t>(b)];
+                const double shared_edge_len = std::sqrt(du * du + dv * dv);
+
+                Candidate c{};
+                c.tri0 = first.tri_index;
+                c.tri1 = tri_index;
+                c.canonical = canonical;
+                c.ordered = std::move(ordered);
+                c.score = shared_edge_len;
+                candidates.push_back(std::move(c));
             };
 
-            for (const auto &tri : triangles)
+            for (size_t tri_i = 0; tri_i < triangles.size(); ++tri_i)
             {
-                process_edge(tri[0], tri[1], tri[2]);
-                process_edge(tri[1], tri[2], tri[0]);
-                process_edge(tri[2], tri[0], tri[1]);
+                const auto &tri = triangles[tri_i];
+                process_edge(tri[0], tri[1], tri[2], static_cast<int>(tri_i));
+                process_edge(tri[1], tri[2], tri[0], static_cast<int>(tri_i));
+                process_edge(tri[2], tri[0], tri[1], static_cast<int>(tri_i));
             }
+
+            std::sort(candidates.begin(), candidates.end(), [](const Candidate &lhs, const Candidate &rhs) {
+                if (lhs.score == rhs.score)
+                {
+                    return lhs.canonical < rhs.canonical;
+                }
+                return lhs.score > rhs.score;
+            });
+
+            std::vector<bool> triangle_used(triangles.size(), false);
+            std::set<std::array<int, 4>> emitted;
+            std::vector<std::vector<int>> quads;
+            quads.reserve(candidates.size());
+
+            for (const Candidate &candidate : candidates)
+            {
+                if (candidate.tri0 < 0 || candidate.tri1 < 0)
+                {
+                    continue;
+                }
+                if (triangle_used[static_cast<size_t>(candidate.tri0)] ||
+                    triangle_used[static_cast<size_t>(candidate.tri1)])
+                {
+                    continue;
+                }
+                if (!emitted.insert(candidate.canonical).second)
+                {
+                    continue;
+                }
+                quads.push_back(candidate.ordered);
+                triangle_used[static_cast<size_t>(candidate.tri0)] = true;
+                triangle_used[static_cast<size_t>(candidate.tri1)] = true;
+            }
+
             return quads;
         }
 

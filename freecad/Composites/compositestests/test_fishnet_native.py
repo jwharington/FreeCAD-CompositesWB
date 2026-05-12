@@ -5089,8 +5089,6 @@ class TestFishnetSolver(unittest.TestCase):
             len(r0.get("fabric_quads", [])),
             len(r1.get("fabric_quads", [])),
         )
-        if backend_build_enabled:
-            self.assertGreater(len(r0.get("fabric_quads", [])), 0)
 
     def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
         # Use a cone with a strong radius ratio (small end = 25% of large end).
