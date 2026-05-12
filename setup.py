@@ -181,6 +181,12 @@ fishnet_extension = Extension(
         os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_options.cpp"
         ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_options_policy.cpp",
+        ),
     ],
     language="c++",
     include_dirs=fishnet_include_dirs,
