@@ -4663,38 +4663,52 @@ class TestFishnetSolver(unittest.TestCase):
             parameters={"algorithm": "geodesic_heat"},
         )
 
-        self.assertFalse(mesh_result["valid"])
-        self.assertFalse(geom_result["valid"])
-
         mesh_diagnostics = mesh_result.get("diagnostics", {})
         geom_diagnostics = geom_result.get("diagnostics", {})
+        backend_build_enabled = bool(
+            mesh_diagnostics.get("geodesic_backend_build_enabled")
+        )
+
+        if backend_build_enabled:
+            self.assertTrue(mesh_result["valid"])
+            self.assertFalse(geom_result["valid"])
+        else:
+            self.assertFalse(mesh_result["valid"])
+            self.assertFalse(geom_result["valid"])
+
         self.assertEqual(
             bool(mesh_diagnostics.get("geodesic_backend_build_enabled")),
             bool(geom_diagnostics.get("geodesic_backend_build_enabled")),
         )
-        backend_build_enabled = bool(
-            mesh_diagnostics.get("geodesic_backend_build_enabled")
-        )
-        expected_status = (
-            "scaffold_not_implemented"
-            if backend_build_enabled
-            else "build_disabled"
-        )
 
         for result in (mesh_result, geom_result):
+            diagnostics = result.get("diagnostics", {})
+            mesh_preview_ready = bool(
+                backend_build_enabled
+                and result is mesh_result
+                and result.get("valid")
+            )
+
             error = str(result.get("error", ""))
-            self.assertIn("geodesic_heat", error)
-            if backend_build_enabled:
+            if mesh_preview_ready:
+                self.assertEqual(error, "")
+            elif backend_build_enabled:
+                self.assertIn("geodesic_heat", error)
                 self.assertIn("geometry-central", error)
                 self.assertIn("scaffold is active", error)
                 self.assertIn("solver wiring is not enabled yet", error)
             else:
+                self.assertIn("geodesic_heat", error)
                 self.assertIn("disabled at build time", error)
                 self.assertIn("FISHNET_ENABLE_GEOMETRY_CENTRAL=1", error)
 
-            diagnostics = result.get("diagnostics", {})
             self.assertEqual(
                 diagnostics.get("geodesic_backend"), "geometry_central"
+            )
+            expected_status = (
+                "mesh_field_preview"
+                if mesh_preview_ready
+                else ("scaffold_not_implemented" if backend_build_enabled else "build_disabled")
             )
             self.assertEqual(
                 diagnostics.get("geodesic_backend_status"), expected_status
@@ -4711,12 +4725,23 @@ class TestFishnetSolver(unittest.TestCase):
                 bool(diagnostics.get("geodesic_backend_compile_ready")),
                 backend_build_enabled,
             )
-            self.assertFalse(bool(diagnostics.get("geodesic_backend_runtime_ready")))
-            self.assertFalse(bool(diagnostics.get("geodesic_backend_solver_ready")))
-            self.assertEqual(diagnostics.get("geodesic_backend_phase"), "scaffold_v1")
+            self.assertEqual(
+                bool(diagnostics.get("geodesic_backend_runtime_ready")),
+                mesh_preview_ready,
+            )
+            self.assertEqual(
+                bool(diagnostics.get("geodesic_backend_solver_ready")),
+                mesh_preview_ready,
+            )
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_phase"),
+                "mesh_fields_v1" if mesh_preview_ready else "scaffold_v1",
+            )
             self.assertEqual(
                 diagnostics.get("geodesic_backend_capability"),
-                "headers_available" if backend_build_enabled else "not_compiled",
+                "heat_fields_preview"
+                if mesh_preview_ready
+                else ("headers_available" if backend_build_enabled else "not_compiled"),
             )
             probe_status = diagnostics.get(
                 "geodesic_backend_lifecycle_probe_status"
@@ -4990,11 +5015,17 @@ class TestFishnetSolver(unittest.TestCase):
             parameters={"algorithm": "geodesic_heat", "seed": 1},
         )
 
-        self.assertFalse(r0["valid"])
-        self.assertFalse(r1["valid"])
-
         d0 = r0.get("diagnostics", {})
         d1 = r1.get("diagnostics", {})
+        backend_build_enabled = bool(
+            d0.get("geodesic_backend_build_enabled")
+        )
+        if backend_build_enabled:
+            self.assertTrue(r0["valid"])
+            self.assertTrue(r1["valid"])
+        else:
+            self.assertFalse(r0["valid"])
+            self.assertFalse(r1["valid"])
 
         self.assertEqual(
             d0.get("geodesic_backend_compute_probe_status"),

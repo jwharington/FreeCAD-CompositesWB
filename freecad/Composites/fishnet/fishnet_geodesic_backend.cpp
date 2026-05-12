@@ -522,6 +522,79 @@ namespace fishnet_internal
             Py_DECREF(pair_obj);
         }
 
+        PyObject *build_geodesic_mesh_preview_result(
+            PyObject *params_copy,
+            const std::vector<Vec3> &points,
+            const std::vector<std::array<int, 3>> &triangles)
+        {
+            if (!params_copy)
+            {
+                return nullptr;
+            }
+
+            PyObject *empty_list = PyList_New(0);
+            PyObject *mesh_points_list = build_vec3_list(points);
+            std::vector<std::vector<int>> mesh_face_vec;
+            mesh_face_vec.reserve(triangles.size());
+            for (const auto &tri : triangles)
+            {
+                mesh_face_vec.push_back({tri[0], tri[1], tri[2]});
+            }
+            PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
+
+            if (!empty_list || !mesh_points_list || !mesh_faces_list)
+            {
+                Py_XDECREF(empty_list);
+                Py_XDECREF(mesh_points_list);
+                Py_XDECREF(mesh_faces_list);
+                Py_DECREF(params_copy);
+                return nullptr;
+            }
+
+            Vec3 origin{0.0, 0.0, 0.0};
+            if (!points.empty())
+            {
+                for (const auto &p : points)
+                {
+                    origin = origin + p;
+                }
+                origin = origin * (1.0 / static_cast<double>(points.size()));
+            }
+
+            const ResultCompatibilityPayload payload{
+                true,
+                "",
+                params_copy,
+                empty_list,
+                empty_list,
+                empty_list,
+                empty_list,
+                empty_list,
+                empty_list,
+                mesh_points_list,
+                mesh_faces_list,
+                empty_list,
+                empty_list,
+                empty_list,
+                origin,
+                Vec3{0.0, 0.0, 1.0},
+                Vec3{1.0, 0.0, 0.0},
+                Vec3{0.0, 1.0, 0.0},
+            };
+
+            PyObject *result = build_result_from_compat_payload(payload, nullptr);
+            if (result)
+            {
+                attach_solver_metadata(result, params_copy, "geodesic_field_preview", true, nullptr);
+            }
+
+            Py_DECREF(empty_list);
+            Py_DECREF(mesh_points_list);
+            Py_DECREF(mesh_faces_list);
+            Py_DECREF(params_copy);
+            return result;
+        }
+
     } // namespace
 
     bool geodesic_heat_requested(const SolverAlgorithmProfile &profile)
@@ -566,22 +639,48 @@ namespace fishnet_internal
         }
         const bool indices_valid = (invalid_index_count == 0);
 
-        char message[384];
+        const bool is_mesh_input = std::string(kind) == "mesh";
+
 #if FISHNET_HAS_GEOMETRY_CENTRAL
-        std::snprintf(
-            message,
-            sizeof(message),
-            "algorithm 'geodesic_heat' scaffold is active for %s, but geometry-central solver wiring is not enabled yet",
-            kind);
+        const ProbeBundleOutcome bundle = run_probe_bundle(
+            points,
+            triangles,
+            indices_valid,
+            normalized_params);
+        const LifecycleProbeOutcome &lifecycle_probe = bundle.lifecycle;
+        const ComputeProbeOutcome &compute_probe = bundle.compute;
+        const PairProbeOutcome &pair_probe = bundle.pair;
+        const bool mesh_preview_ready =
+            is_mesh_input &&
+            compute_probe.status == "success" &&
+            pair_probe.status == "success";
+
+        PyObject *result = nullptr;
+        if (mesh_preview_ready)
+        {
+            result = build_geodesic_mesh_preview_result(params_copy, points, triangles);
+        }
+        else
+        {
+            char message[384];
+            std::snprintf(
+                message,
+                sizeof(message),
+                "algorithm 'geodesic_heat' scaffold is active for %s, but geometry-central solver wiring is not enabled yet",
+                kind);
+            result = build_empty_geometry_result(message, params_copy);
+        }
 #else
+        const bool mesh_preview_ready = false;
+        char message[384];
         std::snprintf(
             message,
             sizeof(message),
             "algorithm 'geodesic_heat' backend is disabled at build time for %s; rebuild with FISHNET_ENABLE_GEOMETRY_CENTRAL=1 and run python setup.py build_ext --inplace",
             kind);
+        PyObject *result = build_empty_geometry_result(message, params_copy);
 #endif
 
-        PyObject *result = build_empty_geometry_result(message, params_copy);
         if (!result)
         {
             return nullptr;
@@ -595,21 +694,18 @@ namespace fishnet_internal
             set_dict_bool(diagnostics, "geodesic_backend_build_enabled", backend_build_enabled);
             set_dict_string(diagnostics, "geodesic_backend_selected", "geometry_central");
             set_dict_bool(diagnostics, "geodesic_backend_compile_ready", backend_build_enabled);
-            set_dict_bool(diagnostics, "geodesic_backend_runtime_ready", false);
-            set_dict_bool(diagnostics, "geodesic_backend_solver_ready", false);
-            set_dict_string(diagnostics, "geodesic_backend_phase", "scaffold_v1");
+            set_dict_bool(diagnostics, "geodesic_backend_runtime_ready", backend_build_enabled && mesh_preview_ready);
+            set_dict_bool(diagnostics, "geodesic_backend_solver_ready", backend_build_enabled && mesh_preview_ready);
+            set_dict_string(diagnostics, "geodesic_backend_phase", mesh_preview_ready ? "mesh_fields_v1" : "scaffold_v1");
 #if FISHNET_HAS_GEOMETRY_CENTRAL
-            const ProbeBundleOutcome bundle = run_probe_bundle(
-                points,
-                triangles,
-                indices_valid,
-                normalized_params);
-            const LifecycleProbeOutcome &lifecycle_probe = bundle.lifecycle;
-            const ComputeProbeOutcome &compute_probe = bundle.compute;
-            const PairProbeOutcome &pair_probe = bundle.pair;
-
-            set_dict_string(diagnostics, "geodesic_backend_capability", "headers_available");
-            set_dict_string(diagnostics, "geodesic_backend_status", "scaffold_not_implemented");
+            set_dict_string(
+                diagnostics,
+                "geodesic_backend_capability",
+                mesh_preview_ready ? "heat_fields_preview" : "headers_available");
+            set_dict_string(
+                diagnostics,
+                "geodesic_backend_status",
+                mesh_preview_ready ? "mesh_field_preview" : "scaffold_not_implemented");
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_lifecycle_probe_status",
