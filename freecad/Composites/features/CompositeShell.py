@@ -164,6 +164,27 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyBool",
+            name="SurfaceSpacingStrict",
+            group="Draping",
+            doc="Enforce strict 3D structural edge spacing in ACP surface-spacing mode",
+        )
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="SurfaceSpacingEdgeTolerance",
+            group="Draping",
+            doc="Relative 3D edge tolerance used by strict surface-spacing mode",
+        )
+
+        obj.addProperty(
+            type="App::PropertyBool",
+            name="SurfaceSpacingFailOnViolation",
+            group="Draping",
+            doc="Return non-converged status when strict spacing violations remain",
+        )
+
+        obj.addProperty(
             type="App::PropertyString",
             name="DrapeStatus",
             group="Draping",
@@ -198,6 +219,7 @@ class CompositeShellFP(CompositeBaseFP):
         obj.SolveSteps = 5
         obj.DrapingAlgorithm = [
             "acp_energy",
+            "geodesic_heat",
         ]
         obj.DrapingAlgorithm = "acp_energy"
         obj.AcpStrategy = ["woven", "surface_spacing"]
@@ -210,6 +232,9 @@ class CompositeShellFP(CompositeBaseFP):
         obj.MaterialModel = "woven"
         obj.UDCoefficient = 0.0
         obj.ThicknessCorrection = False
+        obj.SurfaceSpacingStrict = False
+        obj.SurfaceSpacingEdgeTolerance = 0.02
+        obj.SurfaceSpacingFailOnViolation = True
         obj.DrapeStatus = "Idle"
         obj.DrapeError = ""
         obj.LocalCoordinateSystem = lcs
@@ -258,6 +283,9 @@ class CompositeShellFP(CompositeBaseFP):
                 material_model=getattr(fp, "MaterialModel", "woven"),
                 ud_coefficient=getattr(fp, "UDCoefficient", 0.0),
                 thickness_correction=getattr(fp, "ThicknessCorrection", False),
+                surface_spacing_strict=getattr(fp, "SurfaceSpacingStrict", False),
+                surface_spacing_edge_tolerance=getattr(fp, "SurfaceSpacingEdgeTolerance", 0.02),
+                surface_spacing_fail_on_violation=getattr(fp, "SurfaceSpacingFailOnViolation", True),
             )
             fp.Mesh.Mesh = self.draper.mesh
             if not self.has_valid_draper():
@@ -308,6 +336,9 @@ class CompositeShellFP(CompositeBaseFP):
                 | "MaterialModel"
                 | "UDCoefficient"
                 | "ThicknessCorrection"
+                | "SurfaceSpacingStrict"
+                | "SurfaceSpacingEdgeTolerance"
+                | "SurfaceSpacingFailOnViolation"
             ):
                 fp.recompute()
 

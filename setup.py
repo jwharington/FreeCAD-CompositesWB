@@ -19,7 +19,33 @@ freecad_env = Path(
         "FREECAD_PIXI_ENV", "/home/jmw/opt/FreeCAD/.pixi/envs/default"
     )
 )
+
+
+def _env_var_truthy(name):
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 python_include = sysconfig.get_paths().get("include")
+geometry_central_root = repo_root / "third_party" / "geometry-central"
+geometry_central_include_dirs = [
+    geometry_central_root / "include",
+    geometry_central_root / "deps" / "happly",
+    geometry_central_root / "deps" / "nanoflann" / "include",
+    geometry_central_root / "deps" / "nanort",
+    freecad_env / "include" / "eigen3",
+]
+fishnet_enable_geometry_central = _env_var_truthy(
+    "FISHNET_ENABLE_GEOMETRY_CENTRAL"
+)
+if fishnet_enable_geometry_central and not (
+    geometry_central_root / "include"
+).exists():
+    raise RuntimeError(
+        "FISHNET_ENABLE_GEOMETRY_CENTRAL is enabled, but "
+        "third_party/geometry-central/include is missing. "
+        "Initialize geometry-central first (e.g. git submodule update --init --recursive)."
+    )
 
 version_path = os.path.join(
     os.path.abspath(os.path.dirname(__file__)),
@@ -60,6 +86,37 @@ fishnet_include_dirs = [
     str(freecad_env / "include" / "qt6" / "QtXml"),
     str(freecad_env / "include" / "qt6" / "QtConcurrent"),
 ]
+geometry_central_sources = []
+if fishnet_enable_geometry_central:
+    for include_dir in geometry_central_include_dirs:
+        fishnet_include_dirs.append(str(include_dir))
+    geometry_central_required_sources = [
+        "surface/surface_mesh.cpp",
+        "surface/manifold_surface_mesh.cpp",
+        "surface/halfedge_factories.cpp",
+        "surface/surface_mesh_factories.cpp",
+        "surface/base_geometry_interface.cpp",
+        "surface/intrinsic_geometry_interface.cpp",
+        "surface/extrinsic_geometry_interface.cpp",
+        "surface/embedded_geometry_interface.cpp",
+        "surface/edge_length_geometry.cpp",
+        "surface/vertex_position_geometry.cpp",
+        "surface/intrinsic_mollification.cpp",
+        "surface/simple_idt.cpp",
+        "surface/tufted_laplacian.cpp",
+        "surface/heat_method_distance.cpp",
+        "surface/surface_point.cpp",
+        "numerical/linear_algebra_utilities.cpp",
+        "numerical/positive_definite_solvers.cpp",
+        "utilities/utilities.cpp",
+        "utilities/disjoint_sets.cpp",
+        "utilities/elementary_geometry.cpp",
+    ]
+    geometry_central_sources = [
+        str(geometry_central_root / "src" / rel_path)
+        for rel_path in geometry_central_required_sources
+    ]
+
 if python_include:
     fishnet_include_dirs.append(python_include)
 
@@ -205,6 +262,13 @@ fishnet_extension = Extension(
             "fishnet",
             "fishnet_options_policy.cpp",
         ),
+        os.path.join(
+            "freecad",
+            "Composites",
+            "fishnet",
+            "fishnet_geodesic_backend.cpp",
+        ),
+        *geometry_central_sources,
     ],
     language="c++",
     include_dirs=fishnet_include_dirs,
@@ -228,6 +292,7 @@ fishnet_extension = Extension(
         "-DHAVE_CONFIG_H",
         "-DPYCXX_6_2_COMPATIBILITY",
         "-D_OCC64",
+        f"-DFISHNET_HAS_GEOMETRY_CENTRAL={1 if fishnet_enable_geometry_central else 0}",
     ],
 )
 

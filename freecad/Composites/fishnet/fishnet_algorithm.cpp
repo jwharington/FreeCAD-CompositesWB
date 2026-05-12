@@ -37,6 +37,7 @@
 #include "fishnet_algorithm_types.hpp"
 #include "fishnet_boundary_trim.hpp"
 #include "fishnet_diagnostics_api.hpp"
+#include "fishnet_geodesic_backend.hpp"
 #include "fishnet_layout_geometry_api.hpp"
 #include "fishnet_options.hpp"
 #include "fishnet_options_api.hpp"
@@ -909,6 +910,17 @@ namespace fishnet_internal
             return build_empty_geometry_result("fishnet solver needs at least one face", input.release_params_copy());
         }
 
+        if (geodesic_heat_requested(normalized_params.algorithm_profile))
+        {
+            return build_geodesic_heat_scaffold_result(
+                input.release_params_copy(),
+                normalized_params.algorithm_profile,
+                normalized_params,
+                "geometry",
+                input.points(),
+                input.triangles());
+        }
+
         const GeometrySolverConfig &config = input.config();
         const bool acp_energy_mode = config.acp_energy_mode;
         const CurrentNodeSolverMode solver_mode = config.solver_mode;
@@ -1115,6 +1127,17 @@ namespace fishnet_internal
         if (request.mesh_faces.empty())
         {
             return build_empty_geometry_result("fishnet solver needs at least one face", request.release_params_copy());
+        }
+
+        if (geodesic_heat_requested(request.algorithm_profile))
+        {
+            return build_geodesic_heat_scaffold_result(
+                request.release_params_copy(),
+                request.algorithm_profile,
+                request.normalized_params,
+                "mesh",
+                request.mesh_points,
+                request.mesh_faces);
         }
 
         Vec3 origin = centroid(request.mesh_points);

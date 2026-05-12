@@ -9,6 +9,17 @@ Lots of code needs unit testing and handling input errors.
 This requires a modified version of FreeCAD, mainly to support FEM analysis.
   https://github.com/jwharington/FreeCAD/tree/fem-orthotropic
 
+## Submodule dependencies
+
+This repository now vendors geometry-processing dependencies via git submodules.
+After cloning (or when pulling updates), run:
+
+```bash
+git submodule update --init --recursive
+```
+
+The `third_party/geometry-central` submodule is used for upcoming fishnet geodesic
+solver integration.
 
 ## Composite material composition
 

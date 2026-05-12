@@ -25,6 +25,11 @@ namespace fishnet_internal
             return algorithm == "acp_energy";
         }
 
+        bool is_geodesic_heat_algorithm_name(const std::string &algorithm)
+        {
+            return algorithm == "geodesic_heat" || algorithm == "geodesic-heat";
+        }
+
         std::string parse_acp_strategy_name(const std::string &raw_value)
         {
             const std::string value = lowercase_copy(raw_value);
@@ -68,6 +73,7 @@ namespace fishnet_internal
 
         const std::string algorithm = lowercase_copy(profile.requested_algorithm);
         profile.acp_energy_mode = is_acp_energy_algorithm_name(algorithm);
+        profile.geodesic_heat_mode = is_geodesic_heat_algorithm_name(algorithm);
         if (!profile.acp_energy_mode)
         {
             profile.acp_strategy = "none";

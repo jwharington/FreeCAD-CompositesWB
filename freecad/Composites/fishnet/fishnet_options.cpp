@@ -392,7 +392,9 @@ namespace fishnet_internal
 
     bool DrapingAlgorithmPolicy::supported() const
     {
-        return requested_algorithm_ == "acp_energy";
+        return requested_algorithm_ == "acp_energy" ||
+               requested_algorithm_ == "geodesic_heat" ||
+               requested_algorithm_ == "geodesic-heat";
     }
 
     PyObject *DrapingAlgorithmPolicy::build_unsupported_result(PyObject *params_copy) const
@@ -401,7 +403,7 @@ namespace fishnet_internal
         std::snprintf(
             message,
             sizeof(message),
-            "unsupported draping algorithm: %s (supported: acp_energy)",
+            "unsupported draping algorithm: %s (supported: acp_energy, geodesic_heat)",
             requested_algorithm_.c_str());
         return build_empty_geometry_result(message, params_copy);
     }

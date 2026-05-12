@@ -4632,6 +4632,408 @@ class TestFishnetSolver(unittest.TestCase):
             "unsupported draping algorithm", str(geom_result.get("error", ""))
         )
 
+    def test_mesh_and_geometry_geodesic_heat_scaffold_contract_match(self):
+        import FreeCAD
+        import Part
+
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+        face = Part.makePlane(
+            2.0,
+            2.0,
+            FreeCAD.Vector(0, 0, 0),
+            FreeCAD.Vector(0, 0, 1),
+        )
+
+        mesh_result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "geodesic_heat"},
+        )
+        geom_result = _fishnet.solve(
+            face,
+            parameters={"algorithm": "geodesic_heat"},
+        )
+
+        self.assertFalse(mesh_result["valid"])
+        self.assertFalse(geom_result["valid"])
+
+        mesh_diagnostics = mesh_result.get("diagnostics", {})
+        geom_diagnostics = geom_result.get("diagnostics", {})
+        self.assertEqual(
+            bool(mesh_diagnostics.get("geodesic_backend_build_enabled")),
+            bool(geom_diagnostics.get("geodesic_backend_build_enabled")),
+        )
+        backend_build_enabled = bool(
+            mesh_diagnostics.get("geodesic_backend_build_enabled")
+        )
+        expected_status = (
+            "scaffold_not_implemented"
+            if backend_build_enabled
+            else "build_disabled"
+        )
+
+        for result in (mesh_result, geom_result):
+            error = str(result.get("error", ""))
+            self.assertIn("geodesic_heat", error)
+            if backend_build_enabled:
+                self.assertIn("geometry-central", error)
+                self.assertIn("scaffold is active", error)
+                self.assertIn("solver wiring is not enabled yet", error)
+            else:
+                self.assertIn("disabled at build time", error)
+                self.assertIn("FISHNET_ENABLE_GEOMETRY_CENTRAL=1", error)
+
+            diagnostics = result.get("diagnostics", {})
+            self.assertEqual(
+                diagnostics.get("geodesic_backend"), "geometry_central"
+            )
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_status"), expected_status
+            )
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_selected"),
+                "geometry_central",
+            )
+            self.assertEqual(
+                bool(diagnostics.get("geodesic_backend_build_enabled")),
+                backend_build_enabled,
+            )
+            self.assertEqual(
+                bool(diagnostics.get("geodesic_backend_compile_ready")),
+                backend_build_enabled,
+            )
+            self.assertFalse(bool(diagnostics.get("geodesic_backend_runtime_ready")))
+            self.assertFalse(bool(diagnostics.get("geodesic_backend_solver_ready")))
+            self.assertEqual(diagnostics.get("geodesic_backend_phase"), "scaffold_v1")
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_capability"),
+                "headers_available" if backend_build_enabled else "not_compiled",
+            )
+            probe_status = diagnostics.get(
+                "geodesic_backend_lifecycle_probe_status"
+            )
+            self.assertIn(probe_status, {"success", "failure", "skipped"})
+            if backend_build_enabled:
+                self.assertIn(probe_status, {"success", "failure"})
+            else:
+                self.assertEqual(probe_status, "skipped")
+
+            probe_error = str(
+                diagnostics.get("geodesic_backend_lifecycle_probe_error", "")
+            )
+            if probe_status == "failure":
+                self.assertGreater(len(probe_error), 0)
+            else:
+                self.assertEqual(probe_error, "")
+
+            solver_probe_status = diagnostics.get(
+                "geodesic_backend_solver_probe_status"
+            )
+            self.assertIn(solver_probe_status, {"success", "failure", "skipped"})
+            if backend_build_enabled:
+                if probe_status == "success":
+                    self.assertIn(solver_probe_status, {"success", "failure"})
+                else:
+                    self.assertEqual(solver_probe_status, "skipped")
+            else:
+                self.assertEqual(solver_probe_status, "skipped")
+            solver_probe_error = str(
+                diagnostics.get("geodesic_backend_solver_probe_error", "")
+            )
+            if solver_probe_status == "failure":
+                self.assertGreater(len(solver_probe_error), 0)
+            else:
+                self.assertEqual(solver_probe_error, "")
+
+            compute_probe_status = diagnostics.get(
+                "geodesic_backend_compute_probe_status"
+            )
+            self.assertIn(compute_probe_status, {"success", "failure", "skipped"})
+            if backend_build_enabled:
+                self.assertIn(compute_probe_status, {"success", "failure"})
+            else:
+                self.assertEqual(compute_probe_status, "skipped")
+
+            compute_probe_error = str(
+                diagnostics.get("geodesic_backend_compute_probe_error", "")
+            )
+            if compute_probe_status == "failure":
+                self.assertGreater(len(compute_probe_error), 0)
+            else:
+                self.assertEqual(compute_probe_error, "")
+
+            compute_probe_source_vertex = int(
+                diagnostics.get("geodesic_backend_compute_probe_source_vertex", -1)
+            )
+            if compute_probe_status == "success":
+                self.assertGreaterEqual(compute_probe_source_vertex, 0)
+                self.assertGreaterEqual(
+                    float(diagnostics.get("geodesic_backend_compute_probe_min", -1.0)),
+                    0.0,
+                )
+                self.assertGreaterEqual(
+                    float(diagnostics.get("geodesic_backend_compute_probe_max", -1.0)),
+                    float(diagnostics.get("geodesic_backend_compute_probe_min", -1.0)),
+                )
+            else:
+                self.assertEqual(compute_probe_source_vertex, -1)
+
+            pair_probe_status = diagnostics.get("geodesic_backend_pair_probe_status")
+            self.assertIn(pair_probe_status, {"success", "failure", "skipped"})
+            if backend_build_enabled:
+                self.assertIn(pair_probe_status, {"success", "failure"})
+            else:
+                self.assertEqual(pair_probe_status, "skipped")
+
+            pair_probe_error = str(
+                diagnostics.get("geodesic_backend_pair_probe_error", "")
+            )
+            if pair_probe_status == "failure":
+                self.assertGreater(len(pair_probe_error), 0)
+            else:
+                self.assertEqual(pair_probe_error, "")
+
+            pair_probe_source_x = int(
+                diagnostics.get("geodesic_backend_pair_probe_source_x", -1)
+            )
+            pair_probe_source_y = int(
+                diagnostics.get("geodesic_backend_pair_probe_source_y", -1)
+            )
+            if pair_probe_status == "success":
+                self.assertGreaterEqual(pair_probe_source_x, 0)
+                self.assertGreaterEqual(pair_probe_source_y, 0)
+                self.assertNotEqual(pair_probe_source_x, pair_probe_source_y)
+                self.assertGreaterEqual(
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gx_min", -1.0
+                        )
+                    ),
+                    0.0,
+                )
+                self.assertGreaterEqual(
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gx_max", -1.0
+                        )
+                    ),
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gx_min", -1.0
+                        )
+                    ),
+                )
+                self.assertGreaterEqual(
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gy_min", -1.0
+                        )
+                    ),
+                    0.0,
+                )
+                self.assertGreaterEqual(
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gy_max", -1.0
+                        )
+                    ),
+                    float(
+                        diagnostics.get(
+                            "geodesic_backend_pair_probe_phi_gy_min", -1.0
+                        )
+                    ),
+                )
+            else:
+                self.assertEqual(pair_probe_source_x, -1)
+                self.assertEqual(pair_probe_source_y, -1)
+
+            cache_status = diagnostics.get(
+                "geodesic_backend_prefactor_cache_status"
+            )
+            self.assertIn(cache_status, {"hit", "miss", "failure", "skipped"})
+            cache_hit = bool(diagnostics.get("geodesic_backend_prefactor_cache_hit"))
+            if backend_build_enabled:
+                if cache_status == "hit":
+                    self.assertTrue(cache_hit)
+                elif cache_status in {"miss", "failure"}:
+                    self.assertFalse(cache_hit)
+            else:
+                self.assertEqual(cache_status, "skipped")
+                self.assertFalse(cache_hit)
+
+            cache_key = str(
+                diagnostics.get("geodesic_backend_prefactor_cache_key", "")
+            )
+            self.assertGreater(len(cache_key), 0)
+
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_backend_timing_mesh_build_ms", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_backend_timing_solver_init_ms", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_backend_timing_compute_probe_ms", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_backend_timing_pair_probe_ms", -1.0)),
+                0.0,
+            )
+
+            phi_source = result.get("geodesic_phi_source", [])
+            phi_gx = result.get("geodesic_phi_gx", [])
+            phi_gy = result.get("geodesic_phi_gy", [])
+            source_vertices = result.get("geodesic_source_vertices", (-1, -1))
+            field_vertex_count = int(result.get("geodesic_field_vertex_count", -1))
+
+            self.assertIsInstance(phi_source, list)
+            self.assertIsInstance(phi_gx, list)
+            self.assertIsInstance(phi_gy, list)
+            self.assertEqual(len(source_vertices), 2)
+            self.assertGreaterEqual(field_vertex_count, 0)
+
+            if compute_probe_status == "success":
+                self.assertEqual(
+                    len(phi_source),
+                    int(diagnostics.get("geodesic_input_vertex_count", -1)),
+                )
+            else:
+                self.assertEqual(len(phi_source), 0)
+
+            if pair_probe_status == "success":
+                expected_v = int(diagnostics.get("geodesic_input_vertex_count", -1))
+                self.assertEqual(len(phi_gx), expected_v)
+                self.assertEqual(len(phi_gy), expected_v)
+                self.assertEqual(field_vertex_count, expected_v)
+                self.assertGreaterEqual(int(source_vertices[0]), 0)
+                self.assertGreaterEqual(int(source_vertices[1]), 0)
+            else:
+                self.assertEqual(len(phi_gx), 0)
+                self.assertEqual(len(phi_gy), 0)
+                self.assertEqual(field_vertex_count, 0)
+                self.assertEqual(int(source_vertices[0]), -1)
+                self.assertEqual(int(source_vertices[1]), -1)
+
+            self.assertEqual(
+                diagnostics.get("geodesic_input_source"),
+                "mesh" if result is mesh_result else "geometry",
+            )
+            self.assertIn("geodesic_input_vertex_count", diagnostics)
+            self.assertIn("geodesic_input_face_count", diagnostics)
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_input_vertex_count", -1)), 0
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_input_face_count", -1)), 0
+            )
+            self.assertTrue(
+                bool(diagnostics.get("geodesic_input_indices_valid"))
+            )
+            self.assertEqual(
+                int(diagnostics.get("geodesic_input_invalid_index_count", -1)),
+                0,
+            )
+            self.assertEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_input_degenerate_triangle_count", -1
+                    )
+                ),
+                0,
+            )
+
+        self.assertEqual(
+            mesh_diagnostics.get("geodesic_input_vertex_count"), len(points)
+        )
+        self.assertEqual(
+            mesh_diagnostics.get("geodesic_input_face_count"), len(faces)
+        )
+        self.assertGreater(
+            int(geom_diagnostics.get("geodesic_input_vertex_count", 0)), 0
+        )
+        self.assertGreater(
+            int(geom_diagnostics.get("geodesic_input_face_count", 0)), 0
+        )
+
+    def test_geodesic_heat_pair_probe_is_deterministic_for_fixed_seed(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+
+        r0 = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "geodesic_heat", "seed": 1},
+        )
+        r1 = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={"algorithm": "geodesic_heat", "seed": 1},
+        )
+
+        self.assertFalse(r0["valid"])
+        self.assertFalse(r1["valid"])
+
+        d0 = r0.get("diagnostics", {})
+        d1 = r1.get("diagnostics", {})
+
+        self.assertEqual(
+            d0.get("geodesic_backend_compute_probe_status"),
+            d1.get("geodesic_backend_compute_probe_status"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_pair_probe_status"),
+            d1.get("geodesic_backend_pair_probe_status"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_compute_probe_source_vertex"),
+            d1.get("geodesic_backend_compute_probe_source_vertex"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_pair_probe_source_x"),
+            d1.get("geodesic_backend_pair_probe_source_x"),
+        )
+        self.assertEqual(
+            d0.get("geodesic_backend_pair_probe_source_y"),
+            d1.get("geodesic_backend_pair_probe_source_y"),
+        )
+
+        self.assertEqual(
+            r0.get("geodesic_source_vertices"),
+            r1.get("geodesic_source_vertices"),
+        )
+        self.assertEqual(
+            len(r0.get("geodesic_phi_gx", [])),
+            len(r1.get("geodesic_phi_gx", [])),
+        )
+        self.assertEqual(
+            len(r0.get("geodesic_phi_gy", [])),
+            len(r1.get("geodesic_phi_gy", [])),
+        )
+        self.assertEqual(
+            len(r0.get("geodesic_phi_source", [])),
+            len(r1.get("geodesic_phi_source", [])),
+        )
+
     def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
         # Use a cone with a strong radius ratio (small end = 25% of large end).
         # The inner rings (near the small radius) have shorter circumference and

@@ -92,6 +92,7 @@ namespace fishnet_internal
     {
         std::string requested_algorithm{"acp_energy"};
         bool acp_energy_mode{false};
+        bool geodesic_heat_mode{false};
         bool surface_spacing_mode{false};
         std::string acp_strategy{"none"};
 
