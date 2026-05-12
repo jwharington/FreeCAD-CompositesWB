@@ -179,6 +179,9 @@ fishnet_extension = Extension(
             "freecad", "Composites", "fishnet", "fishnet_result_builder.cpp"
         ),
         os.path.join(
+            "freecad", "Composites", "fishnet", "fishnet_result_compat.cpp"
+        ),
+        os.path.join(
             "freecad", "Composites", "fishnet", "fishnet_options.cpp"
         ),
     ],
