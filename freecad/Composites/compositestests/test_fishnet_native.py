@@ -4956,6 +4956,16 @@ class TestFishnetSolver(unittest.TestCase):
                 self.assertEqual(int(source_vertices[0]), -1)
                 self.assertEqual(int(source_vertices[1]), -1)
 
+            if preview_ready:
+                self.assertEqual(
+                    len(result.get("fabric_points", [])),
+                    int(diagnostics.get("geodesic_input_vertex_count", -1)),
+                )
+                self.assertGreater(len(result.get("fabric_quads", [])), 0)
+            else:
+                self.assertEqual(len(result.get("fabric_points", [])), 0)
+                self.assertEqual(len(result.get("fabric_quads", [])), 0)
+
             self.assertEqual(
                 diagnostics.get("geodesic_input_source"),
                 "mesh" if result is mesh_result else "geometry",
@@ -5069,6 +5079,12 @@ class TestFishnetSolver(unittest.TestCase):
             len(r0.get("geodesic_phi_source", [])),
             len(r1.get("geodesic_phi_source", [])),
         )
+        self.assertEqual(
+            len(r0.get("fabric_quads", [])),
+            len(r1.get("fabric_quads", [])),
+        )
+        if backend_build_enabled:
+            self.assertGreater(len(r0.get("fabric_quads", [])), 0)
 
     def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
         # Use a cone with a strong radius ratio (small end = 25% of large end).

@@ -13,8 +13,10 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <set>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 #include "fishnet_python_util.hpp"
@@ -522,10 +524,112 @@ namespace fishnet_internal
             Py_DECREF(pair_obj);
         }
 
+        std::uint64_t edge_key(int a, int b)
+        {
+            const std::uint32_t lo = static_cast<std::uint32_t>(std::min(a, b));
+            const std::uint32_t hi = static_cast<std::uint32_t>(std::max(a, b));
+            return (static_cast<std::uint64_t>(lo) << 32) | static_cast<std::uint64_t>(hi);
+        }
+
+        std::vector<int> ordered_quad_by_geodesic_uv(
+            const std::array<int, 4> &verts,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy)
+        {
+            std::vector<int> order{verts[0], verts[1], verts[2], verts[3]};
+            double cu = 0.0;
+            double cv = 0.0;
+            for (int idx : order)
+            {
+                cu += phi_gx[static_cast<size_t>(idx)];
+                cv += phi_gy[static_cast<size_t>(idx)];
+            }
+            cu *= 0.25;
+            cv *= 0.25;
+
+            std::sort(order.begin(), order.end(), [&](int lhs, int rhs) {
+                const double ul = phi_gx[static_cast<size_t>(lhs)] - cu;
+                const double vl = phi_gy[static_cast<size_t>(lhs)] - cv;
+                const double ur = phi_gx[static_cast<size_t>(rhs)] - cu;
+                const double vr = phi_gy[static_cast<size_t>(rhs)] - cv;
+                const double al = std::atan2(vl, ul);
+                const double ar = std::atan2(vr, ur);
+                if (al == ar)
+                {
+                    return lhs < rhs;
+                }
+                return al < ar;
+            });
+            return order;
+        }
+
+        std::vector<std::vector<int>> build_geodesic_preview_quads(
+            const std::vector<std::array<int, 3>> &triangles,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy,
+            size_t vertex_count)
+        {
+            struct EdgeInfo
+            {
+                int a = -1;
+                int b = -1;
+                int opposite = -1;
+            };
+
+            std::unordered_map<std::uint64_t, EdgeInfo> first_edge;
+            std::set<std::array<int, 4>> emitted;
+            std::vector<std::vector<int>> quads;
+
+            auto process_edge = [&](int a, int b, int opposite) {
+                const std::uint64_t key = edge_key(a, b);
+                const auto it = first_edge.find(key);
+                if (it == first_edge.end())
+                {
+                    first_edge.emplace(key, EdgeInfo{a, b, opposite});
+                    return;
+                }
+
+                const EdgeInfo first = it->second;
+                first_edge.erase(it);
+
+                std::array<int, 4> verts{first.a, first.b, first.opposite, opposite};
+                std::array<int, 4> canonical = verts;
+                std::sort(canonical.begin(), canonical.end());
+                if (canonical[0] == canonical[1] || canonical[1] == canonical[2] || canonical[2] == canonical[3])
+                {
+                    return;
+                }
+                if (canonical[3] < 0 || static_cast<size_t>(canonical[3]) >= vertex_count)
+                {
+                    return;
+                }
+                if (phi_gx.size() < vertex_count || phi_gy.size() < vertex_count)
+                {
+                    return;
+                }
+                if (!emitted.insert(canonical).second)
+                {
+                    return;
+                }
+
+                quads.push_back(ordered_quad_by_geodesic_uv(verts, phi_gx, phi_gy));
+            };
+
+            for (const auto &tri : triangles)
+            {
+                process_edge(tri[0], tri[1], tri[2]);
+                process_edge(tri[1], tri[2], tri[0]);
+                process_edge(tri[2], tri[0], tri[1]);
+            }
+            return quads;
+        }
+
         PyObject *build_geodesic_mesh_preview_result(
             PyObject *params_copy,
             const std::vector<Vec3> &points,
-            const std::vector<std::array<int, 3>> &triangles)
+            const std::vector<std::array<int, 3>> &triangles,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy)
         {
             if (!params_copy)
             {
@@ -542,11 +646,19 @@ namespace fishnet_internal
             }
             PyObject *mesh_faces_list = build_quad_list(mesh_face_vec);
 
-            if (!empty_list || !mesh_points_list || !mesh_faces_list)
+            std::vector<std::vector<int>> preview_quads = build_geodesic_preview_quads(
+                triangles,
+                phi_gx,
+                phi_gy,
+                points.size());
+            PyObject *fabric_quads_list = build_quad_list(preview_quads);
+
+            if (!empty_list || !mesh_points_list || !mesh_faces_list || !fabric_quads_list)
             {
                 Py_XDECREF(empty_list);
                 Py_XDECREF(mesh_points_list);
                 Py_XDECREF(mesh_faces_list);
+                Py_XDECREF(fabric_quads_list);
                 Py_DECREF(params_copy);
                 return nullptr;
             }
@@ -565,9 +677,9 @@ namespace fishnet_internal
                 true,
                 "",
                 params_copy,
-                empty_list,
-                empty_list,
-                empty_list,
+                mesh_points_list,
+                mesh_points_list,
+                fabric_quads_list,
                 empty_list,
                 empty_list,
                 empty_list,
@@ -591,6 +703,7 @@ namespace fishnet_internal
             Py_DECREF(empty_list);
             Py_DECREF(mesh_points_list);
             Py_DECREF(mesh_faces_list);
+            Py_DECREF(fabric_quads_list);
             Py_DECREF(params_copy);
             return result;
         }
@@ -659,7 +772,12 @@ namespace fishnet_internal
         PyObject *result = nullptr;
         if (preview_ready)
         {
-            result = build_geodesic_mesh_preview_result(params_copy, points, triangles);
+            result = build_geodesic_mesh_preview_result(
+                params_copy,
+                points,
+                triangles,
+                pair_probe.phi_gx,
+                pair_probe.phi_gy);
         }
         else
         {
@@ -673,7 +791,6 @@ namespace fishnet_internal
         }
 #else
         const bool preview_ready = false;
-        const char *preview_status = "";
         const char *preview_phase = "";
         char message[384];
         std::snprintf(
