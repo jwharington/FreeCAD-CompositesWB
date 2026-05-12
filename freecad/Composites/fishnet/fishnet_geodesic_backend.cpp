@@ -919,11 +919,20 @@ namespace fishnet_internal
             pair_probe.phi_gx,
             pair_probe.phi_gy,
             points.size());
-        const bool preview_ready =
+
+        const bool probe_ready =
             compute_probe.status == "success" &&
             pair_probe.status == "success";
+        const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
+        const bool preview_quality_pass = quad_outcome.selected_count > 0;
+        const bool quality_gate_failed =
+            probe_ready && quality_gate_enabled && !preview_quality_pass;
+        const bool preview_ready = probe_ready && !quality_gate_failed;
+
         const char *preview_status = is_mesh_input ? "mesh_field_preview" : "geometry_field_preview";
         const char *preview_phase = is_mesh_input ? "mesh_fields_v1" : "geometry_fields_v1";
+        const char *quality_fail_reason =
+            preview_quality_pass ? "" : "no_preview_quads_selected";
 
         PyObject *result = nullptr;
         if (preview_ready)
@@ -935,6 +944,16 @@ namespace fishnet_internal
                 pair_probe.phi_gx,
                 pair_probe.phi_gy,
                 quad_outcome);
+        }
+        else if (quality_gate_failed)
+        {
+            char message[384];
+            std::snprintf(
+                message,
+                sizeof(message),
+                "algorithm 'geodesic_heat' quality gate failed for %s: no preview quads passed filters (disable surface_spacing_strict to allow permissive preview)",
+                kind);
+            result = build_empty_geometry_result(message, params_copy);
         }
         else
         {
@@ -948,8 +967,13 @@ namespace fishnet_internal
         }
 #else
         const PreviewQuadBuildOutcome quad_outcome{};
+        const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
+        const bool preview_quality_pass = false;
+        const bool quality_gate_failed = false;
         const bool preview_ready = false;
+        const char *preview_status = "";
         const char *preview_phase = "";
+        const char *quality_fail_reason = "";
         char message[384];
         std::snprintf(
             message,
@@ -974,7 +998,12 @@ namespace fishnet_internal
             set_dict_bool(diagnostics, "geodesic_backend_compile_ready", backend_build_enabled);
             set_dict_bool(diagnostics, "geodesic_backend_runtime_ready", backend_build_enabled && preview_ready);
             set_dict_bool(diagnostics, "geodesic_backend_solver_ready", backend_build_enabled && preview_ready);
-            set_dict_string(diagnostics, "geodesic_backend_phase", preview_ready ? preview_phase : "scaffold_v1");
+            set_dict_string(
+                diagnostics,
+                "geodesic_backend_phase",
+                preview_ready
+                    ? preview_phase
+                    : (quality_gate_failed ? "quality_gate_failed_v1" : "scaffold_v1"));
 #if FISHNET_HAS_GEOMETRY_CENTRAL
             set_dict_string(
                 diagnostics,
@@ -983,7 +1012,21 @@ namespace fishnet_internal
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_status",
-                preview_ready ? preview_status : "scaffold_not_implemented");
+                preview_ready
+                    ? preview_status
+                    : (quality_gate_failed ? "quality_gate_failed" : "scaffold_not_implemented"));
+            set_dict_bool(
+                diagnostics,
+                "geodesic_preview_quality_gate_enabled",
+                quality_gate_enabled);
+            set_dict_bool(
+                diagnostics,
+                "geodesic_preview_quality_pass",
+                preview_quality_pass);
+            set_dict_string(
+                diagnostics,
+                "geodesic_preview_quality_fail_reason",
+                quality_gate_failed ? quality_fail_reason : "");
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_lifecycle_probe_status",
@@ -1182,6 +1225,9 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gx_max", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_min", 0.0);
             set_dict_double(diagnostics, "geodesic_backend_pair_probe_phi_gy_max", 0.0);
+            set_dict_bool(diagnostics, "geodesic_preview_quality_gate_enabled", quality_gate_enabled);
+            set_dict_bool(diagnostics, "geodesic_preview_quality_pass", false);
+            set_dict_string(diagnostics, "geodesic_preview_quality_fail_reason", "");
             set_dict_long(diagnostics, "geodesic_preview_quad_candidate_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_selected_count", 0);
             set_dict_long(diagnostics, "geodesic_preview_quad_reject_duplicate_vertex_count", 0);

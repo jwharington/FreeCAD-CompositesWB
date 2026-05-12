@@ -5006,6 +5006,23 @@ class TestFishnetSolver(unittest.TestCase):
                 1.0,
             )
 
+            quality_gate_enabled = bool(
+                diagnostics.get("geodesic_preview_quality_gate_enabled")
+            )
+            quality_pass = bool(
+                diagnostics.get("geodesic_preview_quality_pass")
+            )
+            quality_fail_reason = str(
+                diagnostics.get("geodesic_preview_quality_fail_reason", "")
+            )
+            self.assertEqual(
+                quality_gate_enabled,
+                False,
+            )
+            if preview_ready:
+                self.assertTrue(quality_pass)
+                self.assertEqual(quality_fail_reason, "")
+
             self.assertEqual(
                 diagnostics.get("geodesic_input_source"),
                 "mesh" if result is mesh_result else "geometry",
@@ -5123,6 +5140,57 @@ class TestFishnetSolver(unittest.TestCase):
             len(r0.get("fabric_quads", [])),
             len(r1.get("fabric_quads", [])),
         )
+
+    def test_geodesic_heat_strict_quality_gate_rejects_empty_preview(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 2),
+            (0, 2, 3),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "geodesic_heat",
+                "seed": 1,
+                "surface_spacing_strict": True,
+            },
+        )
+
+        diagnostics = result.get("diagnostics", {})
+        backend_build_enabled = bool(
+            diagnostics.get("geodesic_backend_build_enabled")
+        )
+
+        self.assertFalse(result["valid"])
+        self.assertTrue(
+            bool(diagnostics.get("geodesic_preview_quality_gate_enabled"))
+        )
+        self.assertFalse(
+            bool(diagnostics.get("geodesic_preview_quality_pass"))
+        )
+
+        if backend_build_enabled:
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_status"),
+                "quality_gate_failed",
+            )
+            self.assertIn("quality gate failed", str(result.get("error", "")))
+            self.assertEqual(
+                diagnostics.get("geodesic_preview_quality_fail_reason"),
+                "no_preview_quads_selected",
+            )
+        else:
+            self.assertEqual(
+                diagnostics.get("geodesic_backend_status"),
+                "build_disabled",
+            )
 
     def test_cone_face_variable_column_counts_with_large_radius_ratio(self):
         # Use a cone with a strong radius ratio (small end = 25% of large end).
