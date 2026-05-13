@@ -4999,11 +4999,15 @@ class TestFishnetSolver(unittest.TestCase):
 
             flattened_points = result.get("geodesic_flattened_points", [])
             flattened_quads = result.get("geodesic_flattened_quads", [])
+            flattened_source_quad_indices = result.get(
+                "geodesic_flattened_source_quad_indices", []
+            )
             flattened_chart_count = int(
                 result.get("geodesic_flattened_chart_count", -1)
             )
             self.assertIsInstance(flattened_points, (list, tuple))
             self.assertIsInstance(flattened_quads, (list, tuple))
+            self.assertIsInstance(flattened_source_quad_indices, (list, tuple))
             self.assertGreaterEqual(flattened_chart_count, 0)
             self.assertEqual(
                 len(flattened_quads),
@@ -5012,6 +5016,10 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertEqual(
                 len(flattened_points),
                 int(diagnostics.get("geodesic_flattened_point_count", -1)),
+            )
+            self.assertEqual(
+                len(flattened_source_quad_indices),
+                len(flattened_quads),
             )
             self.assertIn(
                 str(diagnostics.get("geodesic_flattened_base_mode", "")),
@@ -5027,6 +5035,18 @@ class TestFishnetSolver(unittest.TestCase):
                         "geodesic_flattened_base_overlap_pair_count", -1
                     )
                 ),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_flattened_base_root", -2)),
+                -1,
+            )
+            self.assertIn(
+                str(diagnostics.get("geodesic_flattened_strategy", "")),
+                {"none", "single_chart_pruned", "graph_coloring"},
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_flattened_pruned_quad_count", -1)),
                 0,
             )
 

@@ -746,6 +746,31 @@ namespace fishnet_internal
             Py_DECREF(list_obj);
         }
 
+        void set_result_long_list(PyObject *result, const char *key, const std::vector<long> &values)
+        {
+            if (!result || !PyDict_Check(result) || !key)
+            {
+                return;
+            }
+            PyObject *list_obj = PyList_New(static_cast<Py_ssize_t>(values.size()));
+            if (!list_obj)
+            {
+                return;
+            }
+            for (size_t i = 0; i < values.size(); ++i)
+            {
+                PyObject *item = PyLong_FromLong(values[i]);
+                if (!item)
+                {
+                    Py_DECREF(list_obj);
+                    return;
+                }
+                PyList_SET_ITEM(list_obj, static_cast<Py_ssize_t>(i), item);
+            }
+            PyDict_SetItemString(result, key, list_obj);
+            Py_DECREF(list_obj);
+        }
+
         void set_result_source_vertices(PyObject *result, long source_x, long source_y)
         {
             if (!result || !PyDict_Check(result))
@@ -814,6 +839,7 @@ namespace fishnet_internal
             const std::vector<Vec3> &points,
             const std::vector<std::array<int, 3>> &triangles,
             long preferred_root,
+            double theta_offset,
             std::vector<double> &out_u,
             std::vector<double> &out_v)
         {
@@ -906,7 +932,8 @@ namespace fishnet_internal
                 r[i] = ri;
                 const double x = vec_dot(radial, e1);
                 const double y = vec_dot(radial, e2);
-                theta[i] = std::atan2(y, x);
+                const double raw_theta = std::atan2(y, x) - theta_offset;
+                theta[i] = std::atan2(std::sin(raw_theta), std::cos(raw_theta));
             }
 
             std::vector<std::vector<int>> adjacency(points.size());
@@ -1280,8 +1307,12 @@ namespace fishnet_internal
         {
             std::vector<Vec3> points;
             std::vector<std::vector<int>> quads;
+            std::vector<long> source_quad_indices;
             long chart_count = 0;
             long overlap_pair_count = 0;
+            long resolved_overlap_pair_count = 0;
+            long pruned_quad_count = 0;
+            std::string strategy = "none";
         };
 
         FlattenedUvChartOutcome build_flattened_uv_charts(
@@ -1293,12 +1324,14 @@ namespace fishnet_internal
             struct QuadEntry
             {
                 std::array<UvPoint2, 4> uv{};
+                long source_quad_index = -1;
             };
 
             std::vector<QuadEntry> entries;
             entries.reserve(quads.size());
-            for (const auto &quad : quads)
+            for (size_t quad_i = 0; quad_i < quads.size(); ++quad_i)
             {
+                const auto &quad = quads[quad_i];
                 if (quad.size() < 4)
                 {
                     continue;
@@ -1322,6 +1355,7 @@ namespace fishnet_internal
                 }
                 QuadEntry entry{};
                 entry.uv = uv_quad_points_from_ordered(ordered, phi_gx, phi_gy);
+                entry.source_quad_index = static_cast<long>(quad_i);
                 entries.push_back(entry);
             }
 
@@ -1343,6 +1377,74 @@ namespace fishnet_internal
                         ++outcome.overlap_pair_count;
                     }
                 }
+            }
+
+            constexpr long kSmallOverlapPairThreshold = 8;
+            if (outcome.overlap_pair_count > 0 && outcome.overlap_pair_count <= kSmallOverlapPairThreshold)
+            {
+                std::vector<char> active(count, 1);
+                auto active_degree = [&](size_t idx) {
+                    long deg = 0;
+                    for (int nbr : overlaps[idx])
+                    {
+                        if (active[static_cast<size_t>(nbr)])
+                        {
+                            ++deg;
+                        }
+                    }
+                    return deg;
+                };
+
+                while (true)
+                {
+                    long best_deg = 0;
+                    size_t best_idx = count;
+                    for (size_t i = 0; i < count; ++i)
+                    {
+                        if (!active[i])
+                        {
+                            continue;
+                        }
+                        const long deg = active_degree(i);
+                        if (deg > best_deg)
+                        {
+                            best_deg = deg;
+                            best_idx = i;
+                        }
+                    }
+                    if (best_deg <= 0 || best_idx >= count)
+                    {
+                        break;
+                    }
+                    active[best_idx] = 0;
+                    ++outcome.pruned_quad_count;
+                }
+
+                outcome.strategy = "single_chart_pruned";
+                outcome.chart_count = 1;
+                outcome.resolved_overlap_pair_count = 0;
+                outcome.points.reserve(count * 4);
+                outcome.quads.reserve(count);
+                outcome.source_quad_indices.reserve(count);
+                for (size_t i = 0; i < count; ++i)
+                {
+                    if (!active[i])
+                    {
+                        continue;
+                    }
+                    std::vector<int> out_quad;
+                    out_quad.reserve(4);
+                    for (size_t k = 0; k < 4; ++k)
+                    {
+                        const UvPoint2 &pt = entries[i].uv[k];
+                        const int out_index = static_cast<int>(outcome.points.size());
+                        outcome.points.push_back(Vec3{pt.u, pt.v, 0.0});
+                        out_quad.push_back(out_index);
+                    }
+                    outcome.quads.push_back(std::move(out_quad));
+                    outcome.source_quad_indices.push_back(entries[i].source_quad_index);
+                }
+                return outcome;
             }
 
             std::vector<int> order(count);
@@ -1383,7 +1485,9 @@ namespace fishnet_internal
             }
 
             const int chart_count = max_color + 1;
+            outcome.strategy = "graph_coloring";
             outcome.chart_count = chart_count > 0 ? static_cast<long>(chart_count) : 0;
+            outcome.resolved_overlap_pair_count = 0;
             if (chart_count <= 0)
             {
                 return outcome;
@@ -1432,6 +1536,7 @@ namespace fishnet_internal
 
             outcome.points.reserve(count * 4);
             outcome.quads.reserve(count);
+            outcome.source_quad_indices.reserve(count);
             for (size_t i = 0; i < count; ++i)
             {
                 const int c = colors[i];
@@ -1446,6 +1551,7 @@ namespace fishnet_internal
                     out_quad.push_back(out_index);
                 }
                 outcome.quads.push_back(std::move(out_quad));
+                outcome.source_quad_indices.push_back(entries[i].source_quad_index);
             }
 
             return outcome;
@@ -1843,6 +1949,7 @@ namespace fishnet_internal
                 attach_solver_metadata(result, params_copy, "geodesic_field_preview", true, nullptr);
                 set_result_vec3_list(result, "geodesic_flattened_points", flattened_outcome.points);
                 set_result_quad_list(result, "geodesic_flattened_quads", flattened_outcome.quads);
+                set_result_long_list(result, "geodesic_flattened_source_quad_indices", flattened_outcome.source_quad_indices);
                 set_dict_long(result, "geodesic_flattened_chart_count", flattened_outcome.chart_count);
             }
 
@@ -1934,11 +2041,15 @@ namespace fishnet_internal
             flatten_v);
 
         std::vector<int> candidate_roots;
+        if (pair_probe.source_x >= 0)
+        {
+            candidate_roots.push_back(static_cast<int>(pair_probe.source_x));
+        }
         candidate_roots.push_back(0);
         const std::vector<int> boundary_vertices = collect_boundary_vertices(triangles, points.size());
         if (!boundary_vertices.empty())
         {
-            const size_t stride = std::max<size_t>(1, boundary_vertices.size() / 12);
+            const size_t stride = std::max<size_t>(1, boundary_vertices.size() / 8);
             for (size_t i = 0; i < boundary_vertices.size(); i += stride)
             {
                 candidate_roots.push_back(boundary_vertices[i]);
@@ -1948,32 +2059,45 @@ namespace fishnet_internal
                 candidate_roots.push_back(boundary_vertices.back());
             }
         }
+        std::sort(candidate_roots.begin(), candidate_roots.end());
+        candidate_roots.erase(std::unique(candidate_roots.begin(), candidate_roots.end()), candidate_roots.end());
+
+        long flattened_base_root = -1;
+        double flattened_base_theta_offset = 0.0;
+        constexpr int kThetaSamples = 24;
+        const double two_pi = 2.0 * std::acos(-1.0);
 
         for (int root : candidate_roots)
         {
-            std::vector<double> axial_u;
-            std::vector<double> axial_v;
-            if (!build_axial_unwrap_uv(points, triangles, root, axial_u, axial_v))
+            for (int theta_i = 0; theta_i < kThetaSamples; ++theta_i)
             {
-                continue;
-            }
-            const UvOrientationStats axial_stats = compute_uv_orientation_stats(triangles, axial_u, axial_v);
-            const long axial_overlap_pairs = count_uv_overlap_pairs_for_quads(
-                quad_outcome.quads,
-                axial_u,
-                axial_v);
+                const double theta_offset = two_pi * (static_cast<double>(theta_i) / static_cast<double>(kThetaSamples));
+                std::vector<double> axial_u;
+                std::vector<double> axial_v;
+                if (!build_axial_unwrap_uv(points, triangles, root, theta_offset, axial_u, axial_v))
+                {
+                    continue;
+                }
+                const UvOrientationStats axial_stats = compute_uv_orientation_stats(triangles, axial_u, axial_v);
+                const long axial_overlap_pairs = count_uv_overlap_pairs_for_quads(
+                    quad_outcome.quads,
+                    axial_u,
+                    axial_v);
 
-            const bool better_overlap = axial_overlap_pairs < flattened_base_overlap_pairs;
-            const bool tie_better_flip =
-                axial_overlap_pairs == flattened_base_overlap_pairs &&
-                axial_stats.flip_ratio + 1.0e-9 < flattened_orientation_stats.flip_ratio;
-            if (better_overlap || tie_better_flip)
-            {
-                flatten_u = std::move(axial_u);
-                flatten_v = std::move(axial_v);
-                flattened_base_mode = "axial_unwrap";
-                flattened_orientation_stats = axial_stats;
-                flattened_base_overlap_pairs = axial_overlap_pairs;
+                const bool better_overlap = axial_overlap_pairs < flattened_base_overlap_pairs;
+                const bool tie_better_flip =
+                    axial_overlap_pairs == flattened_base_overlap_pairs &&
+                    axial_stats.flip_ratio + 1.0e-9 < flattened_orientation_stats.flip_ratio;
+                if (better_overlap || tie_better_flip)
+                {
+                    flatten_u = std::move(axial_u);
+                    flatten_v = std::move(axial_v);
+                    flattened_base_mode = "axial_unwrap";
+                    flattened_orientation_stats = axial_stats;
+                    flattened_base_overlap_pairs = axial_overlap_pairs;
+                    flattened_base_root = root;
+                    flattened_base_theta_offset = theta_offset;
+                }
             }
         }
 
@@ -2038,6 +2162,9 @@ namespace fishnet_internal
         const FlattenedUvChartOutcome flattened_outcome{};
         const std::string flattened_base_mode = "skipped";
         const UvOrientationStats flattened_orientation_stats{};
+        const long flattened_base_overlap_pairs = 0;
+        const long flattened_base_root = -1;
+        const double flattened_base_theta_offset = 0.0;
         const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
         const bool preview_quality_pass = false;
         const bool quality_gate_failed = false;
@@ -2302,6 +2429,18 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_flattened_point_count",
                 static_cast<long>(flattened_outcome.points.size()));
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_resolved_overlap_pair_count",
+                flattened_outcome.resolved_overlap_pair_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_pruned_quad_count",
+                flattened_outcome.pruned_quad_count);
+            set_dict_string(
+                diagnostics,
+                "geodesic_flattened_strategy",
+                flattened_outcome.strategy);
             set_dict_string(
                 diagnostics,
                 "geodesic_flattened_base_mode",
@@ -2322,6 +2461,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_flattened_base_overlap_pair_count",
                 flattened_base_overlap_pairs);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_base_root",
+                flattened_base_root);
+            set_dict_double(
+                diagnostics,
+                "geodesic_flattened_base_theta_offset",
+                flattened_base_theta_offset);
 
             set_dict_string(
                 diagnostics,
@@ -2422,11 +2569,16 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_flattened_overlap_pair_count", 0);
             set_dict_long(diagnostics, "geodesic_flattened_quad_count", 0);
             set_dict_long(diagnostics, "geodesic_flattened_point_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_resolved_overlap_pair_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_pruned_quad_count", 0);
+            set_dict_string(diagnostics, "geodesic_flattened_strategy", "none");
             set_dict_string(diagnostics, "geodesic_flattened_base_mode", flattened_base_mode);
             set_dict_double(diagnostics, "geodesic_flattened_base_flip_ratio", flattened_orientation_stats.flip_ratio);
             set_dict_long(diagnostics, "geodesic_flattened_base_positive_count", flattened_orientation_stats.positive_count);
             set_dict_long(diagnostics, "geodesic_flattened_base_negative_count", flattened_orientation_stats.negative_count);
             set_dict_long(diagnostics, "geodesic_flattened_base_overlap_pair_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_base_root", flattened_base_root);
+            set_dict_double(diagnostics, "geodesic_flattened_base_theta_offset", flattened_base_theta_offset);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
@@ -2478,6 +2630,10 @@ namespace fishnet_internal
             if (!PyDict_GetItemString(result, "geodesic_flattened_quads"))
             {
                 set_result_quad_list(result, "geodesic_flattened_quads", std::vector<std::vector<int>>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_flattened_source_quad_indices"))
+            {
+                set_result_long_list(result, "geodesic_flattened_source_quad_indices", std::vector<long>{});
             }
             if (!PyDict_GetItemString(result, "geodesic_flattened_chart_count"))
             {
