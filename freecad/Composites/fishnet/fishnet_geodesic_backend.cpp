@@ -1333,6 +1333,10 @@ namespace fishnet_internal
             double seam_offset_weft_max = 0.0;
             double seam_offset_warp_min = 0.0;
             double seam_offset_warp_max = 0.0;
+            long seam_cut_count = 0;
+            double seam_cut_threshold = 0.0;
+            double seam_cut_max_residual_before = 0.0;
+            double seam_cut_max_residual_after = 0.0;
             std::string pitch_source = "none";
             std::string mode = "none";
         };
@@ -1614,162 +1618,6 @@ namespace fishnet_internal
                 edge.sign = (dot >= 0.0) ? 1 : -1;
             }
 
-            std::vector<std::vector<int>> warp_adj(vertex_count);
-            std::vector<std::vector<int>> weft_adj(vertex_count);
-            std::vector<std::vector<int>> all_adj(vertex_count);
-            for (const EdgeConstraint &edge : edges)
-            {
-                if (edge.a < 0 || edge.b < 0 ||
-                    static_cast<size_t>(edge.a) >= vertex_count ||
-                    static_cast<size_t>(edge.b) >= vertex_count)
-                {
-                    continue;
-                }
-                all_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
-                all_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
-                if (edge.family == warp_family)
-                {
-                    warp_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
-                    warp_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
-                }
-                else
-                {
-                    weft_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
-                    weft_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
-                }
-            }
-
-            auto count_line_components = [&](const std::vector<std::vector<int>> &adj) {
-                std::vector<char> visited(vertex_count, 0);
-                long count = 0;
-                std::queue<int> queue;
-                for (size_t v = 0; v < vertex_count; ++v)
-                {
-                    if (!active[v] || visited[v])
-                    {
-                        continue;
-                    }
-                    visited[v] = 1;
-                    bool has_edge = !adj[v].empty();
-                    queue.push(static_cast<int>(v));
-                    while (!queue.empty())
-                    {
-                        const int cur = queue.front();
-                        queue.pop();
-                        for (int nbr : adj[static_cast<size_t>(cur)])
-                        {
-                            if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
-                            {
-                                continue;
-                            }
-                            if (visited[static_cast<size_t>(nbr)])
-                            {
-                                continue;
-                            }
-                            visited[static_cast<size_t>(nbr)] = 1;
-                            queue.push(nbr);
-                        }
-                    }
-                    if (has_edge)
-                    {
-                        ++count;
-                    }
-                }
-                return count;
-            };
-
-            outcome.warp_line_count = count_line_components(warp_adj);
-            outcome.weft_line_count = count_line_components(weft_adj);
-
-            std::vector<int> component_of(vertex_count, -1);
-            std::vector<std::vector<int>> components;
-            std::queue<int> queue;
-            for (size_t v = 0; v < vertex_count; ++v)
-            {
-                if (!active[v] || component_of[v] != -1)
-                {
-                    continue;
-                }
-                const int cid = static_cast<int>(components.size());
-                components.push_back({});
-                component_of[v] = cid;
-                queue.push(static_cast<int>(v));
-                while (!queue.empty())
-                {
-                    const int cur = queue.front();
-                    queue.pop();
-                    components[static_cast<size_t>(cid)].push_back(cur);
-                    for (int nbr : all_adj[static_cast<size_t>(cur)])
-                    {
-                        if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
-                        {
-                            continue;
-                        }
-                        if (component_of[static_cast<size_t>(nbr)] != -1)
-                        {
-                            continue;
-                        }
-                        component_of[static_cast<size_t>(nbr)] = cid;
-                        queue.push(nbr);
-                    }
-                }
-            }
-            if (components.empty())
-            {
-                return outcome;
-            }
-
-            outcome.component_count = static_cast<long>(components.size());
-            int preferred_component = 0;
-            if (preferred_origin_vertex >= 0 && static_cast<size_t>(preferred_origin_vertex) < vertex_count)
-            {
-                const int cid = component_of[static_cast<size_t>(preferred_origin_vertex)];
-                if (cid >= 0)
-                {
-                    preferred_component = cid;
-                }
-            }
-            outcome.preferred_component = preferred_component;
-
-            std::vector<double> comp_proj_weft(components.size(), 0.0);
-            std::vector<double> comp_proj_warp(components.size(), 0.0);
-            double min_comp_weft = std::numeric_limits<double>::infinity();
-            double min_comp_warp = std::numeric_limits<double>::infinity();
-            for (size_t ci = 0; ci < components.size(); ++ci)
-            {
-                const auto &comp = components[ci];
-                if (comp.empty())
-                {
-                    continue;
-                }
-                double sum_weft = 0.0;
-                double sum_warp = 0.0;
-                for (int v : comp)
-                {
-                    const double u = flatten_u[static_cast<size_t>(v)];
-                    const double w = flatten_v[static_cast<size_t>(v)];
-                    sum_weft += u * weft_dir[0] + w * weft_dir[1];
-                    sum_warp += u * warp_dir[0] + w * warp_dir[1];
-                }
-                comp_proj_weft[ci] = sum_weft / static_cast<double>(comp.size());
-                comp_proj_warp[ci] = sum_warp / static_cast<double>(comp.size());
-                min_comp_weft = std::min(min_comp_weft, comp_proj_weft[ci]);
-                min_comp_warp = std::min(min_comp_warp, comp_proj_warp[ci]);
-            }
-            if (!std::isfinite(min_comp_weft))
-            {
-                min_comp_weft = 0.0;
-            }
-            if (!std::isfinite(min_comp_warp))
-            {
-                min_comp_warp = 0.0;
-            }
-
-            std::vector<double> material_u(vertex_count, 0.0);
-            std::vector<double> material_v(vertex_count, 0.0);
-            std::vector<double> seam_anchor_weft(components.size(), 0.0);
-            std::vector<double> seam_anchor_warp(components.size(), 0.0);
-
             auto solve_axis = [](const std::vector<double> &diag,
                                  const std::vector<std::unordered_map<int, double>> &off,
                                  const std::vector<double> &rhs,
@@ -1826,106 +1674,394 @@ namespace fishnet_internal
                 }
             };
 
-            for (size_t ci = 0; ci < components.size(); ++ci)
+            struct SolvePassResult
             {
-                const auto &comp = components[ci];
-                if (comp.empty())
-                {
-                    continue;
-                }
+                std::vector<double> material_u;
+                std::vector<double> material_v;
+                std::vector<int> component_of;
+                std::vector<std::vector<int>> components;
+                std::vector<double> seam_anchor_weft;
+                std::vector<double> seam_anchor_warp;
+                long warp_line_count = 0;
+                long weft_line_count = 0;
+                long preferred_component = -1;
+            };
 
-                std::unordered_map<int, int> local_index;
-                local_index.reserve(comp.size());
-                for (size_t i = 0; i < comp.size(); ++i)
-                {
-                    local_index.emplace(comp[i], static_cast<int>(i));
-                }
+            auto run_transport_solve = [&](const std::vector<char> &edge_enabled) {
+                SolvePassResult pass{};
+                pass.material_u.assign(vertex_count, 0.0);
+                pass.material_v.assign(vertex_count, 0.0);
+                pass.component_of.assign(vertex_count, -1);
 
-                std::vector<double> diag(comp.size(), 0.0);
-                std::vector<std::unordered_map<int, double>> off(comp.size());
-                std::vector<double> rhs_u(comp.size(), 0.0);
-                std::vector<double> rhs_v(comp.size(), 0.0);
-
-                for (const EdgeConstraint &edge : edges)
+                std::vector<std::vector<int>> warp_adj(vertex_count);
+                std::vector<std::vector<int>> weft_adj(vertex_count);
+                std::vector<std::vector<int>> all_adj(vertex_count);
+                for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
                 {
-                    if (edge.a < 0 || edge.b < 0)
+                    if (edge_i >= edge_enabled.size() || !edge_enabled[edge_i])
                     {
                         continue;
                     }
-                    if (static_cast<size_t>(edge.a) >= vertex_count || static_cast<size_t>(edge.b) >= vertex_count)
+                    const EdgeConstraint &edge = edges[edge_i];
+                    if (edge.a < 0 || edge.b < 0 ||
+                        static_cast<size_t>(edge.a) >= vertex_count ||
+                        static_cast<size_t>(edge.b) >= vertex_count)
                     {
                         continue;
                     }
-                    if (component_of[static_cast<size_t>(edge.a)] != static_cast<int>(ci) ||
-                        component_of[static_cast<size_t>(edge.b)] != static_cast<int>(ci))
+                    all_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                    all_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
+                    if (edge.family == warp_family)
                     {
-                        continue;
+                        warp_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                        warp_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
                     }
-                    const auto ita = local_index.find(edge.a);
-                    const auto itb = local_index.find(edge.b);
-                    if (ita == local_index.end() || itb == local_index.end())
+                    else
                     {
-                        continue;
+                        weft_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                        weft_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
                     }
-                    const int ia = ita->second;
-                    const int ib = itb->second;
-                    const double w = 1.0;
-                    diag[static_cast<size_t>(ia)] += w;
-                    diag[static_cast<size_t>(ib)] += w;
-                    off[static_cast<size_t>(ia)][ib] -= w;
-                    off[static_cast<size_t>(ib)][ia] -= w;
-
-                    const double target_u = (edge.family == warp_family) ? 0.0 : (edge.sign * safe_weft_pitch);
-                    const double target_v = (edge.family == warp_family) ? (edge.sign * safe_warp_pitch) : 0.0;
-                    rhs_u[static_cast<size_t>(ia)] -= w * target_u;
-                    rhs_u[static_cast<size_t>(ib)] += w * target_u;
-                    rhs_v[static_cast<size_t>(ia)] -= w * target_v;
-                    rhs_v[static_cast<size_t>(ib)] += w * target_v;
                 }
 
-                int root_vertex = comp.front();
-                if (static_cast<int>(ci) == preferred_component &&
-                    preferred_origin_vertex >= 0 &&
-                    static_cast<size_t>(preferred_origin_vertex) < vertex_count &&
-                    component_of[static_cast<size_t>(preferred_origin_vertex)] == static_cast<int>(ci))
+                auto count_line_components = [&](const std::vector<std::vector<int>> &adj) {
+                    std::vector<char> visited(vertex_count, 0);
+                    long count = 0;
+                    std::queue<int> queue;
+                    for (size_t v = 0; v < vertex_count; ++v)
+                    {
+                        if (!active[v] || visited[v])
+                        {
+                            continue;
+                        }
+                        visited[v] = 1;
+                        bool has_edge = !adj[v].empty();
+                        queue.push(static_cast<int>(v));
+                        while (!queue.empty())
+                        {
+                            const int cur = queue.front();
+                            queue.pop();
+                            for (int nbr : adj[static_cast<size_t>(cur)])
+                            {
+                                if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
+                                {
+                                    continue;
+                                }
+                                if (visited[static_cast<size_t>(nbr)])
+                                {
+                                    continue;
+                                }
+                                visited[static_cast<size_t>(nbr)] = 1;
+                                queue.push(nbr);
+                            }
+                        }
+                        if (has_edge)
+                        {
+                            ++count;
+                        }
+                    }
+                    return count;
+                };
+
+                pass.warp_line_count = count_line_components(warp_adj);
+                pass.weft_line_count = count_line_components(weft_adj);
+
+                std::queue<int> queue;
+                for (size_t v = 0; v < vertex_count; ++v)
                 {
-                    root_vertex = static_cast<int>(preferred_origin_vertex);
+                    if (!active[v] || pass.component_of[v] != -1)
+                    {
+                        continue;
+                    }
+                    const int cid = static_cast<int>(pass.components.size());
+                    pass.components.push_back({});
+                    pass.component_of[v] = cid;
+                    queue.push(static_cast<int>(v));
+                    while (!queue.empty())
+                    {
+                        const int cur = queue.front();
+                        queue.pop();
+                        pass.components[static_cast<size_t>(cid)].push_back(cur);
+                        for (int nbr : all_adj[static_cast<size_t>(cur)])
+                        {
+                            if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
+                            {
+                                continue;
+                            }
+                            if (pass.component_of[static_cast<size_t>(nbr)] != -1)
+                            {
+                                continue;
+                            }
+                            pass.component_of[static_cast<size_t>(nbr)] = cid;
+                            queue.push(nbr);
+                        }
+                    }
                 }
-                const int root_local = local_index[root_vertex];
-
-                const double anchor_u = std::round((comp_proj_weft[ci] - min_comp_weft) / safe_weft_pitch) * safe_weft_pitch;
-                const double anchor_v = std::round((comp_proj_warp[ci] - min_comp_warp) / safe_warp_pitch) * safe_warp_pitch;
-                seam_anchor_weft[ci] = anchor_u;
-                seam_anchor_warp[ci] = anchor_v;
-
-                std::vector<double> x_u;
-                std::vector<double> x_v;
-                solve_axis(diag, off, rhs_u, root_local, anchor_u, x_u);
-                solve_axis(diag, off, rhs_v, root_local, anchor_v, x_v);
-
-                for (size_t li = 0; li < comp.size(); ++li)
+                if (pass.components.empty())
                 {
-                    const int gv = comp[li];
-                    material_u[static_cast<size_t>(gv)] = x_u[li];
-                    material_v[static_cast<size_t>(gv)] = x_v[li];
+                    return pass;
                 }
+
+                int preferred_component = 0;
+                if (preferred_origin_vertex >= 0 && static_cast<size_t>(preferred_origin_vertex) < vertex_count)
+                {
+                    const int cid = pass.component_of[static_cast<size_t>(preferred_origin_vertex)];
+                    if (cid >= 0)
+                    {
+                        preferred_component = cid;
+                    }
+                }
+                pass.preferred_component = preferred_component;
+
+                std::vector<double> comp_proj_weft(pass.components.size(), 0.0);
+                std::vector<double> comp_proj_warp(pass.components.size(), 0.0);
+                double min_comp_weft = std::numeric_limits<double>::infinity();
+                double min_comp_warp = std::numeric_limits<double>::infinity();
+                for (size_t ci = 0; ci < pass.components.size(); ++ci)
+                {
+                    const auto &comp = pass.components[ci];
+                    if (comp.empty())
+                    {
+                        continue;
+                    }
+                    double sum_weft = 0.0;
+                    double sum_warp = 0.0;
+                    for (int v : comp)
+                    {
+                        const double u = flatten_u[static_cast<size_t>(v)];
+                        const double w = flatten_v[static_cast<size_t>(v)];
+                        sum_weft += u * weft_dir[0] + w * weft_dir[1];
+                        sum_warp += u * warp_dir[0] + w * warp_dir[1];
+                    }
+                    comp_proj_weft[ci] = sum_weft / static_cast<double>(comp.size());
+                    comp_proj_warp[ci] = sum_warp / static_cast<double>(comp.size());
+                    min_comp_weft = std::min(min_comp_weft, comp_proj_weft[ci]);
+                    min_comp_warp = std::min(min_comp_warp, comp_proj_warp[ci]);
+                }
+                if (!std::isfinite(min_comp_weft))
+                {
+                    min_comp_weft = 0.0;
+                }
+                if (!std::isfinite(min_comp_warp))
+                {
+                    min_comp_warp = 0.0;
+                }
+
+                pass.seam_anchor_weft.assign(pass.components.size(), 0.0);
+                pass.seam_anchor_warp.assign(pass.components.size(), 0.0);
+
+                for (size_t ci = 0; ci < pass.components.size(); ++ci)
+                {
+                    const auto &comp = pass.components[ci];
+                    if (comp.empty())
+                    {
+                        continue;
+                    }
+
+                    std::unordered_map<int, int> local_index;
+                    local_index.reserve(comp.size());
+                    for (size_t i = 0; i < comp.size(); ++i)
+                    {
+                        local_index.emplace(comp[i], static_cast<int>(i));
+                    }
+
+                    std::vector<double> diag(comp.size(), 0.0);
+                    std::vector<std::unordered_map<int, double>> off(comp.size());
+                    std::vector<double> rhs_u(comp.size(), 0.0);
+                    std::vector<double> rhs_v(comp.size(), 0.0);
+
+                    for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
+                    {
+                        if (edge_i >= edge_enabled.size() || !edge_enabled[edge_i])
+                        {
+                            continue;
+                        }
+                        const EdgeConstraint &edge = edges[edge_i];
+                        if (edge.a < 0 || edge.b < 0)
+                        {
+                            continue;
+                        }
+                        if (static_cast<size_t>(edge.a) >= vertex_count || static_cast<size_t>(edge.b) >= vertex_count)
+                        {
+                            continue;
+                        }
+                        if (pass.component_of[static_cast<size_t>(edge.a)] != static_cast<int>(ci) ||
+                            pass.component_of[static_cast<size_t>(edge.b)] != static_cast<int>(ci))
+                        {
+                            continue;
+                        }
+                        const auto ita = local_index.find(edge.a);
+                        const auto itb = local_index.find(edge.b);
+                        if (ita == local_index.end() || itb == local_index.end())
+                        {
+                            continue;
+                        }
+                        const int ia = ita->second;
+                        const int ib = itb->second;
+                        const double w = 1.0;
+                        diag[static_cast<size_t>(ia)] += w;
+                        diag[static_cast<size_t>(ib)] += w;
+                        off[static_cast<size_t>(ia)][ib] -= w;
+                        off[static_cast<size_t>(ib)][ia] -= w;
+
+                        const double target_u = (edge.family == warp_family) ? 0.0 : (edge.sign * safe_weft_pitch);
+                        const double target_v = (edge.family == warp_family) ? (edge.sign * safe_warp_pitch) : 0.0;
+                        rhs_u[static_cast<size_t>(ia)] -= w * target_u;
+                        rhs_u[static_cast<size_t>(ib)] += w * target_u;
+                        rhs_v[static_cast<size_t>(ia)] -= w * target_v;
+                        rhs_v[static_cast<size_t>(ib)] += w * target_v;
+                    }
+
+                    int root_vertex = comp.front();
+                    if (static_cast<int>(ci) == preferred_component &&
+                        preferred_origin_vertex >= 0 &&
+                        static_cast<size_t>(preferred_origin_vertex) < vertex_count &&
+                        pass.component_of[static_cast<size_t>(preferred_origin_vertex)] == static_cast<int>(ci))
+                    {
+                        root_vertex = static_cast<int>(preferred_origin_vertex);
+                    }
+                    const int root_local = local_index[root_vertex];
+
+                    const double anchor_u = std::round((comp_proj_weft[ci] - min_comp_weft) / safe_weft_pitch) * safe_weft_pitch;
+                    const double anchor_v = std::round((comp_proj_warp[ci] - min_comp_warp) / safe_warp_pitch) * safe_warp_pitch;
+                    pass.seam_anchor_weft[ci] = anchor_u;
+                    pass.seam_anchor_warp[ci] = anchor_v;
+
+                    std::vector<double> x_u;
+                    std::vector<double> x_v;
+                    solve_axis(diag, off, rhs_u, root_local, anchor_u, x_u);
+                    solve_axis(diag, off, rhs_v, root_local, anchor_v, x_v);
+
+                    for (size_t li = 0; li < comp.size(); ++li)
+                    {
+                        const int gv = comp[li];
+                        pass.material_u[static_cast<size_t>(gv)] = x_u[li];
+                        pass.material_v[static_cast<size_t>(gv)] = x_v[li];
+                    }
+                }
+
+                return pass;
+            };
+
+            auto edge_residual = [&](size_t edge_i, const SolvePassResult &pass) {
+                if (edge_i >= edges.size())
+                {
+                    return 0.0;
+                }
+                const EdgeConstraint &edge = edges[edge_i];
+                if (edge.a < 0 || edge.b < 0 ||
+                    static_cast<size_t>(edge.a) >= vertex_count ||
+                    static_cast<size_t>(edge.b) >= vertex_count)
+                {
+                    return 0.0;
+                }
+                const double du = pass.material_u[static_cast<size_t>(edge.b)] - pass.material_u[static_cast<size_t>(edge.a)];
+                const double dv = pass.material_v[static_cast<size_t>(edge.b)] - pass.material_v[static_cast<size_t>(edge.a)];
+                const double expected_u = (edge.family == warp_family) ? 0.0 : (edge.sign * safe_weft_pitch);
+                const double expected_v = (edge.family == warp_family) ? (edge.sign * safe_warp_pitch) : 0.0;
+                return std::abs(du - expected_u) + std::abs(dv - expected_v);
+            };
+
+            std::vector<char> edge_enabled(edges.size(), 1);
+            SolvePassResult pass = run_transport_solve(edge_enabled);
+
+            auto max_residual_for = [&](const SolvePassResult &p, const std::vector<char> &enabled) {
+                double max_residual = 0.0;
+                for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
+                {
+                    if (edge_i >= enabled.size() || !enabled[edge_i])
+                    {
+                        continue;
+                    }
+                    max_residual = std::max(max_residual, edge_residual(edge_i, p));
+                }
+                return max_residual;
+            };
+
+            const double seam_cut_threshold = 0.35 * std::max(safe_warp_pitch, safe_weft_pitch);
+            outcome.seam_cut_threshold = seam_cut_threshold;
+
+            const long kMaxSeamCuts = 12;
+            for (long iter = 0; iter < kMaxSeamCuts; ++iter)
+            {
+                if (pass.components.empty())
+                {
+                    break;
+                }
+                double worst_residual = -1.0;
+                size_t worst_edge = edges.size();
+                for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
+                {
+                    if (!edge_enabled[edge_i])
+                    {
+                        continue;
+                    }
+                    const double residual = edge_residual(edge_i, pass);
+                    if (residual > worst_residual)
+                    {
+                        worst_residual = residual;
+                        worst_edge = edge_i;
+                    }
+                }
+                if (worst_residual < 0.0 || worst_edge >= edges.size())
+                {
+                    break;
+                }
+                if (iter == 0)
+                {
+                    outcome.seam_cut_max_residual_before = worst_residual;
+                }
+                if (worst_residual <= seam_cut_threshold)
+                {
+                    break;
+                }
+
+                std::vector<char> candidate_enabled = edge_enabled;
+                candidate_enabled[worst_edge] = 0;
+                SolvePassResult candidate_pass = run_transport_solve(candidate_enabled);
+                if (candidate_pass.components.empty())
+                {
+                    break;
+                }
+                const double candidate_max_residual = max_residual_for(candidate_pass, candidate_enabled);
+                if (!(candidate_max_residual + 1.0e-9 < worst_residual))
+                {
+                    break;
+                }
+
+                edge_enabled.swap(candidate_enabled);
+                pass = std::move(candidate_pass);
+                ++outcome.seam_cut_count;
             }
 
-            if (!seam_anchor_weft.empty())
+            if (outcome.seam_cut_max_residual_before <= 0.0)
             {
-                const int ref_component = (preferred_component >= 0 && static_cast<size_t>(preferred_component) < seam_anchor_weft.size())
-                                              ? preferred_component
+                outcome.seam_cut_max_residual_before = max_residual_for(pass, edge_enabled);
+            }
+
+            outcome.seam_cut_max_residual_after = max_residual_for(pass, edge_enabled);
+
+            std::vector<double> material_u = pass.material_u;
+            std::vector<double> material_v = pass.material_v;
+            outcome.warp_line_count = pass.warp_line_count;
+            outcome.weft_line_count = pass.weft_line_count;
+            outcome.component_count = static_cast<long>(pass.components.size());
+            outcome.preferred_component = pass.preferred_component;
+
+            if (!pass.seam_anchor_weft.empty())
+            {
+                const int ref_component = (pass.preferred_component >= 0 && static_cast<size_t>(pass.preferred_component) < pass.seam_anchor_weft.size())
+                                              ? static_cast<int>(pass.preferred_component)
                                               : 0;
-                const double ref_weft = seam_anchor_weft[static_cast<size_t>(ref_component)];
-                const double ref_warp = seam_anchor_warp[static_cast<size_t>(ref_component)];
+                const double ref_weft = pass.seam_anchor_weft[static_cast<size_t>(ref_component)];
+                const double ref_warp = pass.seam_anchor_warp[static_cast<size_t>(ref_component)];
                 double min_weft = std::numeric_limits<double>::infinity();
                 double max_weft = -std::numeric_limits<double>::infinity();
                 double min_warp = std::numeric_limits<double>::infinity();
                 double max_warp = -std::numeric_limits<double>::infinity();
-                for (size_t i = 0; i < seam_anchor_weft.size(); ++i)
+                for (size_t i = 0; i < pass.seam_anchor_weft.size(); ++i)
                 {
-                    const double dw = seam_anchor_weft[i] - ref_weft;
-                    const double dv = seam_anchor_warp[i] - ref_warp;
+                    const double dw = pass.seam_anchor_weft[i] - ref_weft;
+                    const double dv = pass.seam_anchor_warp[i] - ref_warp;
                     min_weft = std::min(min_weft, dw);
                     max_weft = std::max(max_weft, dw);
                     min_warp = std::min(min_warp, dv);
@@ -3290,6 +3426,22 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_seam_offset_warp_span",
                 material_outcome.seam_offset_warp_max - material_outcome.seam_offset_warp_min);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_seam_cut_count",
+                material_outcome.seam_cut_count);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_cut_threshold",
+                material_outcome.seam_cut_threshold);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_cut_max_residual_before",
+                material_outcome.seam_cut_max_residual_before);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_cut_max_residual_after",
+                material_outcome.seam_cut_max_residual_after);
 
             set_dict_string(
                 diagnostics,
@@ -3446,6 +3598,10 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_min", 0.0);
             set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_max", 0.0);
             set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_span", 0.0);
+            set_dict_long(diagnostics, "geodesic_material_seam_cut_count", 0);
+            set_dict_double(diagnostics, "geodesic_material_seam_cut_threshold", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_cut_max_residual_before", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_cut_max_residual_after", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
