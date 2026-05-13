@@ -5083,8 +5083,27 @@ class TestFishnetSolver(unittest.TestCase):
                 str(diagnostics.get("geodesic_material_mode", "")),
                 {"none", "line_component_index", "transport_least_squares"},
             )
+            self.assertIn(
+                str(diagnostics.get("geodesic_material_pitch_source", "")),
+                {
+                    "none",
+                    "fabric_spacing_fallback",
+                    "explicit_both",
+                    "explicit_warp_only",
+                    "explicit_weft_only",
+                    "explicit_invalid_fallback",
+                },
+            )
             self.assertGreaterEqual(
                 int(diagnostics.get("geodesic_material_origin_vertex", -2)),
+                -1,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_material_component_count", -1)),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_material_preferred_component", -2)),
                 -1,
             )
             self.assertGreaterEqual(
@@ -5107,6 +5126,30 @@ class TestFishnetSolver(unittest.TestCase):
                 float(diagnostics.get("geodesic_material_closure_error", -1.0)),
                 0.0,
             )
+            seam_weft_min = float(
+                diagnostics.get("geodesic_material_seam_offset_weft_min", 0.0)
+            )
+            seam_weft_max = float(
+                diagnostics.get("geodesic_material_seam_offset_weft_max", 0.0)
+            )
+            seam_weft_span = float(
+                diagnostics.get("geodesic_material_seam_offset_weft_span", 0.0)
+            )
+            seam_warp_min = float(
+                diagnostics.get("geodesic_material_seam_offset_warp_min", 0.0)
+            )
+            seam_warp_max = float(
+                diagnostics.get("geodesic_material_seam_offset_warp_max", 0.0)
+            )
+            seam_warp_span = float(
+                diagnostics.get("geodesic_material_seam_offset_warp_span", 0.0)
+            )
+            self.assertLessEqual(seam_weft_min, seam_weft_max)
+            self.assertLessEqual(seam_warp_min, seam_warp_max)
+            self.assertGreaterEqual(seam_weft_span, 0.0)
+            self.assertGreaterEqual(seam_warp_span, 0.0)
+            self.assertAlmostEqual(seam_weft_span, seam_weft_max - seam_weft_min, places=6)
+            self.assertAlmostEqual(seam_warp_span, seam_warp_max - seam_warp_min, places=6)
             self.assertGreaterEqual(material_origin_vertex, -1)
             self.assertGreaterEqual(material_closure_error, 0.0)
             if preview_ready:
@@ -5392,6 +5435,72 @@ class TestFishnetSolver(unittest.TestCase):
             len(r0.get("fabric_quads", [])),
             len(r1.get("fabric_quads", [])),
         )
+
+    def test_geodesic_heat_material_pitch_parameters_are_wired(self):
+        points = [
+            (0.0, 0.0, 0.0),
+            (1.0, 0.0, 0.0),
+            (2.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (1.0, 1.0, 0.0),
+            (2.0, 1.0, 0.0),
+            (0.0, 2.0, 0.0),
+            (1.0, 2.0, 0.0),
+            (2.0, 2.0, 0.0),
+        ]
+        faces = [
+            (0, 1, 4),
+            (0, 4, 3),
+            (1, 2, 5),
+            (1, 5, 4),
+            (3, 4, 7),
+            (3, 7, 6),
+            (4, 5, 8),
+            (4, 8, 7),
+        ]
+
+        result = _fishnet.solve(
+            mesh_points=points,
+            mesh_faces=faces,
+            parameters={
+                "algorithm": "geodesic_heat",
+                "seed": 1,
+                "material_warp_pitch_mm": 2.0,
+                "material_weft_pitch_mm": 3.0,
+            },
+        )
+
+        diagnostics = result.get("diagnostics", {})
+        backend_build_enabled = bool(
+            diagnostics.get("geodesic_backend_build_enabled")
+        )
+
+        if backend_build_enabled:
+            self.assertTrue(result["valid"])
+            self.assertAlmostEqual(
+                float(result.get("geodesic_material_warp_pitch_mm", 0.0)),
+                2.0,
+                places=6,
+            )
+            self.assertAlmostEqual(
+                float(result.get("geodesic_material_weft_pitch_mm", 0.0)),
+                3.0,
+                places=6,
+            )
+            self.assertEqual(
+                str(diagnostics.get("geodesic_material_pitch_source", "")),
+                "explicit_both",
+            )
+        else:
+            self.assertFalse(result["valid"])
+            self.assertEqual(
+                float(result.get("geodesic_material_warp_pitch_mm", 0.0)),
+                0.0,
+            )
+            self.assertEqual(
+                float(result.get("geodesic_material_weft_pitch_mm", 0.0)),
+                0.0,
+            )
 
     def test_geodesic_heat_strict_quality_gate_rejects_empty_preview(self):
         points = [

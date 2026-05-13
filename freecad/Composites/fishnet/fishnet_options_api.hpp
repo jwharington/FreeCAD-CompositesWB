@@ -136,6 +136,11 @@ namespace fishnet_internal
         double surface_spacing_edge_tolerance{0.02};
         bool surface_spacing_fail_on_violation{false};
 
+        bool has_material_warp_pitch_mm{false};
+        double material_warp_pitch_mm{0.0};
+        bool has_material_weft_pitch_mm{false};
+        double material_weft_pitch_mm{0.0};
+
         std::string material_model{"woven"};
         double ud_coefficient{0.0};
         bool thickness_correction{false};

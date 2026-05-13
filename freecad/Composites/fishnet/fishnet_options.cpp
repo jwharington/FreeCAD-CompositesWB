@@ -327,6 +327,28 @@ namespace fishnet_internal
         normalized.surface_spacing_strict = param_bool(params_copy, "surface_spacing_strict", false);
         normalized.surface_spacing_edge_tolerance_from_parameter = dict_has_key(params_copy, "surface_spacing_edge_tolerance");
         normalized.surface_spacing_edge_tolerance = kDefaultSurfaceSpacingStrictTolerance;
+
+        normalized.has_material_warp_pitch_mm = dict_has_key(params_copy, "material_warp_pitch_mm");
+        normalized.material_warp_pitch_mm = 0.0;
+        if (normalized.has_material_warp_pitch_mm)
+        {
+            const double parsed = param_double(params_copy, "material_warp_pitch_mm", 0.0);
+            if (std::isfinite(parsed) && parsed > 0.0)
+            {
+                normalized.material_warp_pitch_mm = parsed;
+            }
+        }
+
+        normalized.has_material_weft_pitch_mm = dict_has_key(params_copy, "material_weft_pitch_mm");
+        normalized.material_weft_pitch_mm = 0.0;
+        if (normalized.has_material_weft_pitch_mm)
+        {
+            const double parsed = param_double(params_copy, "material_weft_pitch_mm", 0.0);
+            if (std::isfinite(parsed) && parsed > 0.0)
+            {
+                normalized.material_weft_pitch_mm = parsed;
+            }
+        }
         if (normalized.surface_spacing_edge_tolerance_from_parameter)
         {
             const double parsed_strict_tol = param_double(params_copy, "surface_spacing_edge_tolerance", kDefaultSurfaceSpacingStrictTolerance);

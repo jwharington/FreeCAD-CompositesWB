@@ -1324,9 +1324,16 @@ namespace fishnet_internal
             long origin_vertex = -1;
             long warp_line_count = 0;
             long weft_line_count = 0;
+            long component_count = 0;
+            long preferred_component = -1;
             double warp_pitch_mm = 0.0;
             double weft_pitch_mm = 0.0;
             double closure_error = 0.0;
+            double seam_offset_weft_min = 0.0;
+            double seam_offset_weft_max = 0.0;
+            double seam_offset_warp_min = 0.0;
+            double seam_offset_warp_max = 0.0;
+            std::string pitch_source = "none";
             std::string mode = "none";
         };
 
@@ -1337,6 +1344,8 @@ namespace fishnet_internal
             const std::vector<double> &flatten_v,
             double warp_pitch_mm,
             double weft_pitch_mm,
+            bool has_explicit_warp_pitch,
+            bool has_explicit_weft_pitch,
             long preferred_origin_vertex)
         {
             MaterialCoordinateOutcome outcome{};
@@ -1346,10 +1355,36 @@ namespace fishnet_internal
                 return outcome;
             }
 
-            const double safe_warp_pitch = (std::isfinite(warp_pitch_mm) && warp_pitch_mm > 1.0e-9) ? warp_pitch_mm : 1.0;
-            const double safe_weft_pitch = (std::isfinite(weft_pitch_mm) && weft_pitch_mm > 1.0e-9) ? weft_pitch_mm : 1.0;
+            const bool warp_pitch_explicit_valid = has_explicit_warp_pitch && std::isfinite(warp_pitch_mm) && warp_pitch_mm > 1.0e-9;
+            const bool weft_pitch_explicit_valid = has_explicit_weft_pitch && std::isfinite(weft_pitch_mm) && weft_pitch_mm > 1.0e-9;
+            const double safe_warp_pitch = warp_pitch_explicit_valid
+                                               ? warp_pitch_mm
+                                               : ((std::isfinite(warp_pitch_mm) && warp_pitch_mm > 1.0e-9) ? warp_pitch_mm : 1.0);
+            const double safe_weft_pitch = weft_pitch_explicit_valid
+                                               ? weft_pitch_mm
+                                               : ((std::isfinite(weft_pitch_mm) && weft_pitch_mm > 1.0e-9) ? weft_pitch_mm : 1.0);
             outcome.warp_pitch_mm = safe_warp_pitch;
             outcome.weft_pitch_mm = safe_weft_pitch;
+            if (warp_pitch_explicit_valid && weft_pitch_explicit_valid)
+            {
+                outcome.pitch_source = "explicit_both";
+            }
+            else if (warp_pitch_explicit_valid)
+            {
+                outcome.pitch_source = "explicit_warp_only";
+            }
+            else if (weft_pitch_explicit_valid)
+            {
+                outcome.pitch_source = "explicit_weft_only";
+            }
+            else if (has_explicit_warp_pitch || has_explicit_weft_pitch)
+            {
+                outcome.pitch_source = "explicit_invalid_fallback";
+            }
+            else
+            {
+                outcome.pitch_source = "fabric_spacing_fallback";
+            }
 
             struct EdgeOccurrence
             {
@@ -1684,6 +1719,7 @@ namespace fishnet_internal
                 return outcome;
             }
 
+            outcome.component_count = static_cast<long>(components.size());
             int preferred_component = 0;
             if (preferred_origin_vertex >= 0 && static_cast<size_t>(preferred_origin_vertex) < vertex_count)
             {
@@ -1693,6 +1729,7 @@ namespace fishnet_internal
                     preferred_component = cid;
                 }
             }
+            outcome.preferred_component = preferred_component;
 
             std::vector<double> comp_proj_weft(components.size(), 0.0);
             std::vector<double> comp_proj_warp(components.size(), 0.0);
@@ -1730,6 +1767,8 @@ namespace fishnet_internal
 
             std::vector<double> material_u(vertex_count, 0.0);
             std::vector<double> material_v(vertex_count, 0.0);
+            std::vector<double> seam_anchor_weft(components.size(), 0.0);
+            std::vector<double> seam_anchor_warp(components.size(), 0.0);
 
             auto solve_axis = [](const std::vector<double> &diag,
                                  const std::vector<std::unordered_map<int, double>> &off,
@@ -1856,6 +1895,8 @@ namespace fishnet_internal
 
                 const double anchor_u = std::round((comp_proj_weft[ci] - min_comp_weft) / safe_weft_pitch) * safe_weft_pitch;
                 const double anchor_v = std::round((comp_proj_warp[ci] - min_comp_warp) / safe_warp_pitch) * safe_warp_pitch;
+                seam_anchor_weft[ci] = anchor_u;
+                seam_anchor_warp[ci] = anchor_v;
 
                 std::vector<double> x_u;
                 std::vector<double> x_v;
@@ -1868,6 +1909,32 @@ namespace fishnet_internal
                     material_u[static_cast<size_t>(gv)] = x_u[li];
                     material_v[static_cast<size_t>(gv)] = x_v[li];
                 }
+            }
+
+            if (!seam_anchor_weft.empty())
+            {
+                const int ref_component = (preferred_component >= 0 && static_cast<size_t>(preferred_component) < seam_anchor_weft.size())
+                                              ? preferred_component
+                                              : 0;
+                const double ref_weft = seam_anchor_weft[static_cast<size_t>(ref_component)];
+                const double ref_warp = seam_anchor_warp[static_cast<size_t>(ref_component)];
+                double min_weft = std::numeric_limits<double>::infinity();
+                double max_weft = -std::numeric_limits<double>::infinity();
+                double min_warp = std::numeric_limits<double>::infinity();
+                double max_warp = -std::numeric_limits<double>::infinity();
+                for (size_t i = 0; i < seam_anchor_weft.size(); ++i)
+                {
+                    const double dw = seam_anchor_weft[i] - ref_weft;
+                    const double dv = seam_anchor_warp[i] - ref_warp;
+                    min_weft = std::min(min_weft, dw);
+                    max_weft = std::max(max_weft, dw);
+                    min_warp = std::min(min_warp, dv);
+                    max_warp = std::max(max_warp, dv);
+                }
+                outcome.seam_offset_weft_min = std::isfinite(min_weft) ? min_weft : 0.0;
+                outcome.seam_offset_weft_max = std::isfinite(max_weft) ? max_weft : 0.0;
+                outcome.seam_offset_warp_min = std::isfinite(min_warp) ? min_warp : 0.0;
+                outcome.seam_offset_warp_max = std::isfinite(max_warp) ? max_warp : 0.0;
             }
 
             long origin_vertex = preferred_origin_vertex;
@@ -2766,13 +2833,23 @@ namespace fishnet_internal
             quad_outcome.quads,
             flatten_u,
             flatten_v);
+        const double material_warp_pitch_input =
+            normalized_params.has_material_warp_pitch_mm
+                ? normalized_params.material_warp_pitch_mm
+                : normalized_params.fabric_spacing;
+        const double material_weft_pitch_input =
+            normalized_params.has_material_weft_pitch_mm
+                ? normalized_params.material_weft_pitch_mm
+                : normalized_params.fabric_spacing;
         const MaterialCoordinateOutcome material_outcome = build_material_coordinates(
             quad_outcome.quads,
             flattened_outcome,
             flatten_u,
             flatten_v,
-            normalized_params.fabric_spacing,
-            normalized_params.fabric_spacing,
+            material_warp_pitch_input,
+            material_weft_pitch_input,
+            normalized_params.has_material_warp_pitch_mm,
+            normalized_params.has_material_weft_pitch_mm,
             pair_probe.source_x);
 
         const bool probe_ready =
@@ -3145,6 +3222,10 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_mode",
                 material_outcome.mode);
+            set_dict_string(
+                diagnostics,
+                "geodesic_material_pitch_source",
+                material_outcome.pitch_source);
             set_dict_long(
                 diagnostics,
                 "geodesic_material_point_count",
@@ -3157,6 +3238,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_origin_vertex",
                 material_outcome.origin_vertex);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_component_count",
+                material_outcome.component_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_preferred_component",
+                material_outcome.preferred_component);
             set_dict_long(
                 diagnostics,
                 "geodesic_material_warp_line_count",
@@ -3177,6 +3266,30 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_closure_error",
                 material_outcome.closure_error);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_weft_min",
+                material_outcome.seam_offset_weft_min);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_weft_max",
+                material_outcome.seam_offset_weft_max);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_weft_span",
+                material_outcome.seam_offset_weft_max - material_outcome.seam_offset_weft_min);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_warp_min",
+                material_outcome.seam_offset_warp_min);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_warp_max",
+                material_outcome.seam_offset_warp_max);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_seam_offset_warp_span",
+                material_outcome.seam_offset_warp_max - material_outcome.seam_offset_warp_min);
 
             set_dict_string(
                 diagnostics,
@@ -3316,14 +3429,23 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_flattened_base_root", flattened_base_root);
             set_dict_double(diagnostics, "geodesic_flattened_base_theta_offset", flattened_base_theta_offset);
             set_dict_string(diagnostics, "geodesic_material_mode", "none");
+            set_dict_string(diagnostics, "geodesic_material_pitch_source", "none");
             set_dict_long(diagnostics, "geodesic_material_point_count", 0);
             set_dict_long(diagnostics, "geodesic_material_quad_count", 0);
             set_dict_long(diagnostics, "geodesic_material_origin_vertex", -1);
+            set_dict_long(diagnostics, "geodesic_material_component_count", 0);
+            set_dict_long(diagnostics, "geodesic_material_preferred_component", -1);
             set_dict_long(diagnostics, "geodesic_material_warp_line_count", 0);
             set_dict_long(diagnostics, "geodesic_material_weft_line_count", 0);
             set_dict_double(diagnostics, "geodesic_material_warp_pitch_mm", 0.0);
             set_dict_double(diagnostics, "geodesic_material_weft_pitch_mm", 0.0);
             set_dict_double(diagnostics, "geodesic_material_closure_error", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_weft_min", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_weft_max", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_weft_span", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_min", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_max", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_seam_offset_warp_span", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
