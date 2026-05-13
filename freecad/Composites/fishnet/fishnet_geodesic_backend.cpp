@@ -1351,14 +1351,20 @@ namespace fishnet_internal
             outcome.warp_pitch_mm = safe_warp_pitch;
             outcome.weft_pitch_mm = safe_weft_pitch;
 
-            struct EdgeTag
+            struct EdgeOccurrence
+            {
+                int quad_index = -1;
+                int local_family = 0;
+            };
+            struct EdgeConstraint
             {
                 int a = -1;
                 int b = -1;
                 int family = 0;
+                int sign = 1;
             };
 
-            std::vector<std::vector<int>> selected_quads;
+            std::vector<std::array<int, 4>> selected_quads;
             selected_quads.reserve(flattened_outcome.source_quad_indices.size());
             for (long source_quad_idx : flattened_outcome.source_quad_indices)
             {
@@ -1372,6 +1378,7 @@ namespace fishnet_internal
                     continue;
                 }
                 bool valid = true;
+                std::array<int, 4> out_quad{};
                 for (size_t i = 0; i < 4; ++i)
                 {
                     const int v = quad[i];
@@ -1380,10 +1387,11 @@ namespace fishnet_internal
                         valid = false;
                         break;
                     }
+                    out_quad[i] = v;
                 }
                 if (valid)
                 {
-                    selected_quads.push_back({quad[0], quad[1], quad[2], quad[3]});
+                    selected_quads.push_back(out_quad);
                 }
             }
             if (selected_quads.empty())
@@ -1400,24 +1408,31 @@ namespace fishnet_internal
                 }
             }
 
-            std::unordered_map<std::uint64_t, std::vector<std::pair<int, int>>> edge_occurrences;
+            std::unordered_map<std::uint64_t, std::vector<EdgeOccurrence>> edge_occurrences;
             std::unordered_map<std::uint64_t, std::pair<int, int>> edge_vertices;
             edge_occurrences.reserve(selected_quads.size() * 2);
             edge_vertices.reserve(selected_quads.size() * 2);
 
             for (size_t qi = 0; qi < selected_quads.size(); ++qi)
             {
-                const auto &q = selected_quads[qi];
-                const int cyc[5] = {q[0], q[1], q[2], q[3], q[0]};
+                const auto &quad = selected_quads[qi];
+                const int cyc[5] = {quad[0], quad[1], quad[2], quad[3], quad[0]};
                 for (int e = 0; e < 4; ++e)
                 {
                     const int a = cyc[e];
                     const int b = cyc[e + 1];
                     const int local_family = (e == 0 || e == 2) ? 0 : 1;
                     const std::uint64_t key = edge_key(a, b);
-                    edge_occurrences[key].push_back({static_cast<int>(qi), local_family});
-                    edge_vertices[key] = {std::min(a, b), std::max(a, b)};
+                    edge_occurrences[key].push_back(EdgeOccurrence{static_cast<int>(qi), local_family});
+                    if (edge_vertices.find(key) == edge_vertices.end())
+                    {
+                        edge_vertices.emplace(key, std::make_pair(std::min(a, b), std::max(a, b)));
+                    }
                 }
+            }
+            if (edge_occurrences.empty())
+            {
+                return outcome;
             }
 
             std::vector<std::vector<std::pair<int, int>>> quad_adjacency(selected_quads.size());
@@ -1428,15 +1443,15 @@ namespace fishnet_internal
                 {
                     continue;
                 }
-                const int base_q = occ[0].first;
-                const int base_family = occ[0].second;
+                const int base_q = occ[0].quad_index;
+                const int base_family = occ[0].local_family;
                 for (size_t i = 1; i < occ.size(); ++i)
                 {
-                    const int q = occ[i].first;
-                    const int family = occ[i].second;
+                    const int q = occ[i].quad_index;
+                    const int family = occ[i].local_family;
                     const int parity = base_family ^ family;
-                    quad_adjacency[static_cast<size_t>(base_q)].push_back({q, parity});
-                    quad_adjacency[static_cast<size_t>(q)].push_back({base_q, parity});
+                    quad_adjacency[static_cast<size_t>(base_q)].push_back(std::make_pair(q, parity));
+                    quad_adjacency[static_cast<size_t>(q)].push_back(std::make_pair(base_q, parity));
                 }
             }
 
@@ -1468,53 +1483,45 @@ namespace fishnet_internal
                 }
             }
 
-            std::vector<EdgeTag> edges;
-            edges.reserve(edge_occurrences.size());
-            for (const auto &entry : edge_occurrences)
+            std::vector<EdgeConstraint> edges;
+            edges.reserve(edge_vertices.size());
+            double family_vertical_score[2] = {0.0, 0.0};
+            for (const auto &entry : edge_vertices)
             {
-                const auto &occ = entry.second;
-                if (occ.empty())
+                const std::uint64_t key = entry.first;
+                const int a = entry.second.first;
+                const int b = entry.second.second;
+                const auto it_occ = edge_occurrences.find(key);
+                if (it_occ == edge_occurrences.end() || it_occ->second.empty())
                 {
                     continue;
                 }
-                const int q = occ[0].first;
-                const int local_family = occ[0].second;
-                const int state = (quad_state[static_cast<size_t>(q)] >= 0) ? quad_state[static_cast<size_t>(q)] : 0;
-                const int global_family = state ^ local_family;
-                const auto uv = edge_vertices.find(entry.first);
-                if (uv == edge_vertices.end())
-                {
-                    continue;
-                }
-                edges.push_back(EdgeTag{uv->second.first, uv->second.second, global_family});
+                const EdgeOccurrence occ = it_occ->second.front();
+                const int q = occ.quad_index;
+                const int local_family = occ.local_family;
+                const int state = (q >= 0 && static_cast<size_t>(q) < quad_state.size() && quad_state[static_cast<size_t>(q)] >= 0)
+                                      ? quad_state[static_cast<size_t>(q)]
+                                      : 0;
+                const int global_family = (state ^ local_family) ? 1 : 0;
+                edges.push_back(EdgeConstraint{a, b, global_family, 1});
+
+                const double dx = std::abs(flatten_u[static_cast<size_t>(b)] - flatten_u[static_cast<size_t>(a)]);
+                const double dy = std::abs(flatten_v[static_cast<size_t>(b)] - flatten_v[static_cast<size_t>(a)]);
+                family_vertical_score[global_family] += (dy - dx);
             }
             if (edges.empty())
             {
                 return outcome;
             }
 
-            double family_vertical_score[2] = {0.0, 0.0};
-            long family_edge_count[2] = {0, 0};
-            for (const EdgeTag &edge : edges)
-            {
-                if (edge.a < 0 || edge.b < 0)
-                {
-                    continue;
-                }
-                const double dx = std::abs(flatten_u[static_cast<size_t>(edge.b)] - flatten_u[static_cast<size_t>(edge.a)]);
-                const double dy = std::abs(flatten_v[static_cast<size_t>(edge.b)] - flatten_v[static_cast<size_t>(edge.a)]);
-                const int fam = edge.family == 0 ? 0 : 1;
-                family_vertical_score[fam] += (dy - dx);
-                family_edge_count[fam] += 1;
-            }
             const int warp_family = (family_vertical_score[0] >= family_vertical_score[1]) ? 0 : 1;
 
-            auto family_direction = [&](int family) {
+            auto compute_family_direction = [&](int family) {
                 double c = 0.0;
                 double s = 0.0;
-                for (const EdgeTag &edge : edges)
+                for (const EdgeConstraint &edge : edges)
                 {
-                    if ((edge.family == 0 ? 0 : 1) != family)
+                    if (edge.family != family)
                     {
                         continue;
                     }
@@ -1528,35 +1535,54 @@ namespace fishnet_internal
                     c += (dx * dx - dy * dy) / n2;
                     s += (2.0 * dx * dy) / n2;
                 }
+                std::array<double, 2> dir{};
                 if (std::abs(c) + std::abs(s) <= 1.0e-12)
                 {
-                    return std::array<double, 2>{1.0, 0.0};
-                }
-                const double alpha = 0.5 * std::atan2(s, c);
-                return std::array<double, 2>{std::cos(alpha), std::sin(alpha)};
-            };
-
-            std::array<double, 2> warp_dir = family_direction(warp_family);
-            std::array<double, 2> weft_dir = family_direction(1 - warp_family);
-            {
-                const double proj = weft_dir[0] * warp_dir[0] + weft_dir[1] * warp_dir[1];
-                weft_dir[0] -= proj * warp_dir[0];
-                weft_dir[1] -= proj * warp_dir[1];
-                const double n = std::hypot(weft_dir[0], weft_dir[1]);
-                if (n > 1.0e-12)
-                {
-                    weft_dir[0] /= n;
-                    weft_dir[1] /= n;
+                    dir = (family == warp_family) ? std::array<double, 2>{0.0, 1.0} : std::array<double, 2>{1.0, 0.0};
                 }
                 else
                 {
-                    weft_dir = {-warp_dir[1], warp_dir[0]};
+                    const double alpha = 0.5 * std::atan2(s, c);
+                    dir = std::array<double, 2>{std::cos(alpha), std::sin(alpha)};
                 }
+                const double n = std::hypot(dir[0], dir[1]);
+                if (n > 1.0e-12)
+                {
+                    dir[0] /= n;
+                    dir[1] /= n;
+                }
+                if (family == warp_family)
+                {
+                    if (dir[1] < 0.0)
+                    {
+                        dir[0] *= -1.0;
+                        dir[1] *= -1.0;
+                    }
+                }
+                else if (dir[0] < 0.0)
+                {
+                    dir[0] *= -1.0;
+                    dir[1] *= -1.0;
+                }
+                return dir;
+            };
+
+            const std::array<double, 2> warp_dir = compute_family_direction(warp_family);
+            const std::array<double, 2> weft_dir = compute_family_direction(1 - warp_family);
+
+            for (EdgeConstraint &edge : edges)
+            {
+                const std::array<double, 2> &dir = (edge.family == warp_family) ? warp_dir : weft_dir;
+                const double du = flatten_u[static_cast<size_t>(edge.b)] - flatten_u[static_cast<size_t>(edge.a)];
+                const double dv = flatten_v[static_cast<size_t>(edge.b)] - flatten_v[static_cast<size_t>(edge.a)];
+                const double dot = du * dir[0] + dv * dir[1];
+                edge.sign = (dot >= 0.0) ? 1 : -1;
             }
 
             std::vector<std::vector<int>> warp_adj(vertex_count);
             std::vector<std::vector<int>> weft_adj(vertex_count);
-            for (const EdgeTag &edge : edges)
+            std::vector<std::vector<int>> all_adj(vertex_count);
+            for (const EdgeConstraint &edge : edges)
             {
                 if (edge.a < 0 || edge.b < 0 ||
                     static_cast<size_t>(edge.a) >= vertex_count ||
@@ -1564,7 +1590,9 @@ namespace fishnet_internal
                 {
                     continue;
                 }
-                if ((edge.family == 0 ? 0 : 1) == warp_family)
+                all_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                all_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
+                if (edge.family == warp_family)
                 {
                     warp_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
                     warp_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
@@ -1576,102 +1604,270 @@ namespace fishnet_internal
                 }
             }
 
-            auto compute_components = [&](const std::vector<std::vector<int>> &adj) {
-                std::vector<int> component(vertex_count, -1);
-                std::vector<std::vector<int>> groups;
+            auto count_line_components = [&](const std::vector<std::vector<int>> &adj) {
+                std::vector<char> visited(vertex_count, 0);
+                long count = 0;
                 std::queue<int> queue;
                 for (size_t v = 0; v < vertex_count; ++v)
                 {
-                    if (!active[v] || component[v] != -1)
+                    if (!active[v] || visited[v])
                     {
                         continue;
                     }
-                    const int cid = static_cast<int>(groups.size());
-                    groups.push_back({});
-                    component[v] = cid;
+                    visited[v] = 1;
+                    bool has_edge = !adj[v].empty();
                     queue.push(static_cast<int>(v));
                     while (!queue.empty())
                     {
                         const int cur = queue.front();
                         queue.pop();
-                        groups[static_cast<size_t>(cid)].push_back(cur);
                         for (int nbr : adj[static_cast<size_t>(cur)])
                         {
                             if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
                             {
                                 continue;
                             }
-                            if (component[static_cast<size_t>(nbr)] != -1)
+                            if (visited[static_cast<size_t>(nbr)])
                             {
                                 continue;
                             }
-                            component[static_cast<size_t>(nbr)] = cid;
+                            visited[static_cast<size_t>(nbr)] = 1;
                             queue.push(nbr);
                         }
                     }
+                    if (has_edge)
+                    {
+                        ++count;
+                    }
                 }
-                return std::make_pair(std::move(component), std::move(groups));
+                return count;
             };
 
-            auto warp_components = compute_components(warp_adj);
-            auto weft_components = compute_components(weft_adj);
-            std::vector<int> &warp_component_of = warp_components.first;
-            std::vector<std::vector<int>> &warp_groups = warp_components.second;
-            std::vector<int> &weft_component_of = weft_components.first;
-            std::vector<std::vector<int>> &weft_groups = weft_components.second;
-            outcome.warp_line_count = static_cast<long>(warp_groups.size());
-            outcome.weft_line_count = static_cast<long>(weft_groups.size());
+            outcome.warp_line_count = count_line_components(warp_adj);
+            outcome.weft_line_count = count_line_components(weft_adj);
 
-            auto rank_components = [&](const std::vector<std::vector<int>> &groups, const std::array<double, 2> &axis) {
-                std::vector<std::pair<double, int>> scored;
-                scored.reserve(groups.size());
-                for (size_t i = 0; i < groups.size(); ++i)
-                {
-                    const auto &group = groups[i];
-                    if (group.empty())
-                    {
-                        scored.push_back({0.0, static_cast<int>(i)});
-                        continue;
-                    }
-                    double sum = 0.0;
-                    for (int v : group)
-                    {
-                        sum += flatten_u[static_cast<size_t>(v)] * axis[0] + flatten_v[static_cast<size_t>(v)] * axis[1];
-                    }
-                    scored.push_back({sum / static_cast<double>(group.size()), static_cast<int>(i)});
-                }
-                std::sort(scored.begin(), scored.end(), [](const std::pair<double, int> &lhs, const std::pair<double, int> &rhs) {
-                    if (lhs.first == rhs.first)
-                    {
-                        return lhs.second < rhs.second;
-                    }
-                    return lhs.first < rhs.first;
-                });
-                std::vector<int> rank(groups.size(), 0);
-                for (size_t i = 0; i < scored.size(); ++i)
-                {
-                    rank[static_cast<size_t>(scored[i].second)] = static_cast<int>(i);
-                }
-                return rank;
-            };
-
-            const std::vector<int> warp_rank = rank_components(warp_groups, weft_dir);
-            const std::vector<int> weft_rank = rank_components(weft_groups, warp_dir);
-
-            std::vector<double> material_u(vertex_count, 0.0);
-            std::vector<double> material_v(vertex_count, 0.0);
+            std::vector<int> component_of(vertex_count, -1);
+            std::vector<std::vector<int>> components;
+            std::queue<int> queue;
             for (size_t v = 0; v < vertex_count; ++v)
             {
-                if (!active[v])
+                if (!active[v] || component_of[v] != -1)
                 {
                     continue;
                 }
-                const int wcomp = warp_component_of[v];
-                const int fcomp = weft_component_of[v];
-                const int warp_idx = (wcomp >= 0 && static_cast<size_t>(wcomp) < warp_rank.size()) ? warp_rank[static_cast<size_t>(wcomp)] : 0;
-                const int weft_idx = (fcomp >= 0 && static_cast<size_t>(fcomp) < weft_rank.size()) ? weft_rank[static_cast<size_t>(fcomp)] : 0;
-                material_u[v] = safe_weft_pitch * static_cast<double>(weft_idx);
-                material_v[v] = safe_warp_pitch * static_cast<double>(warp_idx);
+                const int cid = static_cast<int>(components.size());
+                components.push_back({});
+                component_of[v] = cid;
+                queue.push(static_cast<int>(v));
+                while (!queue.empty())
+                {
+                    const int cur = queue.front();
+                    queue.pop();
+                    components[static_cast<size_t>(cid)].push_back(cur);
+                    for (int nbr : all_adj[static_cast<size_t>(cur)])
+                    {
+                        if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
+                        {
+                            continue;
+                        }
+                        if (component_of[static_cast<size_t>(nbr)] != -1)
+                        {
+                            continue;
+                        }
+                        component_of[static_cast<size_t>(nbr)] = cid;
+                        queue.push(nbr);
+                    }
+                }
+            }
+            if (components.empty())
+            {
+                return outcome;
+            }
+
+            int preferred_component = 0;
+            if (preferred_origin_vertex >= 0 && static_cast<size_t>(preferred_origin_vertex) < vertex_count)
+            {
+                const int cid = component_of[static_cast<size_t>(preferred_origin_vertex)];
+                if (cid >= 0)
+                {
+                    preferred_component = cid;
+                }
+            }
+
+            std::vector<double> comp_proj_weft(components.size(), 0.0);
+            std::vector<double> comp_proj_warp(components.size(), 0.0);
+            double min_comp_weft = std::numeric_limits<double>::infinity();
+            double min_comp_warp = std::numeric_limits<double>::infinity();
+            for (size_t ci = 0; ci < components.size(); ++ci)
+            {
+                const auto &comp = components[ci];
+                if (comp.empty())
+                {
+                    continue;
+                }
+                double sum_weft = 0.0;
+                double sum_warp = 0.0;
+                for (int v : comp)
+                {
+                    const double u = flatten_u[static_cast<size_t>(v)];
+                    const double w = flatten_v[static_cast<size_t>(v)];
+                    sum_weft += u * weft_dir[0] + w * weft_dir[1];
+                    sum_warp += u * warp_dir[0] + w * warp_dir[1];
+                }
+                comp_proj_weft[ci] = sum_weft / static_cast<double>(comp.size());
+                comp_proj_warp[ci] = sum_warp / static_cast<double>(comp.size());
+                min_comp_weft = std::min(min_comp_weft, comp_proj_weft[ci]);
+                min_comp_warp = std::min(min_comp_warp, comp_proj_warp[ci]);
+            }
+            if (!std::isfinite(min_comp_weft))
+            {
+                min_comp_weft = 0.0;
+            }
+            if (!std::isfinite(min_comp_warp))
+            {
+                min_comp_warp = 0.0;
+            }
+
+            std::vector<double> material_u(vertex_count, 0.0);
+            std::vector<double> material_v(vertex_count, 0.0);
+
+            auto solve_axis = [](const std::vector<double> &diag,
+                                 const std::vector<std::unordered_map<int, double>> &off,
+                                 const std::vector<double> &rhs,
+                                 int root_index,
+                                 double root_value,
+                                 std::vector<double> &x) {
+                const size_t n = diag.size();
+                if (n == 0)
+                {
+                    return;
+                }
+                x.resize(n, 0.0);
+                if (root_index >= 0 && static_cast<size_t>(root_index) < n)
+                {
+                    x[static_cast<size_t>(root_index)] = root_value;
+                }
+                for (int iter = 0; iter < 300; ++iter)
+                {
+                    double max_delta = 0.0;
+                    for (size_t i = 0; i < n; ++i)
+                    {
+                        if (static_cast<int>(i) == root_index)
+                        {
+                            x[i] = root_value;
+                            continue;
+                        }
+                        if (diag[i] <= 1.0e-12)
+                        {
+                            continue;
+                        }
+                        double sum = rhs[i];
+                        for (const auto &entry : off[i])
+                        {
+                            const int j = entry.first;
+                            const double lij = entry.second;
+                            if (j < 0 || static_cast<size_t>(j) >= n)
+                            {
+                                continue;
+                            }
+                            sum -= lij * x[static_cast<size_t>(j)];
+                        }
+                        const double next = sum / diag[i];
+                        max_delta = std::max(max_delta, std::abs(next - x[i]));
+                        x[i] = next;
+                    }
+                    if (root_index >= 0 && static_cast<size_t>(root_index) < n)
+                    {
+                        x[static_cast<size_t>(root_index)] = root_value;
+                    }
+                    if (max_delta < 1.0e-8)
+                    {
+                        break;
+                    }
+                }
+            };
+
+            for (size_t ci = 0; ci < components.size(); ++ci)
+            {
+                const auto &comp = components[ci];
+                if (comp.empty())
+                {
+                    continue;
+                }
+
+                std::unordered_map<int, int> local_index;
+                local_index.reserve(comp.size());
+                for (size_t i = 0; i < comp.size(); ++i)
+                {
+                    local_index.emplace(comp[i], static_cast<int>(i));
+                }
+
+                std::vector<double> diag(comp.size(), 0.0);
+                std::vector<std::unordered_map<int, double>> off(comp.size());
+                std::vector<double> rhs_u(comp.size(), 0.0);
+                std::vector<double> rhs_v(comp.size(), 0.0);
+
+                for (const EdgeConstraint &edge : edges)
+                {
+                    if (edge.a < 0 || edge.b < 0)
+                    {
+                        continue;
+                    }
+                    if (static_cast<size_t>(edge.a) >= vertex_count || static_cast<size_t>(edge.b) >= vertex_count)
+                    {
+                        continue;
+                    }
+                    if (component_of[static_cast<size_t>(edge.a)] != static_cast<int>(ci) ||
+                        component_of[static_cast<size_t>(edge.b)] != static_cast<int>(ci))
+                    {
+                        continue;
+                    }
+                    const auto ita = local_index.find(edge.a);
+                    const auto itb = local_index.find(edge.b);
+                    if (ita == local_index.end() || itb == local_index.end())
+                    {
+                        continue;
+                    }
+                    const int ia = ita->second;
+                    const int ib = itb->second;
+                    const double w = 1.0;
+                    diag[static_cast<size_t>(ia)] += w;
+                    diag[static_cast<size_t>(ib)] += w;
+                    off[static_cast<size_t>(ia)][ib] -= w;
+                    off[static_cast<size_t>(ib)][ia] -= w;
+
+                    const double target_u = (edge.family == warp_family) ? 0.0 : (edge.sign * safe_weft_pitch);
+                    const double target_v = (edge.family == warp_family) ? (edge.sign * safe_warp_pitch) : 0.0;
+                    rhs_u[static_cast<size_t>(ia)] -= w * target_u;
+                    rhs_u[static_cast<size_t>(ib)] += w * target_u;
+                    rhs_v[static_cast<size_t>(ia)] -= w * target_v;
+                    rhs_v[static_cast<size_t>(ib)] += w * target_v;
+                }
+
+                int root_vertex = comp.front();
+                if (static_cast<int>(ci) == preferred_component &&
+                    preferred_origin_vertex >= 0 &&
+                    static_cast<size_t>(preferred_origin_vertex) < vertex_count &&
+                    component_of[static_cast<size_t>(preferred_origin_vertex)] == static_cast<int>(ci))
+                {
+                    root_vertex = static_cast<int>(preferred_origin_vertex);
+                }
+                const int root_local = local_index[root_vertex];
+
+                const double anchor_u = std::round((comp_proj_weft[ci] - min_comp_weft) / safe_weft_pitch) * safe_weft_pitch;
+                const double anchor_v = std::round((comp_proj_warp[ci] - min_comp_warp) / safe_warp_pitch) * safe_warp_pitch;
+
+                std::vector<double> x_u;
+                std::vector<double> x_v;
+                solve_axis(diag, off, rhs_u, root_local, anchor_u, x_u);
+                solve_axis(diag, off, rhs_v, root_local, anchor_v, x_v);
+
+                for (size_t li = 0; li < comp.size(); ++li)
+                {
+                    const int gv = comp[li];
+                    material_u[static_cast<size_t>(gv)] = x_u[li];
+                    material_v[static_cast<size_t>(gv)] = x_v[li];
+                }
             }
 
             long origin_vertex = preferred_origin_vertex;
@@ -1708,21 +1904,18 @@ namespace fishnet_internal
 
             double closure_sum = 0.0;
             long closure_terms = 0;
-            for (const EdgeTag &edge : edges)
+            for (const EdgeConstraint &edge : edges)
             {
-                const int a = edge.a;
-                const int b = edge.b;
-                if (a < 0 || b < 0 ||
-                    static_cast<size_t>(a) >= vertex_count ||
-                    static_cast<size_t>(b) >= vertex_count)
+                if (edge.a < 0 || edge.b < 0 ||
+                    static_cast<size_t>(edge.a) >= vertex_count ||
+                    static_cast<size_t>(edge.b) >= vertex_count)
                 {
                     continue;
                 }
-                const double du = std::abs(material_u[static_cast<size_t>(b)] - material_u[static_cast<size_t>(a)]);
-                const double dv = std::abs(material_v[static_cast<size_t>(b)] - material_v[static_cast<size_t>(a)]);
-                const bool is_warp_edge = ((edge.family == 0 ? 0 : 1) == warp_family);
-                const double expected_u = is_warp_edge ? safe_weft_pitch : 0.0;
-                const double expected_v = is_warp_edge ? 0.0 : safe_warp_pitch;
+                const double du = material_u[static_cast<size_t>(edge.b)] - material_u[static_cast<size_t>(edge.a)];
+                const double dv = material_v[static_cast<size_t>(edge.b)] - material_v[static_cast<size_t>(edge.a)];
+                const double expected_u = (edge.family == warp_family) ? 0.0 : (edge.sign * safe_weft_pitch);
+                const double expected_v = (edge.family == warp_family) ? (edge.sign * safe_warp_pitch) : 0.0;
                 closure_sum += std::abs(du - expected_u) + std::abs(dv - expected_v);
                 closure_terms += 2;
             }
@@ -1770,7 +1963,7 @@ namespace fishnet_internal
 
             if (!outcome.quads.empty())
             {
-                outcome.mode = "line_component_index";
+                outcome.mode = "transport_least_squares";
             }
             return outcome;
         }
