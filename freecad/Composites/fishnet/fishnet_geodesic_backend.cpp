@@ -1337,6 +1337,8 @@ namespace fishnet_internal
             double seam_cut_threshold = 0.0;
             double seam_cut_max_residual_before = 0.0;
             double seam_cut_max_residual_after = 0.0;
+            long seam_intersection_count_before = 0;
+            long seam_intersection_count_after = 0;
             std::string pitch_source = "none";
             std::string mode = "none";
         };
@@ -1961,9 +1963,6 @@ namespace fishnet_internal
                 return std::abs(du - expected_u) + std::abs(dv - expected_v);
             };
 
-            std::vector<char> edge_enabled(edges.size(), 1);
-            SolvePassResult pass = run_transport_solve(edge_enabled);
-
             auto max_residual_for = [&](const SolvePassResult &p, const std::vector<char> &enabled) {
                 double max_residual = 0.0;
                 for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
@@ -1977,8 +1976,93 @@ namespace fishnet_internal
                 return max_residual;
             };
 
+            auto intersection_counts_for = [&](const SolvePassResult &p,
+                                               const std::vector<char> &enabled,
+                                               std::vector<long> *edge_hits) {
+                if (edge_hits)
+                {
+                    edge_hits->assign(edges.size(), 0);
+                }
+                auto orient2d = [](double ax, double ay, double bx, double by, double cx, double cy) {
+                    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+                };
+                auto proper_intersects = [&](const EdgeConstraint &ea, const EdgeConstraint &eb) {
+                    const int a = ea.a;
+                    const int b = ea.b;
+                    const int c = eb.a;
+                    const int d = eb.b;
+                    if (a == c || a == d || b == c || b == d)
+                    {
+                        return false;
+                    }
+                    const double ax = p.material_u[static_cast<size_t>(a)];
+                    const double ay = p.material_v[static_cast<size_t>(a)];
+                    const double bx = p.material_u[static_cast<size_t>(b)];
+                    const double by = p.material_v[static_cast<size_t>(b)];
+                    const double cx = p.material_u[static_cast<size_t>(c)];
+                    const double cy = p.material_v[static_cast<size_t>(c)];
+                    const double dx = p.material_u[static_cast<size_t>(d)];
+                    const double dy = p.material_v[static_cast<size_t>(d)];
+
+                    const double o1 = orient2d(ax, ay, bx, by, cx, cy);
+                    const double o2 = orient2d(ax, ay, bx, by, dx, dy);
+                    const double o3 = orient2d(cx, cy, dx, dy, ax, ay);
+                    const double o4 = orient2d(cx, cy, dx, dy, bx, by);
+                    constexpr double kEps = 1.0e-9;
+                    return (o1 * o2 < -kEps) && (o3 * o4 < -kEps);
+                };
+
+                long intersection_count = 0;
+                for (size_t i = 0; i < edges.size(); ++i)
+                {
+                    if (i >= enabled.size() || !enabled[i])
+                    {
+                        continue;
+                    }
+                    const EdgeConstraint &ea = edges[i];
+                    if (ea.a < 0 || ea.b < 0 ||
+                        static_cast<size_t>(ea.a) >= vertex_count ||
+                        static_cast<size_t>(ea.b) >= vertex_count)
+                    {
+                        continue;
+                    }
+                    for (size_t j = i + 1; j < edges.size(); ++j)
+                    {
+                        if (j >= enabled.size() || !enabled[j])
+                        {
+                            continue;
+                        }
+                        const EdgeConstraint &eb = edges[j];
+                        if (eb.a < 0 || eb.b < 0 ||
+                            static_cast<size_t>(eb.a) >= vertex_count ||
+                            static_cast<size_t>(eb.b) >= vertex_count)
+                        {
+                            continue;
+                        }
+                        if (!proper_intersects(ea, eb))
+                        {
+                            continue;
+                        }
+                        ++intersection_count;
+                        if (edge_hits)
+                        {
+                            (*edge_hits)[i] += 1;
+                            (*edge_hits)[j] += 1;
+                        }
+                    }
+                }
+                return intersection_count;
+            };
+
+            std::vector<char> edge_enabled(edges.size(), 1);
+            SolvePassResult pass = run_transport_solve(edge_enabled);
+
             const double seam_cut_threshold = 0.35 * std::max(safe_warp_pitch, safe_weft_pitch);
             outcome.seam_cut_threshold = seam_cut_threshold;
+
+            std::vector<long> edge_intersection_hits;
+            long current_intersections = intersection_counts_for(pass, edge_enabled, &edge_intersection_hits);
+            outcome.seam_intersection_count_before = current_intersections;
 
             const long kMaxSeamCuts = 12;
             for (long iter = 0; iter < kMaxSeamCuts; ++iter)
@@ -1996,12 +2080,24 @@ namespace fishnet_internal
                         continue;
                     }
                     const double residual = edge_residual(edge_i, pass);
-                    if (residual > worst_residual)
+                    const long hit_count = (edge_i < edge_intersection_hits.size()) ? edge_intersection_hits[edge_i] : 0;
+                    const long best_hit_count = (worst_edge < edge_intersection_hits.size()) ? edge_intersection_hits[worst_edge] : -1;
+                    if (current_intersections > 0)
+                    {
+                        if (hit_count > best_hit_count ||
+                            (hit_count == best_hit_count && residual > worst_residual))
+                        {
+                            worst_residual = residual;
+                            worst_edge = edge_i;
+                        }
+                    }
+                    else if (residual > worst_residual)
                     {
                         worst_residual = residual;
                         worst_edge = edge_i;
                     }
                 }
+
                 if (worst_residual < 0.0 || worst_edge >= edges.size())
                 {
                     break;
@@ -2010,7 +2106,7 @@ namespace fishnet_internal
                 {
                     outcome.seam_cut_max_residual_before = worst_residual;
                 }
-                if (worst_residual <= seam_cut_threshold)
+                if (current_intersections <= 0 && worst_residual <= seam_cut_threshold)
                 {
                     break;
                 }
@@ -2023,13 +2119,25 @@ namespace fishnet_internal
                     break;
                 }
                 const double candidate_max_residual = max_residual_for(candidate_pass, candidate_enabled);
-                if (!(candidate_max_residual + 1.0e-9 < worst_residual))
+                std::vector<long> candidate_hits;
+                const long candidate_intersections = intersection_counts_for(candidate_pass, candidate_enabled, &candidate_hits);
+
+                const bool improved_intersections = candidate_intersections < current_intersections;
+                const bool improved_residual = candidate_max_residual + 1.0e-9 < worst_residual;
+                const bool accept =
+                    (current_intersections > 0)
+                        ? (improved_intersections || (candidate_intersections == current_intersections && improved_residual))
+                        : improved_residual;
+
+                if (!accept)
                 {
                     break;
                 }
 
                 edge_enabled.swap(candidate_enabled);
                 pass = std::move(candidate_pass);
+                edge_intersection_hits.swap(candidate_hits);
+                current_intersections = candidate_intersections;
                 ++outcome.seam_cut_count;
             }
 
@@ -2039,6 +2147,7 @@ namespace fishnet_internal
             }
 
             outcome.seam_cut_max_residual_after = max_residual_for(pass, edge_enabled);
+            outcome.seam_intersection_count_after = intersection_counts_for(pass, edge_enabled, nullptr);
 
             std::vector<double> material_u = pass.material_u;
             std::vector<double> material_v = pass.material_v;
@@ -3442,6 +3551,14 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_seam_cut_max_residual_after",
                 material_outcome.seam_cut_max_residual_after);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_seam_intersection_count_before",
+                material_outcome.seam_intersection_count_before);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_seam_intersection_count_after",
+                material_outcome.seam_intersection_count_after);
 
             set_dict_string(
                 diagnostics,
@@ -3602,6 +3719,8 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_material_seam_cut_threshold", 0.0);
             set_dict_double(diagnostics, "geodesic_material_seam_cut_max_residual_before", 0.0);
             set_dict_double(diagnostics, "geodesic_material_seam_cut_max_residual_after", 0.0);
+            set_dict_long(diagnostics, "geodesic_material_seam_intersection_count_before", 0);
+            set_dict_long(diagnostics, "geodesic_material_seam_intersection_count_after", 0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
