@@ -18,6 +18,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1339,6 +1340,7 @@ namespace fishnet_internal
             double seam_cut_max_residual_after = 0.0;
             long seam_intersection_count_before = 0;
             long seam_intersection_count_after = 0;
+            long seam_pruned_quad_count = 0;
             std::string pitch_source = "none";
             std::string mode = "none";
         };
@@ -2149,6 +2151,15 @@ namespace fishnet_internal
             outcome.seam_cut_max_residual_after = max_residual_for(pass, edge_enabled);
             outcome.seam_intersection_count_after = intersection_counts_for(pass, edge_enabled, nullptr);
 
+            std::unordered_set<std::uint64_t> disabled_edge_keys;
+            for (size_t edge_i = 0; edge_i < edges.size(); ++edge_i)
+            {
+                if (edge_i < edge_enabled.size() && !edge_enabled[edge_i])
+                {
+                    disabled_edge_keys.insert(edge_key(edges[edge_i].a, edges[edge_i].b));
+                }
+            }
+
             std::vector<double> material_u = pass.material_u;
             std::vector<double> material_v = pass.material_v;
             outcome.warp_line_count = pass.warp_line_count;
@@ -2244,6 +2255,24 @@ namespace fishnet_internal
                 {
                     continue;
                 }
+
+                bool touches_cut = false;
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const int a = quad[i];
+                    const int b = quad[(i + 1) % 4];
+                    if (disabled_edge_keys.find(edge_key(a, b)) != disabled_edge_keys.end())
+                    {
+                        touches_cut = true;
+                        break;
+                    }
+                }
+                if (touches_cut)
+                {
+                    ++outcome.seam_pruned_quad_count;
+                    continue;
+                }
+
                 std::vector<int> out_quad;
                 out_quad.reserve(4);
                 bool valid = true;
@@ -3559,6 +3588,10 @@ namespace fishnet_internal
                 diagnostics,
                 "geodesic_material_seam_intersection_count_after",
                 material_outcome.seam_intersection_count_after);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_seam_pruned_quad_count",
+                material_outcome.seam_pruned_quad_count);
 
             set_dict_string(
                 diagnostics,
@@ -3721,6 +3754,7 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_material_seam_cut_max_residual_after", 0.0);
             set_dict_long(diagnostics, "geodesic_material_seam_intersection_count_before", 0);
             set_dict_long(diagnostics, "geodesic_material_seam_intersection_count_after", 0);
+            set_dict_long(diagnostics, "geodesic_material_seam_pruned_quad_count", 0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");

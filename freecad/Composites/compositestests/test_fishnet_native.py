@@ -5162,6 +5162,9 @@ class TestFishnetSolver(unittest.TestCase):
             seam_intersections_after = int(
                 diagnostics.get("geodesic_material_seam_intersection_count_after", -1)
             )
+            seam_pruned_quads = int(
+                diagnostics.get("geodesic_material_seam_pruned_quad_count", -1)
+            )
             self.assertLessEqual(seam_weft_min, seam_weft_max)
             self.assertLessEqual(seam_warp_min, seam_warp_max)
             self.assertGreaterEqual(seam_weft_span, 0.0)
@@ -5174,6 +5177,7 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertGreaterEqual(seam_cut_after, 0.0)
             self.assertGreaterEqual(seam_intersections_before, 0)
             self.assertGreaterEqual(seam_intersections_after, 0)
+            self.assertGreaterEqual(seam_pruned_quads, 0)
             self.assertGreaterEqual(seam_cut_before + 1e-9, seam_cut_after)
             self.assertGreaterEqual(seam_intersections_before, seam_intersections_after)
             self.assertGreaterEqual(material_origin_vertex, -1)
