@@ -18,6 +18,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "fishnet_python_util.hpp"
@@ -1315,6 +1316,465 @@ namespace fishnet_internal
             std::string strategy = "none";
         };
 
+        struct MaterialCoordinateOutcome
+        {
+            std::vector<Vec3> points;
+            std::vector<std::vector<int>> quads;
+            std::vector<long> source_quad_indices;
+            long origin_vertex = -1;
+            long warp_line_count = 0;
+            long weft_line_count = 0;
+            double warp_pitch_mm = 0.0;
+            double weft_pitch_mm = 0.0;
+            double closure_error = 0.0;
+            std::string mode = "none";
+        };
+
+        MaterialCoordinateOutcome build_material_coordinates(
+            const std::vector<std::vector<int>> &source_quads,
+            const FlattenedUvChartOutcome &flattened_outcome,
+            const std::vector<double> &flatten_u,
+            const std::vector<double> &flatten_v,
+            double warp_pitch_mm,
+            double weft_pitch_mm,
+            long preferred_origin_vertex)
+        {
+            MaterialCoordinateOutcome outcome{};
+            const size_t vertex_count = std::min(flatten_u.size(), flatten_v.size());
+            if (vertex_count == 0 || source_quads.empty() || flattened_outcome.source_quad_indices.empty())
+            {
+                return outcome;
+            }
+
+            const double safe_warp_pitch = (std::isfinite(warp_pitch_mm) && warp_pitch_mm > 1.0e-9) ? warp_pitch_mm : 1.0;
+            const double safe_weft_pitch = (std::isfinite(weft_pitch_mm) && weft_pitch_mm > 1.0e-9) ? weft_pitch_mm : 1.0;
+            outcome.warp_pitch_mm = safe_warp_pitch;
+            outcome.weft_pitch_mm = safe_weft_pitch;
+
+            struct EdgeTag
+            {
+                int a = -1;
+                int b = -1;
+                int family = 0;
+            };
+
+            std::vector<std::vector<int>> selected_quads;
+            selected_quads.reserve(flattened_outcome.source_quad_indices.size());
+            for (long source_quad_idx : flattened_outcome.source_quad_indices)
+            {
+                if (source_quad_idx < 0 || static_cast<size_t>(source_quad_idx) >= source_quads.size())
+                {
+                    continue;
+                }
+                const auto &quad = source_quads[static_cast<size_t>(source_quad_idx)];
+                if (quad.size() < 4)
+                {
+                    continue;
+                }
+                bool valid = true;
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const int v = quad[i];
+                    if (v < 0 || static_cast<size_t>(v) >= vertex_count)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid)
+                {
+                    selected_quads.push_back({quad[0], quad[1], quad[2], quad[3]});
+                }
+            }
+            if (selected_quads.empty())
+            {
+                return outcome;
+            }
+
+            std::vector<char> active(vertex_count, 0);
+            for (const auto &quad : selected_quads)
+            {
+                for (int v : quad)
+                {
+                    active[static_cast<size_t>(v)] = 1;
+                }
+            }
+
+            std::unordered_map<std::uint64_t, std::vector<std::pair<int, int>>> edge_occurrences;
+            std::unordered_map<std::uint64_t, std::pair<int, int>> edge_vertices;
+            edge_occurrences.reserve(selected_quads.size() * 2);
+            edge_vertices.reserve(selected_quads.size() * 2);
+
+            for (size_t qi = 0; qi < selected_quads.size(); ++qi)
+            {
+                const auto &q = selected_quads[qi];
+                const int cyc[5] = {q[0], q[1], q[2], q[3], q[0]};
+                for (int e = 0; e < 4; ++e)
+                {
+                    const int a = cyc[e];
+                    const int b = cyc[e + 1];
+                    const int local_family = (e == 0 || e == 2) ? 0 : 1;
+                    const std::uint64_t key = edge_key(a, b);
+                    edge_occurrences[key].push_back({static_cast<int>(qi), local_family});
+                    edge_vertices[key] = {std::min(a, b), std::max(a, b)};
+                }
+            }
+
+            std::vector<std::vector<std::pair<int, int>>> quad_adjacency(selected_quads.size());
+            for (const auto &entry : edge_occurrences)
+            {
+                const auto &occ = entry.second;
+                if (occ.size() < 2)
+                {
+                    continue;
+                }
+                const int base_q = occ[0].first;
+                const int base_family = occ[0].second;
+                for (size_t i = 1; i < occ.size(); ++i)
+                {
+                    const int q = occ[i].first;
+                    const int family = occ[i].second;
+                    const int parity = base_family ^ family;
+                    quad_adjacency[static_cast<size_t>(base_q)].push_back({q, parity});
+                    quad_adjacency[static_cast<size_t>(q)].push_back({base_q, parity});
+                }
+            }
+
+            std::vector<int> quad_state(selected_quads.size(), -1);
+            std::queue<int> quad_queue;
+            for (size_t root = 0; root < selected_quads.size(); ++root)
+            {
+                if (quad_state[root] != -1)
+                {
+                    continue;
+                }
+                quad_state[root] = 0;
+                quad_queue.push(static_cast<int>(root));
+                while (!quad_queue.empty())
+                {
+                    const int cur = quad_queue.front();
+                    quad_queue.pop();
+                    for (const auto &adj : quad_adjacency[static_cast<size_t>(cur)])
+                    {
+                        const int next = adj.first;
+                        const int parity = adj.second;
+                        const int expected = quad_state[static_cast<size_t>(cur)] ^ parity;
+                        if (quad_state[static_cast<size_t>(next)] == -1)
+                        {
+                            quad_state[static_cast<size_t>(next)] = expected;
+                            quad_queue.push(next);
+                        }
+                    }
+                }
+            }
+
+            std::vector<EdgeTag> edges;
+            edges.reserve(edge_occurrences.size());
+            for (const auto &entry : edge_occurrences)
+            {
+                const auto &occ = entry.second;
+                if (occ.empty())
+                {
+                    continue;
+                }
+                const int q = occ[0].first;
+                const int local_family = occ[0].second;
+                const int state = (quad_state[static_cast<size_t>(q)] >= 0) ? quad_state[static_cast<size_t>(q)] : 0;
+                const int global_family = state ^ local_family;
+                const auto uv = edge_vertices.find(entry.first);
+                if (uv == edge_vertices.end())
+                {
+                    continue;
+                }
+                edges.push_back(EdgeTag{uv->second.first, uv->second.second, global_family});
+            }
+            if (edges.empty())
+            {
+                return outcome;
+            }
+
+            double family_vertical_score[2] = {0.0, 0.0};
+            long family_edge_count[2] = {0, 0};
+            for (const EdgeTag &edge : edges)
+            {
+                if (edge.a < 0 || edge.b < 0)
+                {
+                    continue;
+                }
+                const double dx = std::abs(flatten_u[static_cast<size_t>(edge.b)] - flatten_u[static_cast<size_t>(edge.a)]);
+                const double dy = std::abs(flatten_v[static_cast<size_t>(edge.b)] - flatten_v[static_cast<size_t>(edge.a)]);
+                const int fam = edge.family == 0 ? 0 : 1;
+                family_vertical_score[fam] += (dy - dx);
+                family_edge_count[fam] += 1;
+            }
+            const int warp_family = (family_vertical_score[0] >= family_vertical_score[1]) ? 0 : 1;
+
+            auto family_direction = [&](int family) {
+                double c = 0.0;
+                double s = 0.0;
+                for (const EdgeTag &edge : edges)
+                {
+                    if ((edge.family == 0 ? 0 : 1) != family)
+                    {
+                        continue;
+                    }
+                    const double dx = flatten_u[static_cast<size_t>(edge.b)] - flatten_u[static_cast<size_t>(edge.a)];
+                    const double dy = flatten_v[static_cast<size_t>(edge.b)] - flatten_v[static_cast<size_t>(edge.a)];
+                    const double n2 = dx * dx + dy * dy;
+                    if (n2 <= 1.0e-16)
+                    {
+                        continue;
+                    }
+                    c += (dx * dx - dy * dy) / n2;
+                    s += (2.0 * dx * dy) / n2;
+                }
+                if (std::abs(c) + std::abs(s) <= 1.0e-12)
+                {
+                    return std::array<double, 2>{1.0, 0.0};
+                }
+                const double alpha = 0.5 * std::atan2(s, c);
+                return std::array<double, 2>{std::cos(alpha), std::sin(alpha)};
+            };
+
+            std::array<double, 2> warp_dir = family_direction(warp_family);
+            std::array<double, 2> weft_dir = family_direction(1 - warp_family);
+            {
+                const double proj = weft_dir[0] * warp_dir[0] + weft_dir[1] * warp_dir[1];
+                weft_dir[0] -= proj * warp_dir[0];
+                weft_dir[1] -= proj * warp_dir[1];
+                const double n = std::hypot(weft_dir[0], weft_dir[1]);
+                if (n > 1.0e-12)
+                {
+                    weft_dir[0] /= n;
+                    weft_dir[1] /= n;
+                }
+                else
+                {
+                    weft_dir = {-warp_dir[1], warp_dir[0]};
+                }
+            }
+
+            std::vector<std::vector<int>> warp_adj(vertex_count);
+            std::vector<std::vector<int>> weft_adj(vertex_count);
+            for (const EdgeTag &edge : edges)
+            {
+                if (edge.a < 0 || edge.b < 0 ||
+                    static_cast<size_t>(edge.a) >= vertex_count ||
+                    static_cast<size_t>(edge.b) >= vertex_count)
+                {
+                    continue;
+                }
+                if ((edge.family == 0 ? 0 : 1) == warp_family)
+                {
+                    warp_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                    warp_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
+                }
+                else
+                {
+                    weft_adj[static_cast<size_t>(edge.a)].push_back(edge.b);
+                    weft_adj[static_cast<size_t>(edge.b)].push_back(edge.a);
+                }
+            }
+
+            auto compute_components = [&](const std::vector<std::vector<int>> &adj) {
+                std::vector<int> component(vertex_count, -1);
+                std::vector<std::vector<int>> groups;
+                std::queue<int> queue;
+                for (size_t v = 0; v < vertex_count; ++v)
+                {
+                    if (!active[v] || component[v] != -1)
+                    {
+                        continue;
+                    }
+                    const int cid = static_cast<int>(groups.size());
+                    groups.push_back({});
+                    component[v] = cid;
+                    queue.push(static_cast<int>(v));
+                    while (!queue.empty())
+                    {
+                        const int cur = queue.front();
+                        queue.pop();
+                        groups[static_cast<size_t>(cid)].push_back(cur);
+                        for (int nbr : adj[static_cast<size_t>(cur)])
+                        {
+                            if (nbr < 0 || static_cast<size_t>(nbr) >= vertex_count)
+                            {
+                                continue;
+                            }
+                            if (component[static_cast<size_t>(nbr)] != -1)
+                            {
+                                continue;
+                            }
+                            component[static_cast<size_t>(nbr)] = cid;
+                            queue.push(nbr);
+                        }
+                    }
+                }
+                return std::make_pair(std::move(component), std::move(groups));
+            };
+
+            auto warp_components = compute_components(warp_adj);
+            auto weft_components = compute_components(weft_adj);
+            std::vector<int> &warp_component_of = warp_components.first;
+            std::vector<std::vector<int>> &warp_groups = warp_components.second;
+            std::vector<int> &weft_component_of = weft_components.first;
+            std::vector<std::vector<int>> &weft_groups = weft_components.second;
+            outcome.warp_line_count = static_cast<long>(warp_groups.size());
+            outcome.weft_line_count = static_cast<long>(weft_groups.size());
+
+            auto rank_components = [&](const std::vector<std::vector<int>> &groups, const std::array<double, 2> &axis) {
+                std::vector<std::pair<double, int>> scored;
+                scored.reserve(groups.size());
+                for (size_t i = 0; i < groups.size(); ++i)
+                {
+                    const auto &group = groups[i];
+                    if (group.empty())
+                    {
+                        scored.push_back({0.0, static_cast<int>(i)});
+                        continue;
+                    }
+                    double sum = 0.0;
+                    for (int v : group)
+                    {
+                        sum += flatten_u[static_cast<size_t>(v)] * axis[0] + flatten_v[static_cast<size_t>(v)] * axis[1];
+                    }
+                    scored.push_back({sum / static_cast<double>(group.size()), static_cast<int>(i)});
+                }
+                std::sort(scored.begin(), scored.end(), [](const std::pair<double, int> &lhs, const std::pair<double, int> &rhs) {
+                    if (lhs.first == rhs.first)
+                    {
+                        return lhs.second < rhs.second;
+                    }
+                    return lhs.first < rhs.first;
+                });
+                std::vector<int> rank(groups.size(), 0);
+                for (size_t i = 0; i < scored.size(); ++i)
+                {
+                    rank[static_cast<size_t>(scored[i].second)] = static_cast<int>(i);
+                }
+                return rank;
+            };
+
+            const std::vector<int> warp_rank = rank_components(warp_groups, weft_dir);
+            const std::vector<int> weft_rank = rank_components(weft_groups, warp_dir);
+
+            std::vector<double> material_u(vertex_count, 0.0);
+            std::vector<double> material_v(vertex_count, 0.0);
+            for (size_t v = 0; v < vertex_count; ++v)
+            {
+                if (!active[v])
+                {
+                    continue;
+                }
+                const int wcomp = warp_component_of[v];
+                const int fcomp = weft_component_of[v];
+                const int warp_idx = (wcomp >= 0 && static_cast<size_t>(wcomp) < warp_rank.size()) ? warp_rank[static_cast<size_t>(wcomp)] : 0;
+                const int weft_idx = (fcomp >= 0 && static_cast<size_t>(fcomp) < weft_rank.size()) ? weft_rank[static_cast<size_t>(fcomp)] : 0;
+                material_u[v] = safe_weft_pitch * static_cast<double>(weft_idx);
+                material_v[v] = safe_warp_pitch * static_cast<double>(warp_idx);
+            }
+
+            long origin_vertex = preferred_origin_vertex;
+            if (origin_vertex < 0 || static_cast<size_t>(origin_vertex) >= vertex_count || !active[static_cast<size_t>(origin_vertex)])
+            {
+                origin_vertex = -1;
+                for (size_t v = 0; v < vertex_count; ++v)
+                {
+                    if (active[v])
+                    {
+                        origin_vertex = static_cast<long>(v);
+                        break;
+                    }
+                }
+            }
+            outcome.origin_vertex = origin_vertex;
+
+            double origin_u = 0.0;
+            double origin_v = 0.0;
+            if (origin_vertex >= 0 && static_cast<size_t>(origin_vertex) < vertex_count)
+            {
+                origin_u = material_u[static_cast<size_t>(origin_vertex)];
+                origin_v = material_v[static_cast<size_t>(origin_vertex)];
+            }
+            for (size_t v = 0; v < vertex_count; ++v)
+            {
+                if (!active[v])
+                {
+                    continue;
+                }
+                material_u[v] -= origin_u;
+                material_v[v] -= origin_v;
+            }
+
+            double closure_sum = 0.0;
+            long closure_terms = 0;
+            for (const EdgeTag &edge : edges)
+            {
+                const int a = edge.a;
+                const int b = edge.b;
+                if (a < 0 || b < 0 ||
+                    static_cast<size_t>(a) >= vertex_count ||
+                    static_cast<size_t>(b) >= vertex_count)
+                {
+                    continue;
+                }
+                const double du = std::abs(material_u[static_cast<size_t>(b)] - material_u[static_cast<size_t>(a)]);
+                const double dv = std::abs(material_v[static_cast<size_t>(b)] - material_v[static_cast<size_t>(a)]);
+                const bool is_warp_edge = ((edge.family == 0 ? 0 : 1) == warp_family);
+                const double expected_u = is_warp_edge ? safe_weft_pitch : 0.0;
+                const double expected_v = is_warp_edge ? 0.0 : safe_warp_pitch;
+                closure_sum += std::abs(du - expected_u) + std::abs(dv - expected_v);
+                closure_terms += 2;
+            }
+            outcome.closure_error = closure_terms > 0 ? (closure_sum / static_cast<double>(closure_terms)) : 0.0;
+
+            for (long source_quad_idx : flattened_outcome.source_quad_indices)
+            {
+                if (source_quad_idx < 0 || static_cast<size_t>(source_quad_idx) >= source_quads.size())
+                {
+                    continue;
+                }
+                const auto &quad = source_quads[static_cast<size_t>(source_quad_idx)];
+                if (quad.size() < 4)
+                {
+                    continue;
+                }
+                std::vector<int> out_quad;
+                out_quad.reserve(4);
+                bool valid = true;
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const int v = quad[i];
+                    if (v < 0 || static_cast<size_t>(v) >= vertex_count)
+                    {
+                        valid = false;
+                        break;
+                    }
+                    const int out_idx = static_cast<int>(outcome.points.size());
+                    outcome.points.push_back(Vec3{material_u[static_cast<size_t>(v)], material_v[static_cast<size_t>(v)], 0.0});
+                    out_quad.push_back(out_idx);
+                }
+                if (valid)
+                {
+                    outcome.quads.push_back(std::move(out_quad));
+                    outcome.source_quad_indices.push_back(source_quad_idx);
+                }
+                else
+                {
+                    for (size_t i = 0; i < out_quad.size(); ++i)
+                    {
+                        outcome.points.pop_back();
+                    }
+                }
+            }
+
+            if (!outcome.quads.empty())
+            {
+                outcome.mode = "line_component_index";
+            }
+            return outcome;
+        }
+
         FlattenedUvChartOutcome build_flattened_uv_charts(
             const std::vector<std::vector<int>> &quads,
             const std::vector<double> &phi_gx,
@@ -1863,7 +2323,8 @@ namespace fishnet_internal
             const std::vector<double> &phi_gx,
             const std::vector<double> &phi_gy,
             const PreviewQuadBuildOutcome &quad_outcome,
-            const FlattenedUvChartOutcome &flattened_outcome)
+            const FlattenedUvChartOutcome &flattened_outcome,
+            const MaterialCoordinateOutcome &material_outcome)
         {
             if (!params_copy)
             {
@@ -1951,6 +2412,13 @@ namespace fishnet_internal
                 set_result_quad_list(result, "geodesic_flattened_quads", flattened_outcome.quads);
                 set_result_long_list(result, "geodesic_flattened_source_quad_indices", flattened_outcome.source_quad_indices);
                 set_dict_long(result, "geodesic_flattened_chart_count", flattened_outcome.chart_count);
+                set_result_vec3_list(result, "geodesic_material_points", material_outcome.points);
+                set_result_quad_list(result, "geodesic_material_quads", material_outcome.quads);
+                set_result_long_list(result, "geodesic_material_source_quad_indices", material_outcome.source_quad_indices);
+                set_dict_long(result, "geodesic_material_origin_vertex", material_outcome.origin_vertex);
+                set_dict_double(result, "geodesic_material_warp_pitch_mm", material_outcome.warp_pitch_mm);
+                set_dict_double(result, "geodesic_material_weft_pitch_mm", material_outcome.weft_pitch_mm);
+                set_dict_double(result, "geodesic_material_closure_error", material_outcome.closure_error);
             }
 
             Py_DECREF(empty_list);
@@ -2105,6 +2573,14 @@ namespace fishnet_internal
             quad_outcome.quads,
             flatten_u,
             flatten_v);
+        const MaterialCoordinateOutcome material_outcome = build_material_coordinates(
+            quad_outcome.quads,
+            flattened_outcome,
+            flatten_u,
+            flatten_v,
+            normalized_params.fabric_spacing,
+            normalized_params.fabric_spacing,
+            pair_probe.source_x);
 
         const bool probe_ready =
             compute_probe.status == "success" &&
@@ -2135,7 +2611,8 @@ namespace fishnet_internal
                 pair_probe.phi_gx,
                 pair_probe.phi_gy,
                 quad_outcome,
-                flattened_outcome);
+                flattened_outcome,
+                material_outcome);
         }
         else if (quality_gate_failed)
         {
@@ -2160,6 +2637,7 @@ namespace fishnet_internal
 #else
         const PreviewQuadBuildOutcome quad_outcome{};
         const FlattenedUvChartOutcome flattened_outcome{};
+        const MaterialCoordinateOutcome material_outcome{};
         const std::string flattened_base_mode = "skipped";
         const UvOrientationStats flattened_orientation_stats{};
         const long flattened_base_overlap_pairs = 0;
@@ -2472,6 +2950,43 @@ namespace fishnet_internal
 
             set_dict_string(
                 diagnostics,
+                "geodesic_material_mode",
+                material_outcome.mode);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_point_count",
+                static_cast<long>(material_outcome.points.size()));
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_quad_count",
+                static_cast<long>(material_outcome.quads.size()));
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_origin_vertex",
+                material_outcome.origin_vertex);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_warp_line_count",
+                material_outcome.warp_line_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_material_weft_line_count",
+                material_outcome.weft_line_count);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_warp_pitch_mm",
+                material_outcome.warp_pitch_mm);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_weft_pitch_mm",
+                material_outcome.weft_pitch_mm);
+            set_dict_double(
+                diagnostics,
+                "geodesic_material_closure_error",
+                material_outcome.closure_error);
+
+            set_dict_string(
+                diagnostics,
                 "geodesic_backend_prefactor_cache_status",
                 bundle.cache_status);
             set_dict_bool(
@@ -2512,6 +3027,34 @@ namespace fishnet_internal
                 result,
                 "geodesic_field_vertex_count",
                 pair_probe.status == "success" ? static_cast<long>(pair_probe.phi_gx.size()) : 0);
+            set_result_vec3_list(
+                result,
+                "geodesic_material_points",
+                preview_ready ? material_outcome.points : std::vector<Vec3>{});
+            set_result_quad_list(
+                result,
+                "geodesic_material_quads",
+                preview_ready ? material_outcome.quads : std::vector<std::vector<int>>{});
+            set_result_long_list(
+                result,
+                "geodesic_material_source_quad_indices",
+                preview_ready ? material_outcome.source_quad_indices : std::vector<long>{});
+            set_dict_long(
+                result,
+                "geodesic_material_origin_vertex",
+                preview_ready ? material_outcome.origin_vertex : -1);
+            set_dict_double(
+                result,
+                "geodesic_material_warp_pitch_mm",
+                preview_ready ? material_outcome.warp_pitch_mm : 0.0);
+            set_dict_double(
+                result,
+                "geodesic_material_weft_pitch_mm",
+                preview_ready ? material_outcome.weft_pitch_mm : 0.0);
+            set_dict_double(
+                result,
+                "geodesic_material_closure_error",
+                preview_ready ? material_outcome.closure_error : 0.0);
 #else
             set_dict_string(diagnostics, "geodesic_backend_capability", "not_compiled");
             set_dict_string(diagnostics, "geodesic_backend_status", "build_disabled");
@@ -2579,6 +3122,15 @@ namespace fishnet_internal
             set_dict_long(diagnostics, "geodesic_flattened_base_overlap_pair_count", 0);
             set_dict_long(diagnostics, "geodesic_flattened_base_root", flattened_base_root);
             set_dict_double(diagnostics, "geodesic_flattened_base_theta_offset", flattened_base_theta_offset);
+            set_dict_string(diagnostics, "geodesic_material_mode", "none");
+            set_dict_long(diagnostics, "geodesic_material_point_count", 0);
+            set_dict_long(diagnostics, "geodesic_material_quad_count", 0);
+            set_dict_long(diagnostics, "geodesic_material_origin_vertex", -1);
+            set_dict_long(diagnostics, "geodesic_material_warp_line_count", 0);
+            set_dict_long(diagnostics, "geodesic_material_weft_line_count", 0);
+            set_dict_double(diagnostics, "geodesic_material_warp_pitch_mm", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_weft_pitch_mm", 0.0);
+            set_dict_double(diagnostics, "geodesic_material_closure_error", 0.0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
@@ -2592,6 +3144,13 @@ namespace fishnet_internal
             set_result_double_list(result, "geodesic_phi_gy", std::vector<double>{});
             set_result_source_vertices(result, -1, -1);
             set_dict_long(result, "geodesic_field_vertex_count", 0);
+            set_result_vec3_list(result, "geodesic_material_points", std::vector<Vec3>{});
+            set_result_quad_list(result, "geodesic_material_quads", std::vector<std::vector<int>>{});
+            set_result_long_list(result, "geodesic_material_source_quad_indices", std::vector<long>{});
+            set_dict_long(result, "geodesic_material_origin_vertex", -1);
+            set_dict_double(result, "geodesic_material_warp_pitch_mm", 0.0);
+            set_dict_double(result, "geodesic_material_weft_pitch_mm", 0.0);
+            set_dict_double(result, "geodesic_material_closure_error", 0.0);
 #endif
             set_dict_long(diagnostics, "geodesic_input_vertex_count", vertex_count);
             set_dict_long(diagnostics, "geodesic_input_face_count", face_count);
@@ -2638,6 +3197,34 @@ namespace fishnet_internal
             if (!PyDict_GetItemString(result, "geodesic_flattened_chart_count"))
             {
                 set_dict_long(result, "geodesic_flattened_chart_count", 0);
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_points"))
+            {
+                set_result_vec3_list(result, "geodesic_material_points", std::vector<Vec3>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_quads"))
+            {
+                set_result_quad_list(result, "geodesic_material_quads", std::vector<std::vector<int>>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_source_quad_indices"))
+            {
+                set_result_long_list(result, "geodesic_material_source_quad_indices", std::vector<long>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_origin_vertex"))
+            {
+                set_dict_long(result, "geodesic_material_origin_vertex", -1);
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_warp_pitch_mm"))
+            {
+                set_dict_double(result, "geodesic_material_warp_pitch_mm", 0.0);
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_weft_pitch_mm"))
+            {
+                set_dict_double(result, "geodesic_material_weft_pitch_mm", 0.0);
+            }
+            if (!PyDict_GetItemString(result, "geodesic_material_closure_error"))
+            {
+                set_dict_double(result, "geodesic_material_closure_error", 0.0);
             }
         }
 

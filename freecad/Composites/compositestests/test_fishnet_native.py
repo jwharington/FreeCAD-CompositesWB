@@ -5050,6 +5050,72 @@ class TestFishnetSolver(unittest.TestCase):
                 0,
             )
 
+            material_points = result.get("geodesic_material_points", [])
+            material_quads = result.get("geodesic_material_quads", [])
+            material_source_quad_indices = result.get(
+                "geodesic_material_source_quad_indices", []
+            )
+            material_origin_vertex = int(
+                result.get("geodesic_material_origin_vertex", -2)
+            )
+            material_warp_pitch_mm = float(
+                result.get("geodesic_material_warp_pitch_mm", -1.0)
+            )
+            material_weft_pitch_mm = float(
+                result.get("geodesic_material_weft_pitch_mm", -1.0)
+            )
+            material_closure_error = float(
+                result.get("geodesic_material_closure_error", -1.0)
+            )
+            self.assertIsInstance(material_points, (list, tuple))
+            self.assertIsInstance(material_quads, (list, tuple))
+            self.assertIsInstance(material_source_quad_indices, (list, tuple))
+            self.assertEqual(
+                len(material_points),
+                int(diagnostics.get("geodesic_material_point_count", -1)),
+            )
+            self.assertEqual(
+                len(material_quads),
+                int(diagnostics.get("geodesic_material_quad_count", -1)),
+            )
+            self.assertEqual(len(material_source_quad_indices), len(material_quads))
+            self.assertIn(
+                str(diagnostics.get("geodesic_material_mode", "")),
+                {"none", "line_component_index"},
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_material_origin_vertex", -2)),
+                -1,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_material_warp_line_count", -1)),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_material_weft_line_count", -1)),
+                0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_material_warp_pitch_mm", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_material_weft_pitch_mm", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_material_closure_error", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(material_origin_vertex, -1)
+            self.assertGreaterEqual(material_closure_error, 0.0)
+            if preview_ready:
+                self.assertGreater(material_warp_pitch_mm, 0.0)
+                self.assertGreater(material_weft_pitch_mm, 0.0)
+            else:
+                self.assertEqual(material_warp_pitch_mm, 0.0)
+                self.assertEqual(material_weft_pitch_mm, 0.0)
+
             quad_candidates = int(
                 diagnostics.get("geodesic_preview_quad_candidate_count", -1)
             )
