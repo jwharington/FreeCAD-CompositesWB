@@ -13,6 +13,7 @@
 #include <exception>
 #include <limits>
 #include <memory>
+#include <queue>
 #include <set>
 #include <string>
 #include <tuple>
@@ -715,6 +716,36 @@ namespace fishnet_internal
             Py_DECREF(list_obj);
         }
 
+        void set_result_vec3_list(PyObject *result, const char *key, const std::vector<Vec3> &values)
+        {
+            if (!result || !PyDict_Check(result) || !key)
+            {
+                return;
+            }
+            PyObject *list_obj = build_vec3_list(values);
+            if (!list_obj)
+            {
+                return;
+            }
+            PyDict_SetItemString(result, key, list_obj);
+            Py_DECREF(list_obj);
+        }
+
+        void set_result_quad_list(PyObject *result, const char *key, const std::vector<std::vector<int>> &values)
+        {
+            if (!result || !PyDict_Check(result) || !key)
+            {
+                return;
+            }
+            PyObject *list_obj = build_quad_list(values);
+            if (!list_obj)
+            {
+                return;
+            }
+            PyDict_SetItemString(result, key, list_obj);
+            Py_DECREF(list_obj);
+        }
+
         void set_result_source_vertices(PyObject *result, long source_x, long source_y)
         {
             if (!result || !PyDict_Check(result))
@@ -728,6 +759,242 @@ namespace fishnet_internal
             }
             PyDict_SetItemString(result, "geodesic_source_vertices", pair_obj);
             Py_DECREF(pair_obj);
+        }
+
+        struct UvOrientationStats
+        {
+            long positive_count = 0;
+            long negative_count = 0;
+            double flip_ratio = 0.0;
+        };
+
+        UvOrientationStats compute_uv_orientation_stats(
+            const std::vector<std::array<int, 3>> &triangles,
+            const std::vector<double> &u,
+            const std::vector<double> &v)
+        {
+            UvOrientationStats stats{};
+            constexpr double kAreaEps = 1e-12;
+            for (const auto &tri : triangles)
+            {
+                const int a = tri[0];
+                const int b = tri[1];
+                const int c = tri[2];
+                if (a < 0 || b < 0 || c < 0)
+                {
+                    continue;
+                }
+                const size_t sa = static_cast<size_t>(a);
+                const size_t sb = static_cast<size_t>(b);
+                const size_t sc = static_cast<size_t>(c);
+                if (sa >= u.size() || sb >= u.size() || sc >= u.size() ||
+                    sa >= v.size() || sb >= v.size() || sc >= v.size())
+                {
+                    continue;
+                }
+                const double area = 0.5 * ((u[sb] - u[sa]) * (v[sc] - v[sa]) - (v[sb] - v[sa]) * (u[sc] - u[sa]));
+                if (area > kAreaEps)
+                {
+                    ++stats.positive_count;
+                }
+                else if (area < -kAreaEps)
+                {
+                    ++stats.negative_count;
+                }
+            }
+            const double total = static_cast<double>(stats.positive_count + stats.negative_count);
+            if (total > 0.0)
+            {
+                stats.flip_ratio = static_cast<double>(std::min(stats.positive_count, stats.negative_count)) / total;
+            }
+            return stats;
+        }
+
+        bool build_axial_unwrap_uv(
+            const std::vector<Vec3> &points,
+            const std::vector<std::array<int, 3>> &triangles,
+            long preferred_root,
+            std::vector<double> &out_u,
+            std::vector<double> &out_v)
+        {
+            if (points.empty())
+            {
+                return false;
+            }
+
+            Vec3 centroid{0.0, 0.0, 0.0};
+            for (const Vec3 &p : points)
+            {
+                centroid = centroid + p;
+            }
+            centroid = centroid * (1.0 / static_cast<double>(points.size()));
+
+            double cov[3][3] = {{0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}, {0.0, 0.0, 0.0}};
+            for (const Vec3 &p : points)
+            {
+                const Vec3 d = p - centroid;
+                const double c[3] = {d.x, d.y, d.z};
+                for (int i = 0; i < 3; ++i)
+                {
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        cov[i][j] += c[i] * c[j];
+                    }
+                }
+            }
+
+            auto vec_dot = [](const Vec3 &a, const Vec3 &b) {
+                return a.x * b.x + a.y * b.y + a.z * b.z;
+            };
+            auto vec_norm = [&](const Vec3 &a) {
+                return std::sqrt(vec_dot(a, a));
+            };
+            auto vec_cross = [](const Vec3 &a, const Vec3 &b) {
+                return Vec3{
+                    a.y * b.z - a.z * b.y,
+                    a.z * b.x - a.x * b.z,
+                    a.x * b.y - a.y * b.x};
+            };
+
+            Vec3 axis{0.0, 0.0, 1.0};
+            for (int iter = 0; iter < 24; ++iter)
+            {
+                const Vec3 next{
+                    cov[0][0] * axis.x + cov[0][1] * axis.y + cov[0][2] * axis.z,
+                    cov[1][0] * axis.x + cov[1][1] * axis.y + cov[1][2] * axis.z,
+                    cov[2][0] * axis.x + cov[2][1] * axis.y + cov[2][2] * axis.z};
+                const double n = vec_norm(next);
+                if (!(n > 1e-12))
+                {
+                    break;
+                }
+                axis = next * (1.0 / n);
+            }
+            if (!(vec_norm(axis) > 1e-12))
+            {
+                return false;
+            }
+
+            const Vec3 ref = (std::abs(axis.x) < 0.9) ? Vec3{1.0, 0.0, 0.0} : Vec3{0.0, 1.0, 0.0};
+            Vec3 e1 = vec_cross(axis, ref);
+            if (!(vec_norm(e1) > 1e-12))
+            {
+                e1 = vec_cross(axis, Vec3{0.0, 0.0, 1.0});
+            }
+            if (!(vec_norm(e1) > 1e-12))
+            {
+                return false;
+            }
+            e1 = e1 * (1.0 / vec_norm(e1));
+            Vec3 e2 = vec_cross(axis, e1);
+            if (!(vec_norm(e2) > 1e-12))
+            {
+                return false;
+            }
+            e2 = e2 * (1.0 / vec_norm(e2));
+
+            std::vector<double> t(points.size(), 0.0);
+            std::vector<double> r(points.size(), 0.0);
+            std::vector<double> theta(points.size(), 0.0);
+            for (size_t i = 0; i < points.size(); ++i)
+            {
+                const Vec3 d = points[i] - centroid;
+                const double ti = vec_dot(d, axis);
+                t[i] = ti;
+                const Vec3 radial = d - axis * ti;
+                const double ri = vec_norm(radial);
+                r[i] = ri;
+                const double x = vec_dot(radial, e1);
+                const double y = vec_dot(radial, e2);
+                theta[i] = std::atan2(y, x);
+            }
+
+            std::vector<std::vector<int>> adjacency(points.size());
+            for (const auto &tri : triangles)
+            {
+                const int a = tri[0];
+                const int b = tri[1];
+                const int c = tri[2];
+                if (a < 0 || b < 0 || c < 0)
+                {
+                    continue;
+                }
+                if (static_cast<size_t>(a) >= points.size() ||
+                    static_cast<size_t>(b) >= points.size() ||
+                    static_cast<size_t>(c) >= points.size())
+                {
+                    continue;
+                }
+                adjacency[static_cast<size_t>(a)].push_back(b);
+                adjacency[static_cast<size_t>(a)].push_back(c);
+                adjacency[static_cast<size_t>(b)].push_back(a);
+                adjacency[static_cast<size_t>(b)].push_back(c);
+                adjacency[static_cast<size_t>(c)].push_back(a);
+                adjacency[static_cast<size_t>(c)].push_back(b);
+            }
+
+            const double two_pi = 2.0 * std::acos(-1.0);
+            std::vector<double> theta_unwrapped(points.size(), 0.0);
+            std::vector<char> visited(points.size(), 0);
+            std::queue<int> queue;
+            std::vector<size_t> roots;
+            roots.reserve(points.size());
+            if (preferred_root >= 0 && static_cast<size_t>(preferred_root) < points.size())
+            {
+                roots.push_back(static_cast<size_t>(preferred_root));
+            }
+            for (size_t i = 0; i < points.size(); ++i)
+            {
+                if (roots.empty() || i != roots.front())
+                {
+                    roots.push_back(i);
+                }
+            }
+
+            for (size_t root : roots)
+            {
+                if (visited[root])
+                {
+                    continue;
+                }
+                visited[root] = 1;
+                theta_unwrapped[root] = theta[root];
+                queue.push(static_cast<int>(root));
+                while (!queue.empty())
+                {
+                    const int cur = queue.front();
+                    queue.pop();
+                    const double base = theta_unwrapped[static_cast<size_t>(cur)];
+                    for (int nbr : adjacency[static_cast<size_t>(cur)])
+                    {
+                        const size_t snbr = static_cast<size_t>(nbr);
+                        const double raw = theta[snbr];
+                        const double k_real = std::round((base - raw) / two_pi);
+                        const double candidate = raw + two_pi * k_real;
+                        if (!visited[snbr])
+                        {
+                            visited[snbr] = 1;
+                            theta_unwrapped[snbr] = candidate;
+                            queue.push(nbr);
+                        }
+                    }
+                }
+            }
+
+            out_u.assign(points.size(), 0.0);
+            out_v.assign(points.size(), 0.0);
+            for (size_t i = 0; i < points.size(); ++i)
+            {
+                out_u[i] = theta_unwrapped[i] * r[i];
+                out_v[i] = t[i];
+                if (!std::isfinite(out_u[i]) || !std::isfinite(out_v[i]))
+                {
+                    out_u.clear();
+                    out_v.clear();
+                    return false;
+                }
+            }
+            return true;
         }
 
         std::uint64_t edge_key(int a, int b)
@@ -892,6 +1159,97 @@ namespace fishnet_internal
             return min_overlap > kOverlapEps;
         }
 
+        long count_uv_overlap_pairs_for_quads(
+            const std::vector<std::vector<int>> &quads,
+            const std::vector<double> &u,
+            const std::vector<double> &v)
+        {
+            std::vector<std::array<UvPoint2, 4>> uv_quads;
+            uv_quads.reserve(quads.size());
+            for (const auto &quad : quads)
+            {
+                if (quad.size() < 4)
+                {
+                    continue;
+                }
+                bool valid = true;
+                std::vector<int> ordered;
+                ordered.reserve(4);
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const int idx = quad[i];
+                    if (idx < 0 || static_cast<size_t>(idx) >= u.size() || static_cast<size_t>(idx) >= v.size())
+                    {
+                        valid = false;
+                        break;
+                    }
+                    ordered.push_back(idx);
+                }
+                if (!valid)
+                {
+                    continue;
+                }
+                uv_quads.push_back(uv_quad_points_from_ordered(ordered, u, v));
+            }
+
+            long overlap_pairs = 0;
+            for (size_t i = 0; i < uv_quads.size(); ++i)
+            {
+                for (size_t j = i + 1; j < uv_quads.size(); ++j)
+                {
+                    if (convex_quad_overlaps_with_positive_area(uv_quads[i], uv_quads[j]))
+                    {
+                        ++overlap_pairs;
+                    }
+                }
+            }
+            return overlap_pairs;
+        }
+
+        std::vector<int> collect_boundary_vertices(
+            const std::vector<std::array<int, 3>> &triangles,
+            size_t vertex_count)
+        {
+            std::unordered_map<std::uint64_t, int> edge_counts;
+            edge_counts.reserve(triangles.size() * 3);
+            for (const auto &tri : triangles)
+            {
+                edge_counts[edge_key(tri[0], tri[1])] += 1;
+                edge_counts[edge_key(tri[1], tri[2])] += 1;
+                edge_counts[edge_key(tri[2], tri[0])] += 1;
+            }
+
+            std::vector<char> is_boundary(vertex_count, 0);
+            for (const auto &entry : edge_counts)
+            {
+                if (entry.second != 1)
+                {
+                    continue;
+                }
+                const std::uint64_t key = entry.first;
+                const int a = static_cast<int>(static_cast<std::uint32_t>(key >> 32));
+                const int b = static_cast<int>(static_cast<std::uint32_t>(key & 0xffffffffULL));
+                if (a >= 0 && static_cast<size_t>(a) < vertex_count)
+                {
+                    is_boundary[static_cast<size_t>(a)] = 1;
+                }
+                if (b >= 0 && static_cast<size_t>(b) < vertex_count)
+                {
+                    is_boundary[static_cast<size_t>(b)] = 1;
+                }
+            }
+
+            std::vector<int> boundary;
+            for (size_t i = 0; i < vertex_count; ++i)
+            {
+                if (is_boundary[i])
+                {
+                    boundary.push_back(static_cast<int>(i));
+                }
+            }
+            return boundary;
+        }
+
         struct PreviewQuadBuildOutcome
         {
             std::vector<std::vector<int>> quads;
@@ -917,6 +1275,181 @@ namespace fishnet_internal
             double max_uv_edge_ratio_threshold = 0.0;
             double max_uv_edge_length_threshold = 0.0;
         };
+
+        struct FlattenedUvChartOutcome
+        {
+            std::vector<Vec3> points;
+            std::vector<std::vector<int>> quads;
+            long chart_count = 0;
+            long overlap_pair_count = 0;
+        };
+
+        FlattenedUvChartOutcome build_flattened_uv_charts(
+            const std::vector<std::vector<int>> &quads,
+            const std::vector<double> &phi_gx,
+            const std::vector<double> &phi_gy)
+        {
+            FlattenedUvChartOutcome outcome{};
+            struct QuadEntry
+            {
+                std::array<UvPoint2, 4> uv{};
+            };
+
+            std::vector<QuadEntry> entries;
+            entries.reserve(quads.size());
+            for (const auto &quad : quads)
+            {
+                if (quad.size() < 4)
+                {
+                    continue;
+                }
+                bool valid = true;
+                std::vector<int> ordered;
+                ordered.reserve(4);
+                for (size_t i = 0; i < 4; ++i)
+                {
+                    const int idx = quad[i];
+                    if (idx < 0 || static_cast<size_t>(idx) >= phi_gx.size() || static_cast<size_t>(idx) >= phi_gy.size())
+                    {
+                        valid = false;
+                        break;
+                    }
+                    ordered.push_back(idx);
+                }
+                if (!valid)
+                {
+                    continue;
+                }
+                QuadEntry entry{};
+                entry.uv = uv_quad_points_from_ordered(ordered, phi_gx, phi_gy);
+                entries.push_back(entry);
+            }
+
+            const size_t count = entries.size();
+            if (count == 0)
+            {
+                return outcome;
+            }
+
+            std::vector<std::vector<int>> overlaps(count);
+            for (size_t i = 0; i < count; ++i)
+            {
+                for (size_t j = i + 1; j < count; ++j)
+                {
+                    if (convex_quad_overlaps_with_positive_area(entries[i].uv, entries[j].uv))
+                    {
+                        overlaps[i].push_back(static_cast<int>(j));
+                        overlaps[j].push_back(static_cast<int>(i));
+                        ++outcome.overlap_pair_count;
+                    }
+                }
+            }
+
+            std::vector<int> order(count);
+            for (size_t i = 0; i < count; ++i)
+            {
+                order[i] = static_cast<int>(i);
+            }
+            std::sort(order.begin(), order.end(), [&](int lhs, int rhs) {
+                const size_t dl = overlaps[static_cast<size_t>(lhs)].size();
+                const size_t dr = overlaps[static_cast<size_t>(rhs)].size();
+                if (dl == dr)
+                {
+                    return lhs < rhs;
+                }
+                return dl > dr;
+            });
+
+            std::vector<int> colors(count, -1);
+            int max_color = -1;
+            for (int idx : order)
+            {
+                std::set<int> used;
+                for (int neighbor : overlaps[static_cast<size_t>(idx)])
+                {
+                    const int c = colors[static_cast<size_t>(neighbor)];
+                    if (c >= 0)
+                    {
+                        used.insert(c);
+                    }
+                }
+                int color = 0;
+                while (used.find(color) != used.end())
+                {
+                    ++color;
+                }
+                colors[static_cast<size_t>(idx)] = color;
+                max_color = std::max(max_color, color);
+            }
+
+            const int chart_count = max_color + 1;
+            outcome.chart_count = chart_count > 0 ? static_cast<long>(chart_count) : 0;
+            if (chart_count <= 0)
+            {
+                return outcome;
+            }
+
+            std::vector<double> chart_min_u(static_cast<size_t>(chart_count), std::numeric_limits<double>::infinity());
+            std::vector<double> chart_max_u(static_cast<size_t>(chart_count), -std::numeric_limits<double>::infinity());
+            for (size_t i = 0; i < count; ++i)
+            {
+                const int c = colors[i];
+                if (c < 0)
+                {
+                    continue;
+                }
+                for (const UvPoint2 &pt : entries[i].uv)
+                {
+                    chart_min_u[static_cast<size_t>(c)] = std::min(chart_min_u[static_cast<size_t>(c)], pt.u);
+                    chart_max_u[static_cast<size_t>(c)] = std::max(chart_max_u[static_cast<size_t>(c)], pt.u);
+                }
+            }
+
+            double global_u_min = std::numeric_limits<double>::infinity();
+            double global_u_max = -std::numeric_limits<double>::infinity();
+            for (const QuadEntry &entry : entries)
+            {
+                for (const UvPoint2 &pt : entry.uv)
+                {
+                    global_u_min = std::min(global_u_min, pt.u);
+                    global_u_max = std::max(global_u_max, pt.u);
+                }
+            }
+            const double global_u_span = std::max(1.0e-6, global_u_max - global_u_min);
+            const double chart_gap = 0.1 * global_u_span;
+
+            std::vector<double> chart_shift(static_cast<size_t>(chart_count), 0.0);
+            double cursor = 0.0;
+            for (int c = 0; c < chart_count; ++c)
+            {
+                const size_t ci = static_cast<size_t>(c);
+                const double min_u = std::isfinite(chart_min_u[ci]) ? chart_min_u[ci] : 0.0;
+                const double max_u = std::isfinite(chart_max_u[ci]) ? chart_max_u[ci] : min_u;
+                const double width = std::max(1.0e-6, max_u - min_u);
+                chart_shift[ci] = cursor - min_u;
+                cursor += width + chart_gap;
+            }
+
+            outcome.points.reserve(count * 4);
+            outcome.quads.reserve(count);
+            for (size_t i = 0; i < count; ++i)
+            {
+                const int c = colors[i];
+                const double du = (c >= 0) ? chart_shift[static_cast<size_t>(c)] : 0.0;
+                std::vector<int> out_quad;
+                out_quad.reserve(4);
+                for (size_t k = 0; k < 4; ++k)
+                {
+                    const UvPoint2 &pt = entries[i].uv[k];
+                    const int out_index = static_cast<int>(outcome.points.size());
+                    outcome.points.push_back(Vec3{pt.u + du, pt.v, 0.0});
+                    out_quad.push_back(out_index);
+                }
+                outcome.quads.push_back(std::move(out_quad));
+            }
+
+            return outcome;
+        }
 
         PreviewQuadBuildOutcome build_geodesic_preview_quads(
             const std::vector<std::array<int, 3>> &triangles,
@@ -1223,7 +1756,8 @@ namespace fishnet_internal
             const std::vector<std::array<int, 3>> &triangles,
             const std::vector<double> &phi_gx,
             const std::vector<double> &phi_gy,
-            const PreviewQuadBuildOutcome &quad_outcome)
+            const PreviewQuadBuildOutcome &quad_outcome,
+            const FlattenedUvChartOutcome &flattened_outcome)
         {
             if (!params_copy)
             {
@@ -1307,6 +1841,9 @@ namespace fishnet_internal
             if (result)
             {
                 attach_solver_metadata(result, params_copy, "geodesic_field_preview", true, nullptr);
+                set_result_vec3_list(result, "geodesic_flattened_points", flattened_outcome.points);
+                set_result_quad_list(result, "geodesic_flattened_quads", flattened_outcome.quads);
+                set_dict_long(result, "geodesic_flattened_chart_count", flattened_outcome.chart_count);
             }
 
             Py_DECREF(empty_list);
@@ -1376,12 +1913,74 @@ namespace fishnet_internal
         const ComputeProbeOutcome &compute_probe = bundle.compute;
         const PairProbeOutcome &pair_probe = bundle.pair;
         const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
+
         const PreviewQuadBuildOutcome quad_outcome = build_geodesic_preview_quads(
             triangles,
             pair_probe.phi_gx,
             pair_probe.phi_gy,
             points.size(),
             quality_gate_enabled);
+
+        std::vector<double> flatten_u = pair_probe.phi_gx;
+        std::vector<double> flatten_v = pair_probe.phi_gy;
+        std::string flattened_base_mode = "pair_probe_uv";
+        UvOrientationStats flattened_orientation_stats = compute_uv_orientation_stats(
+            triangles,
+            flatten_u,
+            flatten_v);
+        long flattened_base_overlap_pairs = count_uv_overlap_pairs_for_quads(
+            quad_outcome.quads,
+            flatten_u,
+            flatten_v);
+
+        std::vector<int> candidate_roots;
+        candidate_roots.push_back(0);
+        const std::vector<int> boundary_vertices = collect_boundary_vertices(triangles, points.size());
+        if (!boundary_vertices.empty())
+        {
+            const size_t stride = std::max<size_t>(1, boundary_vertices.size() / 12);
+            for (size_t i = 0; i < boundary_vertices.size(); i += stride)
+            {
+                candidate_roots.push_back(boundary_vertices[i]);
+            }
+            if (boundary_vertices.size() > 1)
+            {
+                candidate_roots.push_back(boundary_vertices.back());
+            }
+        }
+
+        for (int root : candidate_roots)
+        {
+            std::vector<double> axial_u;
+            std::vector<double> axial_v;
+            if (!build_axial_unwrap_uv(points, triangles, root, axial_u, axial_v))
+            {
+                continue;
+            }
+            const UvOrientationStats axial_stats = compute_uv_orientation_stats(triangles, axial_u, axial_v);
+            const long axial_overlap_pairs = count_uv_overlap_pairs_for_quads(
+                quad_outcome.quads,
+                axial_u,
+                axial_v);
+
+            const bool better_overlap = axial_overlap_pairs < flattened_base_overlap_pairs;
+            const bool tie_better_flip =
+                axial_overlap_pairs == flattened_base_overlap_pairs &&
+                axial_stats.flip_ratio + 1.0e-9 < flattened_orientation_stats.flip_ratio;
+            if (better_overlap || tie_better_flip)
+            {
+                flatten_u = std::move(axial_u);
+                flatten_v = std::move(axial_v);
+                flattened_base_mode = "axial_unwrap";
+                flattened_orientation_stats = axial_stats;
+                flattened_base_overlap_pairs = axial_overlap_pairs;
+            }
+        }
+
+        const FlattenedUvChartOutcome flattened_outcome = build_flattened_uv_charts(
+            quad_outcome.quads,
+            flatten_u,
+            flatten_v);
 
         const bool probe_ready =
             compute_probe.status == "success" &&
@@ -1411,7 +2010,8 @@ namespace fishnet_internal
                 triangles,
                 pair_probe.phi_gx,
                 pair_probe.phi_gy,
-                quad_outcome);
+                quad_outcome,
+                flattened_outcome);
         }
         else if (quality_gate_failed)
         {
@@ -1435,6 +2035,9 @@ namespace fishnet_internal
         }
 #else
         const PreviewQuadBuildOutcome quad_outcome{};
+        const FlattenedUvChartOutcome flattened_outcome{};
+        const std::string flattened_base_mode = "skipped";
+        const UvOrientationStats flattened_orientation_stats{};
         const bool quality_gate_enabled = normalized_params.surface_spacing_strict;
         const bool preview_quality_pass = false;
         const bool quality_gate_failed = false;
@@ -1683,6 +2286,43 @@ namespace fishnet_internal
                 "geodesic_preview_quad_max_edge_length_threshold",
                 quad_outcome.max_uv_edge_length_threshold);
 
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_chart_count",
+                flattened_outcome.chart_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_overlap_pair_count",
+                flattened_outcome.overlap_pair_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_quad_count",
+                static_cast<long>(flattened_outcome.quads.size()));
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_point_count",
+                static_cast<long>(flattened_outcome.points.size()));
+            set_dict_string(
+                diagnostics,
+                "geodesic_flattened_base_mode",
+                flattened_base_mode);
+            set_dict_double(
+                diagnostics,
+                "geodesic_flattened_base_flip_ratio",
+                flattened_orientation_stats.flip_ratio);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_base_positive_count",
+                flattened_orientation_stats.positive_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_base_negative_count",
+                flattened_orientation_stats.negative_count);
+            set_dict_long(
+                diagnostics,
+                "geodesic_flattened_base_overlap_pair_count",
+                flattened_base_overlap_pairs);
+
             set_dict_string(
                 diagnostics,
                 "geodesic_backend_prefactor_cache_status",
@@ -1778,6 +2418,15 @@ namespace fishnet_internal
             set_dict_double(diagnostics, "geodesic_preview_quad_min_shared_edge_uv_threshold", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_max_edge_ratio_threshold", 0.0);
             set_dict_double(diagnostics, "geodesic_preview_quad_max_edge_length_threshold", 0.0);
+            set_dict_long(diagnostics, "geodesic_flattened_chart_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_overlap_pair_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_quad_count", 0);
+            set_dict_long(diagnostics, "geodesic_flattened_point_count", 0);
+            set_dict_string(diagnostics, "geodesic_flattened_base_mode", flattened_base_mode);
+            set_dict_double(diagnostics, "geodesic_flattened_base_flip_ratio", flattened_orientation_stats.flip_ratio);
+            set_dict_long(diagnostics, "geodesic_flattened_base_positive_count", flattened_orientation_stats.positive_count);
+            set_dict_long(diagnostics, "geodesic_flattened_base_negative_count", flattened_orientation_stats.negative_count);
+            set_dict_long(diagnostics, "geodesic_flattened_base_overlap_pair_count", 0);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_status", "skipped");
             set_dict_bool(diagnostics, "geodesic_backend_prefactor_cache_hit", false);
             set_dict_string(diagnostics, "geodesic_backend_prefactor_cache_key", "0000000000000000");
@@ -1821,6 +2470,18 @@ namespace fishnet_internal
             if (!PyDict_GetItemString(result, "geodesic_field_vertex_count"))
             {
                 set_dict_long(result, "geodesic_field_vertex_count", 0);
+            }
+            if (!PyDict_GetItemString(result, "geodesic_flattened_points"))
+            {
+                set_result_vec3_list(result, "geodesic_flattened_points", std::vector<Vec3>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_flattened_quads"))
+            {
+                set_result_quad_list(result, "geodesic_flattened_quads", std::vector<std::vector<int>>{});
+            }
+            if (!PyDict_GetItemString(result, "geodesic_flattened_chart_count"))
+            {
+                set_dict_long(result, "geodesic_flattened_chart_count", 0);
             }
         }
 

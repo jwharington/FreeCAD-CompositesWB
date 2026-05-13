@@ -4997,6 +4997,39 @@ class TestFishnetSolver(unittest.TestCase):
                 self.assertEqual(len(result.get("warp_weft_points", [])), 0)
                 self.assertEqual(len(result.get("fabric_quads", [])), 0)
 
+            flattened_points = result.get("geodesic_flattened_points", [])
+            flattened_quads = result.get("geodesic_flattened_quads", [])
+            flattened_chart_count = int(
+                result.get("geodesic_flattened_chart_count", -1)
+            )
+            self.assertIsInstance(flattened_points, (list, tuple))
+            self.assertIsInstance(flattened_quads, (list, tuple))
+            self.assertGreaterEqual(flattened_chart_count, 0)
+            self.assertEqual(
+                len(flattened_quads),
+                int(diagnostics.get("geodesic_flattened_quad_count", -1)),
+            )
+            self.assertEqual(
+                len(flattened_points),
+                int(diagnostics.get("geodesic_flattened_point_count", -1)),
+            )
+            self.assertIn(
+                str(diagnostics.get("geodesic_flattened_base_mode", "")),
+                {"pair_probe_uv", "axial_unwrap", "skipped"},
+            )
+            self.assertGreaterEqual(
+                float(diagnostics.get("geodesic_flattened_base_flip_ratio", -1.0)),
+                0.0,
+            )
+            self.assertGreaterEqual(
+                int(
+                    diagnostics.get(
+                        "geodesic_flattened_base_overlap_pair_count", -1
+                    )
+                ),
+                0,
+            )
+
             quad_candidates = int(
                 diagnostics.get("geodesic_preview_quad_candidate_count", -1)
             )
@@ -5101,6 +5134,14 @@ class TestFishnetSolver(unittest.TestCase):
                     )
                 ),
                 0.0,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_flattened_chart_count", -1)),
+                0,
+            )
+            self.assertGreaterEqual(
+                int(diagnostics.get("geodesic_flattened_overlap_pair_count", -1)),
+                0,
             )
 
             quality_gate_enabled = bool(
