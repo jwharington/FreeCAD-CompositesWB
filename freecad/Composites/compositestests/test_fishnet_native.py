@@ -5081,7 +5081,12 @@ class TestFishnetSolver(unittest.TestCase):
             self.assertEqual(len(material_source_quad_indices), len(material_quads))
             self.assertIn(
                 str(diagnostics.get("geodesic_material_mode", "")),
-                {"none", "line_component_index", "transport_least_squares"},
+                {
+                    "none",
+                    "line_component_index",
+                    "transport_least_squares",
+                    "constructive_propagation",
+                },
             )
             self.assertIn(
                 str(diagnostics.get("geodesic_material_pitch_source", "")),
