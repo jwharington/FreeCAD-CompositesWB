@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 from datetime import datetime
@@ -93,7 +94,11 @@ def _plot_3d_mesh(
     ys_all = [p[1] for p in pts]
     zs_all = [p[2] for p in pts]
     loops = cells if cells else faces
-    diag = ((max(xs_all) - min(xs_all)) ** 2 + (max(ys_all) - min(ys_all)) ** 2 + (max(zs_all) - min(zs_all)) ** 2) ** 0.5
+    diag = (
+        (max(xs_all) - min(xs_all)) ** 2
+        + (max(ys_all) - min(ys_all)) ** 2
+        + (max(zs_all) - min(zs_all)) ** 2
+    ) ** 0.5
     max_edge_len = max(diag * 0.12, 1.0e-9)
     for face in loops:
         idx = [int(i) for i in face]
@@ -105,10 +110,21 @@ def _plot_3d_mesh(
         for a, b in zip(closed[:-1], closed[1:]):
             pa = pts[a]
             pb = pts[b]
-            seg_len = ((pa[0] - pb[0]) ** 2 + (pa[1] - pb[1]) ** 2 + (pa[2] - pb[2]) ** 2) ** 0.5
+            seg_len = (
+                (pa[0] - pb[0]) ** 2
+                + (pa[1] - pb[1]) ** 2
+                + (pa[2] - pb[2]) ** 2
+            ) ** 0.5
             if seg_len > max_edge_len:
                 continue
-            ax.plot([pa[0], pb[0]], [pa[1], pb[1]], [pa[2], pb[2]], color=edge_color, linewidth=linewidth, alpha=alpha)
+            ax.plot(
+                [pa[0], pb[0]],
+                [pa[1], pb[1]],
+                [pa[2], pb[2]],
+                color=edge_color,
+                linewidth=linewidth,
+                alpha=alpha,
+            )
     ax.scatter(
         xs_all,
         ys_all,
@@ -120,16 +136,12 @@ def _plot_3d_mesh(
         alpha=alpha,
         zorder=3,
     )
-    ranges = [
-        max(coord) - min(coord)
-        for coord in (xs_all, ys_all, zs_all)
-    ]
+    ranges = [max(coord) - min(coord) for coord in (xs_all, ys_all, zs_all)]
     max_range = max(ranges) if ranges else 1.0
     if max_range <= 0:
         max_range = 1.0
     centers = [
-        (max(coord) + min(coord)) / 2.0
-        for coord in (xs_all, ys_all, zs_all)
+        (max(coord) + min(coord)) / 2.0 for coord in (xs_all, ys_all, zs_all)
     ]
     half = max_range / 2.0
     ax.set_xlim(centers[0] - half, centers[0] + half)
@@ -146,6 +158,38 @@ def _plot_boundaries(ax, boundaries, color="#d62728", linewidth=2.4):
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         ax.plot(xs, ys, color=color, linewidth=linewidth)
+
+
+def _polygon_signed_area_2d(points):
+    if len(points) < 3:
+        return 0.0
+    area2 = 0.0
+    for i, (x0, y0) in enumerate(points):
+        x1, y1 = points[(i + 1) % len(points)]
+        area2 += x0 * y1 - x1 * y0
+    return 0.5 * area2
+
+
+def _mask_inner_loops(ax, boundaries, facecolor="white"):
+    loops = []
+    for loop in boundaries or []:
+        pts3 = [_xyz(point) for point in loop]
+        if len(pts3) < 3:
+            continue
+        pts2 = [(p[0], p[1]) for p in pts3]
+        loops.append(pts2)
+    if len(loops) < 2:
+        return
+
+    outer_idx = max(
+        range(len(loops)), key=lambda i: abs(_polygon_signed_area_2d(loops[i]))
+    )
+    for idx, loop in enumerate(loops):
+        if idx == outer_idx:
+            continue
+        xs = [p[0] for p in loop]
+        ys = [p[1] for p in loop]
+        ax.fill(xs, ys, color=facecolor, zorder=2.6)
 
 
 def _is_trivial_atlas_chart(chart):
@@ -176,6 +220,72 @@ def _plot_atlas_charts(ax, charts):
     return plotted
 
 
+def _develop_cone_points(points, cone_surface):
+    """Map cone points to a true developed 2D sector using cone geometry."""
+    if not points or cone_surface is None:
+        return None
+    if not all(
+        hasattr(cone_surface, attr) for attr in ("Apex", "Axis", "SemiAngle")
+    ):
+        return None
+
+    axis = _xyz(cone_surface.Axis)
+    axis_norm = math.sqrt(axis[0] ** 2 + axis[1] ** 2 + axis[2] ** 2)
+    if axis_norm <= 1.0e-12:
+        return None
+    kx, ky, kz = axis[0] / axis_norm, axis[1] / axis_norm, axis[2] / axis_norm
+    apex = _xyz(cone_surface.Apex)
+    sin_alpha = abs(math.sin(float(cone_surface.SemiAngle)))
+    if sin_alpha <= 1.0e-9:
+        return None
+
+    radial_vectors = []
+    slant_samples = []
+    for point in points:
+        px, py, pz = _xyz(point)
+        wx, wy, wz = px - apex[0], py - apex[1], pz - apex[2]
+        axial = wx * kx + wy * ky + wz * kz
+        rx, ry, rz = wx - axial * kx, wy - axial * ky, wz - axial * kz
+        radial = math.sqrt(rx * rx + ry * ry + rz * rz)
+        slant = math.sqrt(axial * axial + radial * radial)
+        radial_vectors.append((rx, ry, rz))
+        slant_samples.append(float(slant))
+
+    if not radial_vectors or not slant_samples:
+        return None
+
+    e1 = None
+    for rx, ry, rz in radial_vectors:
+        norm = math.sqrt(rx * rx + ry * ry + rz * rz)
+        if norm > 1.0e-12:
+            e1 = (rx / norm, ry / norm, rz / norm)
+            break
+    if e1 is None:
+        return None
+    e2 = (
+        ky * e1[2] - kz * e1[1],
+        kz * e1[0] - kx * e1[2],
+        kx * e1[1] - ky * e1[0],
+    )
+    e2_norm = math.sqrt(e2[0] ** 2 + e2[1] ** 2 + e2[2] ** 2)
+    if e2_norm <= 1.0e-12:
+        return None
+    e2 = (e2[0] / e2_norm, e2[1] / e2_norm, e2[2] / e2_norm)
+
+    theta_samples = []
+    for rx, ry, rz in radial_vectors:
+        x = rx * e1[0] + ry * e1[1] + rz * e1[2]
+        y = rx * e2[0] + ry * e2[1] + rz * e2[2]
+        theta_samples.append(math.atan2(y, x))
+    theta0 = min(theta_samples)
+
+    developed = []
+    for theta, slant in zip(theta_samples, slant_samples):
+        phi = (theta - theta0) * sin_alpha
+        developed.append((slant * math.cos(phi), slant * math.sin(phi), 0.0))
+    return developed
+
+
 def save_native_fishnet_plot(title, points, faces, result):
     if not plots_enabled():
         return None
@@ -191,8 +301,10 @@ def save_native_fishnet_plot(title, points, faces, result):
     fig.suptitle(title)
 
     ax1 = fig.add_subplot(1, 2, 1, projection="3d")
-    ax1.set_title("Input mesh")
-    _plot_3d_mesh(ax1, points, faces, edge_color="#9aa0a6", point_color="#4b5563")
+    ax1.set_title("Input surface sampling")
+    _plot_3d_mesh(
+        ax1, points, faces, edge_color="#9aa0a6", point_color="#4b5563"
+    )
 
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.set_title("Solved drape")
@@ -323,7 +435,14 @@ def _plot_shape_3d(ax, shape, deflection=1.0):
             xs_loop = [p[0] for p in loop]
             ys_loop = [p[1] for p in loop]
             zs_loop = [p[2] for p in loop]
-            ax.plot(xs_loop, ys_loop, zs_loop, color="#8b949e", linewidth=0.7, alpha=0.9)
+            ax.plot(
+                xs_loop,
+                ys_loop,
+                zs_loop,
+                color="#8b949e",
+                linewidth=0.7,
+                alpha=0.9,
+            )
     return pts, tris
 
 
@@ -356,7 +475,10 @@ def _cells_to_3d_line_coords(points, cells):
         xs_all = [p[0] for p in pts]
         ys_all = [p[1] for p in pts]
         zs_all = [p[2] for p in pts]
-        diag = math.dist((min(xs_all), min(ys_all), min(zs_all)), (max(xs_all), max(ys_all), max(zs_all)))
+        diag = math.dist(
+            (min(xs_all), min(ys_all), min(zs_all)),
+            (max(xs_all), max(ys_all), max(zs_all)),
+        )
         # Keep only local edges for readability in curved/seam cases.
         max_len = min(max(median * 1.8, 1.0e-9), max(diag * 0.12, 1.0e-9))
 
@@ -399,7 +521,11 @@ def _warp_weft_grid_line_coords(points):
     def step(vals):
         if len(vals) < 2:
             return 1.0
-        diffs = [abs(b - a) for a, b in zip(vals[:-1], vals[1:]) if abs(b - a) > 1.0e-9]
+        diffs = [
+            abs(b - a)
+            for a, b in zip(vals[:-1], vals[1:])
+            if abs(b - a) > 1.0e-9
+        ]
         return sorted(diffs)[len(diffs) // 2] if diffs else 1.0
 
     tx = max(step(xs_vals) * 0.35, 1.0e-6)
@@ -467,7 +593,14 @@ def _quad_edges_filtered_by_2d_3d(points_3d, points_2d, quads):
             continue
         a, b, c, d = idx[:4]
         for u, v in ((a, b), (b, c), (c, d), (d, a)):
-            if u < 0 or v < 0 or u >= len(p3) or v >= len(p3) or u >= len(p2) or v >= len(p2):
+            if (
+                u < 0
+                or v < 0
+                or u >= len(p3)
+                or v >= len(p3)
+                or u >= len(p2)
+                or v >= len(p2)
+            ):
                 continue
             if u == v:
                 continue
@@ -510,7 +643,15 @@ def _quad_edges_filtered_by_2d_3d(points_3d, points_2d, quads):
     return xs, ys, zs
 
 
-def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_quads=None, tex_coords=None, boundaries=None):
+def _save_interactive_shape_and_drape_plot(
+    title,
+    shape,
+    mesh,
+    out_dir,
+    fabric_quads=None,
+    tex_coords=None,
+    boundaries=None,
+):
     try:
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
@@ -527,7 +668,9 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
     try:
         shape_points, shape_tris = shape.tessellate(1.0)
     except Exception as exc:  # pragma: no cover - opt-in only
-        print(f"Interactive fishnet plot skipped (shape tessellate failed): {exc}")
+        print(
+            f"Interactive fishnet plot skipped (shape tessellate failed): {exc}"
+        )
         return None
 
     shape_pts = [_xyz(point) for point in shape_points]
@@ -549,21 +692,43 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
             col=1,
         )
 
-    if mesh and getattr(mesh, "Topology", None) and getattr(mesh, "Points", None):
+    if (
+        mesh
+        and getattr(mesh, "Topology", None)
+        and getattr(mesh, "Points", None)
+    ):
         bbox = getattr(shape, "BoundBox", None)
         if bbox and getattr(bbox, "isValid", lambda: False)():
             center = (
-                (float(getattr(bbox, "XMin", 0.0)) + float(getattr(bbox, "XMax", 0.0))) / 2.0,
-                (float(getattr(bbox, "YMin", 0.0)) + float(getattr(bbox, "YMax", 0.0))) / 2.0,
-                (float(getattr(bbox, "ZMin", 0.0)) + float(getattr(bbox, "ZMax", 0.0))) / 2.0,
+                (
+                    float(getattr(bbox, "XMin", 0.0))
+                    + float(getattr(bbox, "XMax", 0.0))
+                )
+                / 2.0,
+                (
+                    float(getattr(bbox, "YMin", 0.0))
+                    + float(getattr(bbox, "YMax", 0.0))
+                )
+                / 2.0,
+                (
+                    float(getattr(bbox, "ZMin", 0.0))
+                    + float(getattr(bbox, "ZMax", 0.0))
+                )
+                / 2.0,
             )
             diag = float(getattr(bbox, "DiagonalLength", 0.0) or 0.0)
         else:
             center = (0.0, 0.0, 0.0)
             diag = 0.0
         outward_offset = 0.0
-        lifted_points = _offset_points_outward(mesh.Points, center, outward_offset)
-        tris = [tuple(int(i) for i in tri[:3]) for tri in (mesh.Topology[1] or []) if len(tri) >= 3]
+        lifted_points = _offset_points_outward(
+            mesh.Points, center, outward_offset
+        )
+        tris = [
+            tuple(int(i) for i in tri[:3])
+            for tri in (mesh.Topology[1] or [])
+            if len(tri) >= 3
+        ]
         if lifted_points and tris:
             fig.add_trace(
                 go.Mesh3d(
@@ -597,7 +762,9 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
                 col=1,
             )
 
-    edge_cells_2d = fabric_quads or (mesh.Topology[1] if mesh and getattr(mesh, "Topology", None) else [])
+    edge_cells_2d = fabric_quads or (
+        mesh.Topology[1] if mesh and getattr(mesh, "Topology", None) else []
+    )
     xs2, ys2 = _quad_edges_2d_line_coords(tex_coords or [], edge_cells_2d)
     if not (xs2 and ys2):
         xs2, ys2 = _warp_weft_grid_line_coords(tex_coords or [])
@@ -628,6 +795,27 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
             row=1,
             col=2,
         )
+    # Mask inner loops first (before boundary lines)
+    for i, loop in enumerate(boundaries or []):
+        if i == 0:  # Skip outer boundary
+            continue
+        loop_pts = [_xyz(point) for point in loop]
+        if len(loop_pts) < 2:
+            continue
+        fig.add_trace(
+            go.Scatter(
+                x=[p[0] for p in loop_pts],
+                y=[p[1] for p in loop_pts],
+                fill="toself",
+                fillcolor="white",
+                line={"color": "white", "width": 0},
+                showlegend=False,
+            ),
+            row=1,
+            col=2,
+        )
+
+    # Draw boundary lines on top
     for loop in boundaries or []:
         loop_pts = [_xyz(point) for point in loop]
         if len(loop_pts) < 2:
@@ -659,7 +847,15 @@ def _save_interactive_shape_and_drape_plot(title, shape, mesh, out_dir, fabric_q
     return out
 
 
-def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fabric_quads=None, atlas_charts=None):
+def save_integration_fishnet_plot(
+    title,
+    shape,
+    mesh,
+    tex_coords,
+    boundaries,
+    fabric_quads=None,
+    atlas_charts=None,
+):
     if not plots_enabled():
         return None
 
@@ -672,11 +868,8 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 
     out = plot_output_dir() / f"{title}.png"
-    solid_shape = getattr(shape, "ShapeType", "") == "Solid" or bool(
-        getattr(shape, "Solids", [])
-    )
     atlas_charts = atlas_charts or []
-    show_unwrapped_net = solid_shape and bool(atlas_charts)
+    show_unwrapped_net = bool(atlas_charts)
     panel_count = 3 if show_unwrapped_net else 2
     fig = plt.figure(figsize=(18 if show_unwrapped_net else 14, 6))
     fig.suptitle(title)
@@ -684,20 +877,38 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     ax1 = fig.add_subplot(1, panel_count, 1, projection="3d")
     ax1.set_title("Source shape + drape mesh")
     _plot_shape_3d(ax1, shape)
-    if mesh and getattr(mesh, "Topology", None) and getattr(mesh, "Points", None):
+    if (
+        mesh
+        and getattr(mesh, "Topology", None)
+        and getattr(mesh, "Points", None)
+    ):
         bbox = getattr(shape, "BoundBox", None)
         if bbox and getattr(bbox, "isValid", lambda: False)():
             center = (
-                (float(getattr(bbox, "XMin", 0.0)) + float(getattr(bbox, "XMax", 0.0))) / 2.0,
-                (float(getattr(bbox, "YMin", 0.0)) + float(getattr(bbox, "YMax", 0.0))) / 2.0,
-                (float(getattr(bbox, "ZMin", 0.0)) + float(getattr(bbox, "ZMax", 0.0))) / 2.0,
+                (
+                    float(getattr(bbox, "XMin", 0.0))
+                    + float(getattr(bbox, "XMax", 0.0))
+                )
+                / 2.0,
+                (
+                    float(getattr(bbox, "YMin", 0.0))
+                    + float(getattr(bbox, "YMax", 0.0))
+                )
+                / 2.0,
+                (
+                    float(getattr(bbox, "ZMin", 0.0))
+                    + float(getattr(bbox, "ZMax", 0.0))
+                )
+                / 2.0,
             )
             diag = float(getattr(bbox, "DiagonalLength", 0.0) or 0.0)
         else:
             center = (0.0, 0.0, 0.0)
             diag = 0.0
         outward_offset = 0.0
-        lifted_points = _offset_points_outward(mesh.Points, center, outward_offset)
+        lifted_points = _offset_points_outward(
+            mesh.Points, center, outward_offset
+        )
         _plot_3d_mesh(
             ax1,
             lifted_points,
@@ -712,38 +923,70 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     ax1.set_box_aspect((1, 1, 1))
 
     ax2 = fig.add_subplot(1, panel_count, 2)
-    ax2.set_title("Warp/weft coordinates")
-    if tex_coords:
-        xs2, ys2 = _warp_weft_grid_line_coords(tex_coords)
-        if xs2 and ys2:
-            ax2.plot(xs2, ys2, color="#1f77b4", linewidth=1.15)
-        pts2 = [_xyz(point) for point in tex_coords]
-        ax2.scatter(
-            [p[0] for p in pts2],
-            [p[1] for p in pts2],
-            s=10,
-            color="#1f77b4",
-            edgecolors="white",
-            linewidths=0.4,
-            alpha=1.0,
-            zorder=3,
+    developed_cone_points = None
+    if show_unwrapped_net and getattr(shape, "Surface", None) is not None:
+        developed_cone_points = _develop_cone_points(
+            getattr(mesh, "Points", []) or [],
+            getattr(shape, "Surface", None),
         )
-        ax2.set_aspect("equal", adjustable="box")
-    _plot_boundaries(ax2, boundaries, color="#d62728")
+
+    if developed_cone_points and (
+        fabric_quads or getattr(mesh, "Topology", None)
+    ):
+        ax2.set_title("Flattened net (developed cone)")
+        _plot_2d_mesh(
+            ax2,
+            developed_cone_points,
+            [],
+            edge_color="#1f77b4",
+            point_color="#1f77b4",
+            linewidth=1.15,
+            cells=fabric_quads or getattr(mesh, "Topology", (None, []))[1],
+        )
+    elif show_unwrapped_net and _plot_atlas_charts(ax2, atlas_charts):
+        ax2.set_title("Flattened net (developed)")
+    else:
+        ax2.set_title("Warp/weft coordinates")
+        if tex_coords:
+            # Use the denser reconstructed warp/weft grid for readability in static PNGs.
+            xs2, ys2 = _warp_weft_grid_line_coords(tex_coords)
+            if xs2 and ys2:
+                ax2.plot(xs2, ys2, color="#1f77b4", linewidth=1.15, zorder=2.0)
+            pts2 = [_xyz(point) for point in tex_coords]
+            ax2.scatter(
+                [p[0] for p in pts2],
+                [p[1] for p in pts2],
+                s=10,
+                color="#1f77b4",
+                edgecolors="white",
+                linewidths=0.4,
+                alpha=1.0,
+                zorder=3,
+            )
+            ax2.set_aspect("equal", adjustable="box")
+        _mask_inner_loops(ax2, boundaries)
+        _plot_boundaries(ax2, boundaries, color="#d62728")
 
     if show_unwrapped_net:
         ax3 = fig.add_subplot(1, panel_count, 3)
-        ax3.set_title("Unwrapped net")
-        if not _plot_atlas_charts(ax3, atlas_charts):
-            _plot_2d_mesh(
-                ax3,
-                tex_coords,
-                [],
-                edge_color="#1f77b4",
-                point_color="#1f77b4",
-                linewidth=1.15,
-                cells=fabric_quads,
+        ax3.set_title("Warp/weft coordinates")
+        if tex_coords:
+            xs3, ys3 = _warp_weft_grid_line_coords(tex_coords)
+            if xs3 and ys3:
+                ax3.plot(xs3, ys3, color="#1f77b4", linewidth=1.15, zorder=2.0)
+            pts3 = [_xyz(point) for point in tex_coords]
+            ax3.scatter(
+                [p[0] for p in pts3],
+                [p[1] for p in pts3],
+                s=10,
+                color="#1f77b4",
+                edgecolors="white",
+                linewidths=0.4,
+                alpha=1.0,
+                zorder=3,
             )
+            ax3.set_aspect("equal", adjustable="box")
+        _mask_inner_loops(ax3, boundaries)
         _plot_boundaries(ax3, boundaries, color="#d62728")
 
     fig.tight_layout()
@@ -752,7 +995,13 @@ def save_integration_fishnet_plot(title, shape, mesh, tex_coords, boundaries, fa
     print(f"Saved fishnet plot: {out}")
 
     interactive_enabled = os.environ.get("FISHNET_PLOTS_INTERACTIVE", "")
-    if interactive_enabled.strip().lower() in {"1", "true", "yes", "on", "html"}:
+    if interactive_enabled.strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+        "html",
+    }:
         _save_interactive_shape_and_drape_plot(
             title,
             shape,
