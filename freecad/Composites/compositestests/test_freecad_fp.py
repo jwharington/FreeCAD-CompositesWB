@@ -1196,7 +1196,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
     def test_init_adds_rosette_property(self):
         self.assertIn("Rosette", object.__getattribute__(self.obj, "_props"))
 
-    def test_init_adds_acp_draping_properties(self):
+    def test_init_adds_kindrape_draping_properties(self):
         props = object.__getattribute__(self.obj, "_props")
         for name in (
             "DrapingAlgorithm",
@@ -1207,15 +1207,21 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
             "MaterialModel",
             "UDCoefficient",
             "ThicknessCorrection",
+            "SurfaceSpacingStrict",
+            "SurfaceSpacingEdgeTolerance",
+            "SurfaceSpacingFailOnViolation",
         ):
             self.assertIn(name, props)
 
-    def test_init_sets_acp_draping_property_defaults(self):
-        self.assertEqual(self.obj.DrapingAlgorithm, "acp_energy")
+    def test_init_sets_kindrape_draping_property_defaults(self):
+        self.assertEqual(self.obj.DrapingAlgorithm, "kindrape_constructive")
         self.assertTrue(self.obj.AutoDrapingDirection)
         self.assertEqual(self.obj.MaterialModel, "woven")
         self.assertAlmostEqual(float(self.obj.UDCoefficient), 0.0)
         self.assertFalse(self.obj.ThicknessCorrection)
+        self.assertFalse(self.obj.SurfaceSpacingStrict)
+        self.assertAlmostEqual(float(self.obj.SurfaceSpacingEdgeTolerance), 0.02)
+        self.assertTrue(self.obj.SurfaceSpacingFailOnViolation)
 
     def test_init_default_rosette_is_none(self):
         self.assertIsNone(self.obj.Rosette)
@@ -1278,7 +1284,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         # With no support/laminate, execute() returns early without error.
         self.fp.onChanged(self.obj, "Rosette")  # should not raise
 
-    def test_execute_passes_acp_parameters_to_draper(self):
+    def test_execute_passes_kindrape_parameters_to_draper(self):
         shell_obj = _FakeFCObj("CompositeShellExec")
         shell_obj.Document = MagicMock()
         shell_obj.ViewObject = None
@@ -1291,7 +1297,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         shell_obj.MaxLength = 12.0
         shell_obj.RelaxWeight = 0.8
         shell_obj.SolveSteps = 9
-        shell_obj.DrapingAlgorithm = "acp_energy"
+        shell_obj.DrapingAlgorithm = "kindrape_constructive"
         shell_obj.SeedPoint = (1.0, 2.0, 3.0)
         shell_obj.AutoDrapingDirection = False
         shell_obj.DrapingDirection = (0.0, 1.0, 0.0)
@@ -1299,6 +1305,9 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         shell_obj.MaterialModel = "ud"
         shell_obj.UDCoefficient = 0.3
         shell_obj.ThicknessCorrection = True
+        shell_obj.SurfaceSpacingStrict = True
+        shell_obj.SurfaceSpacingEdgeTolerance = 0.03
+        shell_obj.SurfaceSpacingFailOnViolation = True
 
         captured = {}
 
@@ -1324,8 +1333,8 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(kwargs["max_length"], 12.0)
         self.assertEqual(kwargs["relax_weight"], 0.8)
         self.assertEqual(kwargs["steps"], 9)
-        self.assertEqual(kwargs["algorithm"], "acp_energy")
-        self.assertEqual(kwargs["acp_strategy"], "woven")
+        self.assertEqual(kwargs["algorithm"], "kindrape_constructive")
+        self.assertEqual(kwargs["strategy"], "woven")
         self.assertEqual(kwargs["seed_point"], (1.0, 2.0, 3.0))
         self.assertFalse(kwargs["auto_draping_direction"])
         self.assertEqual(kwargs["draping_direction"], (0.0, 1.0, 0.0))
@@ -1333,6 +1342,9 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(kwargs["material_model"], "ud")
         self.assertEqual(kwargs["ud_coefficient"], 0.3)
         self.assertTrue(kwargs["thickness_correction"])
+        self.assertTrue(kwargs["surface_spacing_strict"])
+        self.assertAlmostEqual(float(kwargs["surface_spacing_edge_tolerance"]), 0.03)
+        self.assertTrue(kwargs["surface_spacing_fail_on_violation"])
 
     def test_type_attribute(self):
         self.assertEqual(CompositeShellFP.Type, "Composite::Shell")

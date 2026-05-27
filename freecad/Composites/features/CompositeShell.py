@@ -111,7 +111,7 @@ class CompositeShellFP(CompositeBaseFP):
             type="App::PropertyEnumeration",
             name="AcpStrategy",
             group="Draping",
-            doc="ACP draping strategy (woven baseline vs surface-spacing objective)",
+            doc="Constructive draping strategy (woven baseline vs surface-spacing objective)",
         )
 
         obj.addProperty(
@@ -167,7 +167,7 @@ class CompositeShellFP(CompositeBaseFP):
             type="App::PropertyBool",
             name="SurfaceSpacingStrict",
             group="Draping",
-            doc="Enforce strict 3D structural edge spacing in ACP surface-spacing mode",
+            doc="Enforce strict 3D structural edge spacing in surface-spacing mode",
         )
 
         obj.addProperty(
@@ -218,10 +218,10 @@ class CompositeShellFP(CompositeBaseFP):
         obj.RelaxWeight = 0.95
         obj.SolveSteps = 5
         obj.DrapingAlgorithm = [
-            "acp_energy",
-            "geodesic_heat",
+            "kindrape_constructive",
+            "kindrape_constructive",
         ]
-        obj.DrapingAlgorithm = "acp_energy"
+        obj.DrapingAlgorithm = "kindrape_constructive"
         obj.AcpStrategy = ["woven", "surface_spacing"]
         obj.AcpStrategy = "woven"
         obj.SeedPoint = Vector(0.0, 0.0, 0.0)
@@ -274,8 +274,8 @@ class CompositeShellFP(CompositeBaseFP):
                 max_length=getattr(fp, "MaxLength", None),
                 relax_weight=getattr(fp, "RelaxWeight", None),
                 steps=getattr(fp, "SolveSteps", None),
-                algorithm=getattr(fp, "DrapingAlgorithm", "acp_energy"),
-                acp_strategy=getattr(fp, "AcpStrategy", "woven"),
+                algorithm=getattr(fp, "DrapingAlgorithm", "kindrape_constructive"),
+                strategy=getattr(fp, "AcpStrategy", "woven"),
                 seed_point=getattr(fp, "SeedPoint", None),
                 auto_draping_direction=getattr(fp, "AutoDrapingDirection", True),
                 draping_direction=getattr(fp, "DrapingDirection", None),

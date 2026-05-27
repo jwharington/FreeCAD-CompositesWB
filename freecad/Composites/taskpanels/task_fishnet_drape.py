@@ -16,7 +16,7 @@ class _TaskPanel(_BaseTaskPanel):
         self.parameter_widget.spin_solve_steps.setValue(int(obj.SolveSteps))
 
         self.parameter_widget.spin_max_length.setValue(float(getattr(obj, "MaxLength", 0.0)))
-        algorithm = str(getattr(obj, "DrapingAlgorithm", "acp_energy"))
+        algorithm = str(getattr(obj, "DrapingAlgorithm", "kindrape_constructive"))
         algorithm_idx = self.parameter_widget.combo_algorithm.findText(algorithm)
         if algorithm_idx >= 0:
             self.parameter_widget.combo_algorithm.setCurrentIndex(algorithm_idx)

@@ -28,7 +28,7 @@ class Draper:
         steps=None,
         max_length=None,
         algorithm=None,
-        acp_strategy=None,
+        strategy=None,
         seed_point=None,
         auto_draping_direction=True,
         draping_direction=None,
@@ -36,6 +36,9 @@ class Draper:
         material_model=None,
         ud_coefficient=None,
         thickness_correction=False,
+        surface_spacing_strict=False,
+        surface_spacing_edge_tolerance=None,
+        surface_spacing_fail_on_violation=None,
     ):
         self.source = mesh
         self.shape = shape
@@ -47,8 +50,8 @@ class Draper:
             self.unwrap_relax_weight = float(relax_weight)
 
         self.max_length = float(max_length) if max_length is not None else None
-        self.algorithm = str(algorithm or "acp_energy")
-        self.acp_strategy = str(acp_strategy or "")
+        self.algorithm = str(algorithm or "kindrape_constructive")
+        self.strategy = str(strategy or "")
         self.seed_point = seed_point
         self.auto_draping_direction = bool(auto_draping_direction)
         self.draping_direction = draping_direction
@@ -56,6 +59,17 @@ class Draper:
         self.material_model = str(material_model or "woven")
         self.ud_coefficient = float(ud_coefficient) if ud_coefficient is not None else 0.0
         self.thickness_correction = bool(thickness_correction)
+        self.surface_spacing_strict = bool(surface_spacing_strict)
+        self.surface_spacing_edge_tolerance = (
+            float(surface_spacing_edge_tolerance)
+            if surface_spacing_edge_tolerance is not None
+            else None
+        )
+        self.surface_spacing_fail_on_violation = (
+            bool(surface_spacing_fail_on_violation)
+            if surface_spacing_fail_on_violation is not None
+            else None
+        )
 
         self.result = self._solve()
         self.valid = bool(self.result.get("valid"))
@@ -120,7 +134,7 @@ class Draper:
     def _solve(self):
         params = {
             "algorithm": self.algorithm,
-            "acp_strategy": self.acp_strategy,
+            "strategy": self.strategy,
             "seed": 0,
             "fabric_spacing": self.fabric_spacing,
             "max_length": self.max_length if self.max_length is not None else (self.fabric_spacing or 0.0),
@@ -130,7 +144,12 @@ class Draper:
             "material_model": self.material_model,
             "ud_coefficient": self.ud_coefficient,
             "thickness_correction": self.thickness_correction,
+            "surface_spacing_strict": self.surface_spacing_strict,
         }
+        if self.surface_spacing_edge_tolerance is not None:
+            params["surface_spacing_edge_tolerance"] = self.surface_spacing_edge_tolerance
+        if self.surface_spacing_fail_on_violation is not None:
+            params["surface_spacing_fail_on_violation"] = self.surface_spacing_fail_on_violation
         seed_point = self._as_xyz_list(self.seed_point)
         if seed_point is not None:
             params["seed_point"] = seed_point

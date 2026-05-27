@@ -31,12 +31,7 @@
        <widget class="QComboBox" name="combo_algorithm">
         <item>
          <property name="text">
-          <string>acp_energy</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>geodesic_heat</string>
+          <string>kindrape_constructive</string>
          </property>
         </item>
        </widget>

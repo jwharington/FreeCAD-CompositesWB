@@ -130,6 +130,9 @@ Recommended new properties:
 - `FabricSpacing` — target spacing between fishnet nodes
 - `RelaxWeight` — relaxation damping for propagation
 - `SolveSteps` — number of propagation / relaxation passes
+- `SurfaceSpacingStrict` — enable strict 3D spacing enforcement for `acp_strategy=surface_spacing`
+- `SurfaceSpacingEdgeTolerance` — relative tolerance used by strict spacing checks
+- `SurfaceSpacingFailOnViolation` — force non-converged status when strict violations remain
 - `DrapeStatus` — short status string such as `Ready` or `Error`
 - `DrapeError` — error message for invalid geometry or solver failure
 
