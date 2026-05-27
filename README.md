@@ -118,6 +118,61 @@ Terminology:
  
  use CreateLabels.py from FEM for displaying layers?
 
+## Composite examples framework
+
+The workbench now includes a lightweight `compositeexamples` framework for
+scriptable, reproducible model build examples.
+
+### Run from the GUI
+
+- Open the **Composites** workbench.
+- Use **Composites → Run Composite Example** (or the matching toolbar button).
+- The command runs the default example (`ud_plate_basic`) via:
+  `runner.run("ud_plate_basic", run_solver=False)`
+
+This intentionally builds model state without requiring a hard solver run.
+
+### Run from the CLI (script/API)
+
+Inside Python (or from `FreeCADCmd -c` style scripting), call:
+
+```python
+from freecad.Composites.compositeexamples import runner
+
+print(runner.list_examples())
+result = runner.run("ud_plate_basic", run_solver=False)
+print(result)
+```
+
+`run_solver` defaults to `False` and examples are expected to keep solver steps
+optional.
+
+### Add a new example
+
+1. Create a module in `freecad/Composites/compositeexamples/examples/`, for
+   example `my_example.py`.
+2. Implement:
+
+```python
+def build(doc=None, run_solver=False):
+    # Build model entities, optionally using doc.
+    # Keep run_solver optional.
+    return {"doc": doc, "laminate": some_laminate}
+```
+
+3. Register it in `freecad/Composites/compositeexamples/registry.py` by adding
+   an `EXAMPLES` entry:
+
+```python
+"my_example": {
+    "module": ".examples.my_example",
+    "name": "My example",
+}
+```
+
+4. Verify with unit/smoke tests under
+   `freecad/Composites/compositestests/test_compositeexamples.py`.
+
 ## Testing with real FreeCAD
 
 Most tests under `freecad/Composites/compositestests` use mocks and can run
