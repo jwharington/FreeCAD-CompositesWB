@@ -44,12 +44,12 @@ class TestDrapeLaminateProviderRegistration(unittest.TestCase):
             register_shell_section_provider=register_shell_section_provider,
             register_indirect_material_provider=register_indirect_material_provider,
         )
-        sys.modules["femtools.composites_registry"] = fake_module
+        sys.modules["femtools.fem_extension_registry"] = fake_module
 
         try:
             ok = register_drape_laminate_providers()
         finally:
-            del sys.modules["femtools.composites_registry"]
+            del sys.modules["femtools.fem_extension_registry"]
 
         self.assertTrue(ok)
         self.assertEqual(called_orientation[0][0], "compositeswb.drape")

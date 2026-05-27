@@ -74,7 +74,7 @@ def indirect_material_provider(geos_shellthickness):
 
 def register_drape_laminate_providers():
     try:
-        from femtools.composites_registry import (
+        from femtools.fem_extension_registry import (
             register_indirect_material_provider,
             register_shell_orientation_provider,
             register_shell_section_provider,
