@@ -4,3 +4,5 @@
 *.FCBak
 *.swp
 mcp.json
+artifacts/
+build/
