@@ -79,4 +79,16 @@ def is_comp_type(obj, type_id, proxy_type):
     return True
 
 
+# Register optional composite-specific FEM extensions if available.
+try:
+    from .fem.drape_laminate_provider import register_drape_laminate_providers
+    from .fem.failure_models_composites import register_composite_failure_models
+
+    register_composite_failure_models()
+    register_drape_laminate_providers()
+except Exception:
+    # Keep Composites WB load robust even when FEM extension registries are unavailable.
+    pass
+
+
 FreeCAD.__unit_test__ += ["TestCompositesApp"]
