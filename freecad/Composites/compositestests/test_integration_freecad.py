@@ -22,10 +22,15 @@ if "CompositesWB" not in sys.modules:
     sys.modules["CompositesWB"] = _composites_wb
 
 import freecad.Composites as CompositesWB
+from freecad.Composites.compositeexamples import runner as example_runner
 from freecad.Composites.compositestests.example_materials import make_glass
 
 
 class TestFreeCADIntegration(unittest.TestCase):
+    def _close_doc_if_exists(self, doc_name):
+        if doc_name in FreeCAD.listDocuments():
+            FreeCAD.closeDocument(doc_name)
+
     def test_workbench_module_imports(self):
         self.assertTrue(hasattr(CompositesWB, "is_comp_type"))
         self.assertTrue(hasattr(CompositesWB, "ICONPATH"))
@@ -104,6 +109,69 @@ class TestFreeCADIntegration(unittest.TestCase):
         )
 
         FreeCAD.closeDocument(doc_name)
+
+    def test_conical_example_mesh_only_fem_job_runs(self):
+        doc_name = "Composites_Conical_Panel"
+        self._close_doc_if_exists(doc_name)
+
+        try:
+            result = example_runner.run(
+                "conical_panel_segment",
+                run_solver=True,
+                doc=None,
+                debug_options={
+                    "mesh_only": True,
+                    "skip_draper": True,
+                    "skip_view_providers": True,
+                },
+            )
+        except RuntimeError as exc:
+            msg = str(exc)
+            missing_stack_markers = (
+                "ObjectsFem is required",
+                "Unable to create FEM analysis/solver/mesh objects",
+                "Mesh generation failed",
+            )
+            if any(marker in msg for marker in missing_stack_markers):
+                self.skipTest(f"FEM stack unavailable in this FreeCAD build: {msg}")
+            raise
+
+        fem_job = result.get("fem_job")
+        self.assertIsNotNone(fem_job)
+        self.assertIsNotNone(fem_job.get("analysis"))
+        self.assertIsNotNone(fem_job.get("solver"))
+        self.assertIsNotNone(fem_job.get("mesh"))
+
+        mesh_obj = fem_job["mesh"]
+        fem_mesh = getattr(mesh_obj, "FemMesh", None)
+        self.assertIsNotNone(fem_mesh)
+        self.assertGreater(getattr(fem_mesh, "NodeCount", 0), 0)
+
+        failure_report = fem_job.get("failure_report", {})
+        self.assertFalse(failure_report.get("available", True))
+        self.assertIn("solve skipped", failure_report.get("reason", ""))
+
+        self._close_doc_if_exists(doc_name)
+
+    def test_conical_example_full_solver_job_runs(self):
+        doc_name = "Composites_Conical_Panel"
+        self._close_doc_if_exists(doc_name)
+
+        result = example_runner.run(
+            "conical_panel_segment",
+            run_solver=True,
+            doc=None,
+            debug_options={
+                "skip_view_providers": True,
+            },
+        )
+
+        fem_job = result.get("fem_job")
+        self.assertIsNotNone(fem_job)
+        self.assertIn("failure_report", fem_job)
+        self.assertIsInstance(fem_job.get("failure_report"), dict)
+
+        self._close_doc_if_exists(doc_name)
 
     def test_fibre_composite_lamina_areal_weight_updates(self):
         import FreeCADGui
