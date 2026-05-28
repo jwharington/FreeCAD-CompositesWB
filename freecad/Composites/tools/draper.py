@@ -87,16 +87,24 @@ class Draper:
         facet: np.intp = np.argmin(totd)
         return self._get_tris(facet)
 
+    def _rotation_from_tris(
+        self,
+        center: Vector,
+        normal: Vector,
+        tri_global: list[Vector],
+        tri_fabric: list[Vector],
+    ):
+        lam = calc_lambda_vec(center, tri_global)
+        d = axes_mapped(lam, tri_global, tri_fabric)
+        return Rotation(d[0], d[1], normal, "ZXY").inverted()
+
     def _get_lcs_at_point(
         self,
         center: Vector,
         normal: Vector,
     ):
         tri_global, tri_fabric = self._get_facet(center)
-
-        lam = calc_lambda_vec(center, tri_global)
-        d = axes_mapped(lam, tri_global, tri_fabric)
-        return Rotation(d[0], d[1], normal, "ZXY").inverted()
+        return self._rotation_from_tris(center, normal, tri_global, tri_fabric)
 
     # use by FEM given fem triangles
     def get_lcs(
@@ -172,7 +180,13 @@ class Draper:
         # https://www.ce.memphis.edu/7117/notes/presentations/chapter_06a.pdf
 
         G, F = self._get_tris(facet)
-        R = self.get_lcs(G)
+
+        # Fast path: when evaluating strains over each mesh facet during
+        # initialization, avoid global nearest-facet search in get_lcs().
+        center = (G[0] + G[1] + G[2]) / 3
+        normal = (G[1] - G[0]).cross(G[2] - G[1]).normalize()
+        R = self._rotation_from_tris(center, normal, G, F)
+
         Gp = [R * g for g in G]
         D = [g - f for g, f in zip(Gp, F)]
 

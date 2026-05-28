@@ -88,6 +88,13 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyInteger",
+            name="DraperMaxFacets",
+            group="Draping",
+            doc="Maximum facet count allowed for Draper solve before fallback",
+        )
+
+        obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Mesh",
             group="Orthographic",
@@ -104,6 +111,7 @@ class CompositeShellFP(CompositeBaseFP):
 
         obj.MaxLength = 1.25
         obj.SkipDraper = False
+        obj.DraperMaxFacets = 3000
         obj.LocalCoordinateSystem = lcs
         obj.Rosette = rosette
         obj.Laminate = laminate
@@ -131,9 +139,7 @@ class CompositeShellFP(CompositeBaseFP):
 
         try:
             mesh = mesh_util.shape2Mesh(fp.Shape, fp.MaxLength)
-            # Always publish the generated drape mesh for inspection,
-            # even if Draper setup fails afterwards.
-            fp.Mesh.Mesh = mesh
+            display_mesh = mesh
 
             skip_draper = bool(
                 getattr(fp, "SkipDraper", False)
@@ -146,16 +152,17 @@ class CompositeShellFP(CompositeBaseFP):
                 )
             else:
                 draper_mesh = mesh
-                max_facets = 3000
+                max_facets = int(getattr(fp, "DraperMaxFacets", 3000) or 3000)
                 facet_count = int(getattr(draper_mesh, "CountFacets", 0))
                 if facet_count > max_facets:
-                    # Keep display mesh fine, but cap Draper workload to avoid
-                    # long hangs in dense shell meshes.
-                    coarse_candidates = [2.0, 4.0, 8.0, 16.0]
-                    for factor in coarse_candidates:
-                        candidate = mesh_util.shape2Mesh(
+                    # Force legacy SegPerEdge levels downward until we fit
+                    # the draper budget.
+                    for seg in (20, 16, 12, 10, 8, 6):
+                        candidate = mesh_util.shape2MeshLegacy(
                             fp.Shape,
-                            float(fp.MaxLength) * factor,
+                            float(fp.MaxLength),
+                            seg_min=seg,
+                            seg_max=seg,
                         )
                         cfacets = int(getattr(candidate, "CountFacets", 0))
                         if cfacets <= max_facets:
@@ -173,6 +180,9 @@ class CompositeShellFP(CompositeBaseFP):
                 if draper_mesh is None:
                     pass
                 else:
+                    # Keep render mesh and draper mesh aligned so fibre orientation
+                    # mapping remains continuous.
+                    display_mesh = draper_mesh
                     self.draper = Draper(draper_mesh, get_lcs(), fp.Shape)
                 if self.has_valid_draper():
                     self.fibre_analysis(fp)
@@ -180,6 +190,9 @@ class CompositeShellFP(CompositeBaseFP):
                     Console.PrintWarning(
                         "CompositeShell draper invalid after mesh generation.\n",
                     )
+
+            # Publish the effective drape mesh used for orientation mapping.
+            fp.Mesh.Mesh = display_mesh
         except Exception as exc:
             self.draper = None
             Console.PrintWarning(
@@ -207,7 +220,7 @@ class CompositeShellFP(CompositeBaseFP):
                 fp.recompute()
             case "LocalCoordinateSystem" | "Rosette":
                 fp.recompute()
-            case "MaxLength" | "Support" | "SkipDraper":
+            case "MaxLength" | "Support" | "SkipDraper" | "DraperMaxFacets":
                 fp.recompute()
 
     def has_valid_draper(self):

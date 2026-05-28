@@ -84,6 +84,30 @@ def calc_lambda_vec(
     return np.array([lam0, lam1, lam2])
 
 
+def shape2MeshLegacy(shape, max_length, seg_min=6, seg_max=40):
+    if not shape.BoundBox.isValid():
+        return Mesh.Mesh()
+
+    maxl = (
+        float(max_length)
+        if max_length and max_length > 0
+        else shape.BoundBox.DiagonalLength / 32.0
+    )
+    diag = max(shape.BoundBox.DiagonalLength, 1.0e-6)
+    seg = int(diag / max(maxl, 1.0e-6))
+    seg = max(seg_min, min(seg_max, seg))
+
+    return MeshPart.meshFromShape(
+        shape,
+        GrowthRate=0,
+        SegPerEdge=seg,
+        SegPerRadius=seg,
+        SecondOrder=0,
+        Optimize=1,
+        AllowQuad=0,
+    )
+
+
 def shape2Mesh(shape, max_length):
     if not shape.BoundBox.isValid():
         return Mesh.Mesh()
