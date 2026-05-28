@@ -17,7 +17,7 @@ from ..tools.fibre import (
     make_fibre_length_analysis,
     make_fibre_orientation_analysis,
 )
-from ..util.mesh_util import shape2Mesh
+from ..util import mesh_util
 from .Command import BaseCommand
 from .Container import getCompositesContainer
 from .Laminate import is_laminate
@@ -120,13 +120,51 @@ class CompositeShellFP(CompositeBaseFP):
         self._rosette_angle = float(fp.Rosette.Angle) if fp.Rosette else 0.0
 
         try:
-            mesh = shape2Mesh(fp.Shape, fp.MaxLength)
-            self.draper = Draper(mesh, get_lcs(), fp.Shape)
+            mesh = mesh_util.shape2Mesh(fp.Shape, fp.MaxLength)
+            # Always publish the generated drape mesh for inspection,
+            # even if Draper setup fails afterwards.
+            fp.Mesh.Mesh = mesh
+
+            draper_mesh = mesh
+            max_facets = 3000
+            facet_count = int(getattr(draper_mesh, "CountFacets", 0))
+            if facet_count > max_facets:
+                # Keep display mesh fine, but cap Draper workload to avoid
+                # long hangs in dense shell meshes.
+                coarse_candidates = [2.0, 4.0, 8.0, 16.0]
+                for factor in coarse_candidates:
+                    candidate = mesh_util.shape2Mesh(
+                        fp.Shape,
+                        float(fp.MaxLength) * factor,
+                    )
+                    cfacets = int(getattr(candidate, "CountFacets", 0))
+                    if cfacets <= max_facets:
+                        draper_mesh = candidate
+                        facet_count = cfacets
+                        break
+                if facet_count > max_facets:
+                    self.draper = None
+                    Console.PrintWarning(
+                        "CompositeShell skipping Draper: mesh too dense "
+                        f"({facet_count} facets > {max_facets}).\n",
+                    )
+                    draper_mesh = None
+
+            if draper_mesh is None:
+                pass
+            else:
+                self.draper = Draper(draper_mesh, get_lcs(), fp.Shape)
             if self.has_valid_draper():
-                fp.Mesh.Mesh = mesh
                 self.fibre_analysis(fp)
-        except Exception:
+            else:
+                Console.PrintWarning(
+                    "CompositeShell draper invalid after mesh generation.\n",
+                )
+        except Exception as exc:
             self.draper = None
+            Console.PrintWarning(
+                f"CompositeShell drape setup failed: {exc}\n",
+            )
 
         if fp.ViewObject:
             fp.ViewObject.update()
