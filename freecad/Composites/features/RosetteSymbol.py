@@ -5,17 +5,8 @@ import math
 from pivy import coin
 
 
-# Distinct colours cycled across orientation lines
-_COLORS = [
-    (0.9, 0.15, 0.15),  # red
-    (0.15, 0.45, 0.9),  # blue
-    (0.15, 0.75, 0.15),  # green
-    (0.9, 0.75, 0.0),  # yellow
-    (0.75, 0.15, 0.75),  # magenta
-    (0.1, 0.75, 0.75),  # cyan
-    (0.9, 0.45, 0.0),  # orange
-    (0.5, 0.9, 0.5),  # light green
-]
+_X_AXIS_COLOR = (0.9, 0.15, 0.15)  # red
+_Y_AXIS_COLOR = (0.15, 0.75, 0.15)  # green
 
 _CIRCLE_PTS = 64
 _ARROW_FRACTION = 0.18  # arrow head length as fraction of scale
@@ -23,12 +14,12 @@ _ARROW_WIDTH = 0.35  # arrow head width as fraction of arrow length
 
 
 class RosetteSymbol:
-    """Coin3D 3D symbol showing a fibre orientation rosette.
+    """Coin3D 3D symbol showing a rosette with only X/Y reference axes.
 
-    Renders a reference circle and one coloured, arrowed line per unique
-    fibre orientation angle in the XY plane of the given local coordinate
-    system.  Call :meth:`update` whenever the orientation data or placement
-    changes.
+    Renders a reference circle and two coloured, arrowed axes in the XY plane
+    of the given local coordinate system:
+    - X axis (0°/180°): red
+    - Y axis (90°/270°): green
     """
 
     def __init__(self):
@@ -50,7 +41,7 @@ class RosetteSymbol:
         Parameters
         ----------
         orientations : iterable of str or float
-            Fibre orientation angles in degrees (duplicates are removed).
+            Unused (kept for API compatibility).
         position : tuple of float
             (x, y, z) centre of the rosette in model units (mm).
         rotation : tuple of float
@@ -78,27 +69,13 @@ class RosetteSymbol:
         self._add_circle(scale)
         self._add_center()
 
-        # One line per unique orientation (normalised to [0°, 180°))
-        unique = self._unique_orientations(orientations)
-        for i, angle_deg in enumerate(unique):
-            color = _COLORS[i % len(_COLORS)]
-            self._add_orientation_line(angle_deg, scale, color)
+        # Draw only principal rosette axes: X (red) and Y (green).
+        self._add_orientation_line(0.0, scale, _X_AXIS_COLOR)
+        self._add_orientation_line(90.0, scale, _Y_AXIS_COLOR)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _unique_orientations(orientations):
-        """Return deduplicated list of orientations normalised to [0, 180)."""
-        seen = {}
-        result = []
-        for a in orientations:
-            key = round(float(a)) % 180
-            if key not in seen:
-                seen[key] = True
-                result.append(float(a))
-        return result
 
     def _add_circle(self, scale):
         """Draw a grey reference circle of radius *scale* in the XY plane."""
