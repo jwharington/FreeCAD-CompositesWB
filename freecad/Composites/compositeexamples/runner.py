@@ -12,7 +12,7 @@ def list_examples():
     return registry.list_examples()
 
 
-def run(example_id, run_solver=False, doc=None):
+def run(example_id, run_solver=False, doc=None, **build_kwargs):
     """Run one example by ID.
 
     Parameters
@@ -24,6 +24,10 @@ def run(example_id, run_solver=False, doc=None):
         Default is ``False`` so examples only build model state by default.
     doc
         Optional FreeCAD document. If ``None``, examples may create one.
+
+    build_kwargs
+        Optional keyword arguments forwarded to the example
+        ``build(...)`` function for diagnostics/safety modes.
 
     Returns
     -------
@@ -39,4 +43,6 @@ def run(example_id, run_solver=False, doc=None):
             f"Example '{example_id}' does not expose a callable build() function",
         )
 
+    if build_kwargs:
+        return build(doc=doc, run_solver=run_solver, **build_kwargs)
     return build(doc=doc, run_solver=run_solver)

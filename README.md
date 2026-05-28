@@ -123,6 +123,13 @@ Terminology:
 The workbench now includes a lightweight `compositeexamples` framework for
 scriptable, reproducible model build examples.
 
+Current examples include:
+- `ud_plate_basic`
+- `quasi_iso_laminate_plate`
+- `tubular_shell` (full 360° shell midsurface)
+- `cylindrical_panel_segment` (open shell segment)
+- `conical_panel_segment` (open shell segment, gentle taper)
+
 ### Run from the GUI
 
 - Open the **Composites** workbench.
@@ -146,6 +153,14 @@ print(result)
 
 `run_solver` defaults to `False` and examples are expected to keep solver steps
 optional.
+
+For shell-segment examples (`tubular_shell`, `cylindrical_panel_segment`,
+`conical_panel_segment`), setting `run_solver=True` now attempts a full FEM job:
+analysis + solver + mesh generation + constraints + CalculiX run.
+
+After solve, shell examples also attempt a failure-criteria postprocess using
+Composites Tsai-Wu and Hashin evaluators and return a `failure_report`
+(max index + hotspot elements) when stress components are available.
 
 ### Add a new example
 

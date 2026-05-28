@@ -15,6 +15,18 @@ EXAMPLES = {
         "module": ".examples.quasi_iso_laminate_plate",
         "name": "Quasi-isotropic laminate plate",
     },
+    "tubular_shell": {
+        "module": ".examples.tubular_shell",
+        "name": "Tubular shell",
+    },
+    "cylindrical_panel_segment": {
+        "module": ".examples.cylindrical_panel_segment",
+        "name": "Cylindrical panel segment",
+    },
+    "conical_panel_segment": {
+        "module": ".examples.conical_panel_segment",
+        "name": "Conical panel segment",
+    },
 }
 
 
