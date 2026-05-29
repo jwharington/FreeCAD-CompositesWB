@@ -16,9 +16,8 @@ from .fishnet_metrics import (
     read_hole_crossing_cell_count,
     read_linear_strain_extrema,
     read_shear_strain_angle_limit_metric,
-    read_strain_distribution,
+    read_strain_heatmap,
     read_uv_scale_metrics,
-    summarize_distribution,
 )
 
 
@@ -127,15 +126,13 @@ class FishnetDrapeBackend(DrapeBackend):
         self._shear_metric_status = "not_available"
         self._shear_metric_error: str | None = None
 
-        self._linear_strain_distribution: list[float] | None = None
-        self._linear_strain_distribution_status = "not_available"
-        self._linear_strain_distribution_error: str | None = None
-        self._linear_strain_distribution_summary: dict[str, Any] | None = None
+        self._strain_heatmap_3d: dict[str, Any] | None = None
+        self._strain_heatmap_3d_status = "not_available"
+        self._strain_heatmap_3d_error: str | None = None
 
-        self._shear_strain_distribution_deg: list[float] | None = None
-        self._shear_strain_distribution_status = "not_available"
-        self._shear_strain_distribution_error: str | None = None
-        self._shear_strain_distribution_summary: dict[str, Any] | None = None
+        self._strain_heatmap_flat: dict[str, Any] | None = None
+        self._strain_heatmap_flat_status = "not_available"
+        self._strain_heatmap_flat_error: str | None = None
 
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
@@ -280,37 +277,45 @@ class FishnetDrapeBackend(DrapeBackend):
             self._shear_metric_error = str(exc)
             self._shear_angle_abs_max_deg = None
 
-        # Linear strain distribution (qualitative plotting)
+        # Heatmap payload for 3D plotting
         try:
-            self._linear_strain_distribution = read_strain_distribution(
+            heatmap_3d = read_strain_heatmap(
                 payload,
-                "linear_strain_distribution",
+                coordinate_field="strain_heatmap_coordinates_3d",
+                coordinate_dim=3,
+                linear_field="strain_heatmap_linear_values",
+                shear_field="strain_heatmap_shear_values_deg",
             )
-            self._linear_strain_distribution_summary = summarize_distribution(
-                self._linear_strain_distribution,
-            )
-            self._linear_strain_distribution_status = "ok"
+            self._strain_heatmap_3d = {
+                "coordinates": heatmap_3d["coordinates"],
+                "linear_values": heatmap_3d["linear_values"],
+                "shear_values_deg": heatmap_3d["shear_values"],
+            }
+            self._strain_heatmap_3d_status = "ok"
         except FishnetMetricPayloadError as exc:
-            self._linear_strain_distribution_status = "invalid_payload"
-            self._linear_strain_distribution_error = str(exc)
-            self._linear_strain_distribution = None
-            self._linear_strain_distribution_summary = None
+            self._strain_heatmap_3d_status = "invalid_payload"
+            self._strain_heatmap_3d_error = str(exc)
+            self._strain_heatmap_3d = None
 
-        # Shear strain distribution (qualitative plotting)
+        # Heatmap payload for flattened texture plan plotting
         try:
-            self._shear_strain_distribution_deg = read_strain_distribution(
+            heatmap_flat = read_strain_heatmap(
                 payload,
-                "shear_strain_distribution_deg",
+                coordinate_field="strain_heatmap_coordinates_uv",
+                coordinate_dim=2,
+                linear_field="strain_heatmap_linear_values",
+                shear_field="strain_heatmap_shear_values_deg",
             )
-            self._shear_strain_distribution_summary = summarize_distribution(
-                self._shear_strain_distribution_deg,
-            )
-            self._shear_strain_distribution_status = "ok"
+            self._strain_heatmap_flat = {
+                "coordinates_uv": heatmap_flat["coordinates"],
+                "linear_values": heatmap_flat["linear_values"],
+                "shear_values_deg": heatmap_flat["shear_values"],
+            }
+            self._strain_heatmap_flat_status = "ok"
         except FishnetMetricPayloadError as exc:
-            self._shear_strain_distribution_status = "invalid_payload"
-            self._shear_strain_distribution_error = str(exc)
-            self._shear_strain_distribution_deg = None
-            self._shear_strain_distribution_summary = None
+            self._strain_heatmap_flat_status = "invalid_payload"
+            self._strain_heatmap_flat_error = str(exc)
+            self._strain_heatmap_flat = None
 
     def _run_constructive_solve(self) -> FishnetSolveResult:
         """Run strict bootstrap solve path with no rescue branches.
@@ -407,14 +412,12 @@ class FishnetDrapeBackend(DrapeBackend):
             "shear_angle_abs_max_deg": self._shear_angle_abs_max_deg,
             "shear_metric_status": self._shear_metric_status,
             "shear_metric_error": self._shear_metric_error,
-            "linear_strain_distribution": self._linear_strain_distribution,
-            "linear_strain_distribution_status": self._linear_strain_distribution_status,
-            "linear_strain_distribution_error": self._linear_strain_distribution_error,
-            "linear_strain_distribution_summary": self._linear_strain_distribution_summary,
-            "shear_strain_distribution_deg": self._shear_strain_distribution_deg,
-            "shear_strain_distribution_status": self._shear_strain_distribution_status,
-            "shear_strain_distribution_error": self._shear_strain_distribution_error,
-            "shear_strain_distribution_summary": self._shear_strain_distribution_summary,
+            "strain_heatmap_3d": self._strain_heatmap_3d,
+            "strain_heatmap_3d_status": self._strain_heatmap_3d_status,
+            "strain_heatmap_3d_error": self._strain_heatmap_3d_error,
+            "strain_heatmap_flat": self._strain_heatmap_flat,
+            "strain_heatmap_flat_status": self._strain_heatmap_flat_status,
+            "strain_heatmap_flat_error": self._strain_heatmap_flat_error,
             "linear_strain_warning_limit": self._linear_strain_warning_limit,
             "shear_strain_warning_limit_deg": self._shear_strain_warning_limit_deg,
             "linear_strain_warning_exceeded": (

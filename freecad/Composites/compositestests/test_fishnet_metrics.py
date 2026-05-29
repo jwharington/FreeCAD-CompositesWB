@@ -38,9 +38,8 @@ from freecad.Composites.tools.fishnet_metrics import (  # noqa: E402
     read_hole_crossing_cell_count,
     read_linear_strain_extrema,
     read_shear_strain_angle_limit_metric,
-    read_strain_distribution,
+    read_strain_heatmap,
     read_uv_scale_metrics,
-    summarize_distribution,
 )
 
 
@@ -177,18 +176,33 @@ def test_read_shear_strain_angle_limit_metric_requires_nonnegative_value():
         read_shear_strain_angle_limit_metric({"shear_angle_abs_max_deg": -1.0})
 
 
-def test_read_strain_distribution_and_summary_for_plotting():
-    series = read_strain_distribution(
-        {"linear_strain_distribution": [-0.00008, -0.00001, 0.0, 0.00005]},
-        "linear_strain_distribution",
-    )
-    summary = summarize_distribution(series, bins=4)
+def test_read_strain_heatmap_for_3d_and_flat_plotting():
+    payload = {
+        "strain_heatmap_coordinates_3d": [[0, 0, 0], [1, 1, 0]],
+        "strain_heatmap_coordinates_uv": [[0, 0], [0.5, 0.5]],
+        "strain_heatmap_linear_values": [-0.00008, 0.00005],
+        "strain_heatmap_shear_values_deg": [2.0, 6.0],
+    }
 
-    assert len(series) == 4
-    assert summary["count"] == 4
-    assert summary["min"] == pytest.approx(-0.00008)
-    assert summary["max"] == pytest.approx(0.00005)
-    assert sum(summary["histogram"]["counts"]) == 4
+    heatmap_3d = read_strain_heatmap(
+        payload,
+        coordinate_field="strain_heatmap_coordinates_3d",
+        coordinate_dim=3,
+        linear_field="strain_heatmap_linear_values",
+        shear_field="strain_heatmap_shear_values_deg",
+    )
+    heatmap_flat = read_strain_heatmap(
+        payload,
+        coordinate_field="strain_heatmap_coordinates_uv",
+        coordinate_dim=2,
+        linear_field="strain_heatmap_linear_values",
+        shear_field="strain_heatmap_shear_values_deg",
+    )
+
+    assert len(heatmap_3d["coordinates"]) == 2
+    assert len(heatmap_flat["coordinates"]) == 2
+    assert heatmap_3d["linear_values"][0] == pytest.approx(-0.00008)
+    assert heatmap_flat["shear_values"][1] == pytest.approx(6.0)
 
 
 def test_evaluate_topology_quality_gates_passes_when_all_thresholds_met():

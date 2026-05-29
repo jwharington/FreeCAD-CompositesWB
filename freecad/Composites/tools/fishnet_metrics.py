@@ -268,67 +268,76 @@ def _as_optional_float(value: object, field_name: str) -> float | None:
     return _as_float(value, field_name)
 
 
-def read_strain_distribution(
+def read_strain_heatmap(
     payload: Mapping[str, object],
-    field_name: str,
-) -> list[float]:
-    """Read strain distribution series used for qualitative plotting."""
+    *,
+    coordinate_field: str,
+    coordinate_dim: int,
+    linear_field: str,
+    shear_field: str,
+) -> dict[str, list]:
+    """Read strain heatmap payload for either 3D or flattened coordinates."""
 
-    values = payload.get(field_name)
-    if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+    coordinates_raw = payload.get(coordinate_field)
+    linear_raw = payload.get(linear_field)
+    shear_raw = payload.get(shear_field)
+
+    coordinates = _as_numeric_vectors(
+        coordinates_raw,
+        field_name=coordinate_field,
+        vector_dim=coordinate_dim,
+    )
+    linear_values = _as_numeric_series(linear_raw, field_name=linear_field)
+    shear_values = _as_numeric_series(shear_raw, field_name=shear_field)
+
+    if not (
+        len(coordinates) == len(linear_values) == len(shear_values)
+    ):
+        raise FishnetMetricPayloadError(
+            f"{coordinate_field}, {linear_field}, and {shear_field} must have equal lengths"
+        )
+
+    return {
+        "coordinates": coordinates,
+        "linear_values": linear_values,
+        "shear_values": shear_values,
+    }
+
+
+def _as_numeric_series(value: object, *, field_name: str) -> list[float]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         raise FishnetMetricPayloadError(f"{field_name} must be an array of numeric values")
 
-    series = [_as_float(v, f"{field_name}[]") for v in values]
+    series = [_as_float(v, f"{field_name}[]") for v in value]
     if not series:
         raise FishnetMetricPayloadError(f"{field_name} must contain at least one value")
     return series
 
 
-def summarize_distribution(values: Sequence[float], *, bins: int = 20) -> dict[str, object]:
-    """Summarize values for histogram/distribution display."""
+def _as_numeric_vectors(
+    value: object,
+    *,
+    field_name: str,
+    vector_dim: int,
+) -> list[list[float]]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise FishnetMetricPayloadError(
+            f"{field_name} must be an array of numeric vectors"
+        )
 
-    if bins <= 0:
-        raise FishnetMetricPayloadError("bins must be > 0")
-    if not values:
-        raise FishnetMetricPayloadError("values must contain at least one element")
+    vectors: list[list[float]] = []
+    for idx, row in enumerate(value):
+        if not isinstance(row, Sequence) or isinstance(row, (str, bytes, bytearray)):
+            raise FishnetMetricPayloadError(f"{field_name}[{idx}] must be a numeric vector")
+        if len(row) != vector_dim:
+            raise FishnetMetricPayloadError(
+                f"{field_name}[{idx}] must have length {vector_dim}"
+            )
+        vectors.append([_as_float(v, f"{field_name}[{idx}][]") for v in row])
 
-    series = [float(v) for v in values]
-    lo = min(series)
-    hi = max(series)
-
-    if hi == lo:
-        return {
-            "count": len(series),
-            "min": lo,
-            "max": hi,
-            "mean": lo,
-            "histogram": {
-                "bin_edges": [lo, hi],
-                "counts": [len(series)],
-            },
-        }
-
-    width = (hi - lo) / float(bins)
-    counts = [0 for _ in range(bins)]
-    for value in series:
-        idx = int((value - lo) / width)
-        if idx >= bins:
-            idx = bins - 1
-        counts[idx] += 1
-
-    edges = [lo + width * i for i in range(bins)] + [hi]
-    mean = sum(series) / float(len(series))
-
-    return {
-        "count": len(series),
-        "min": lo,
-        "max": hi,
-        "mean": mean,
-        "histogram": {
-            "bin_edges": edges,
-            "counts": counts,
-        },
-    }
+    if not vectors:
+        raise FishnetMetricPayloadError(f"{field_name} must contain at least one vector")
+    return vectors
 
 
 def _as_nonnegative_int(value: object, field_name: str) -> int:

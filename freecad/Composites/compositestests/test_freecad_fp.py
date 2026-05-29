@@ -1318,8 +1318,10 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
             "linear_strain_min": -0.00008,
             "linear_strain_max": 0.0005,
             "shear_angle_abs_max_deg": 6.0,
-            "linear_strain_distribution": [-0.00008, 0.0005],
-            "shear_strain_distribution_deg": [2.0, 6.0],
+            "strain_heatmap_coordinates_3d": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            "strain_heatmap_coordinates_uv": [[0.0, 0.0], [1.0, 0.0]],
+            "strain_heatmap_linear_values": [-0.00008, 0.0005],
+            "strain_heatmap_shear_values_deg": [2.0, 6.0],
         }
         self.obj.Support.Shape = shape
         self.obj.Laminate = MagicMock()
@@ -1343,6 +1345,10 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(diag["shear_strain_warning_limit_deg"], 5.0)
         self.assertTrue(diag["linear_strain_warning_exceeded"])
         self.assertTrue(diag["shear_strain_warning_exceeded"])
+        self.assertEqual(diag["strain_heatmap_3d_status"], "ok")
+        self.assertEqual(diag["strain_heatmap_flat_status"], "ok")
+        self.assertEqual(len(diag["strain_heatmap_3d"]["coordinates"]), 2)
+        self.assertEqual(len(diag["strain_heatmap_flat"]["coordinates_uv"]), 2)
 
     def test_execute_legacy_uses_backend_seam_and_persists_diagnostics(self):
         self.obj.Support = MagicMock()

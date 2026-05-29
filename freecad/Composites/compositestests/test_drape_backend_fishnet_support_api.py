@@ -73,8 +73,20 @@ class _ShapeProjectionOkWithStrictMetrics(_ShapeProjectionOk):
         "linear_strain_min": -0.00008,
         "linear_strain_max": 0.00009,
         "shear_angle_abs_max_deg": 8.5,
-        "linear_strain_distribution": [-0.00008, -0.00001, 0.0, 0.00009],
-        "shear_strain_distribution_deg": [1.0, 2.0, 4.0, 8.5],
+        "strain_heatmap_coordinates_3d": [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ],
+        "strain_heatmap_coordinates_uv": [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+        ],
+        "strain_heatmap_linear_values": [-0.00008, -0.00001, 0.0, 0.00009],
+        "strain_heatmap_shear_values_deg": [1.0, 2.0, 4.0, 8.5],
     }
 
 
@@ -201,10 +213,10 @@ def test_backend_diagnostics_compute_strict_coverage_metric_when_payload_present
     assert diag["shear_metric_status"] == "ok"
     assert diag["shear_angle_abs_max_deg"] == 8.5
 
-    assert diag["linear_strain_distribution_status"] == "ok"
-    assert diag["linear_strain_distribution_summary"]["count"] == 4
-    assert diag["shear_strain_distribution_status"] == "ok"
-    assert diag["shear_strain_distribution_summary"]["count"] == 4
+    assert diag["strain_heatmap_3d_status"] == "ok"
+    assert len(diag["strain_heatmap_3d"]["coordinates"]) == 4
+    assert diag["strain_heatmap_flat_status"] == "ok"
+    assert len(diag["strain_heatmap_flat"]["coordinates_uv"]) == 4
 
     assert diag["linear_strain_warning_exceeded"] is False
     assert diag["shear_strain_warning_exceeded"] is False
@@ -227,8 +239,8 @@ def test_backend_diagnostics_reject_legacy_metric_payload():
     assert diag["uv_metric_status"] == "invalid_payload"
     assert diag["linear_metric_status"] == "invalid_payload"
     assert diag["shear_metric_status"] == "invalid_payload"
-    assert diag["linear_strain_distribution_status"] == "invalid_payload"
-    assert diag["shear_strain_distribution_status"] == "invalid_payload"
+    assert diag["strain_heatmap_3d_status"] == "invalid_payload"
+    assert diag["strain_heatmap_flat_status"] == "invalid_payload"
 
 
 def test_unexpected_projection_exception_is_not_masked():
