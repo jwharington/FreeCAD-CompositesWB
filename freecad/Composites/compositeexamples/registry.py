@@ -23,6 +23,10 @@ EXAMPLES = {
         "module": ".examples.flat_panel_spline_hole",
         "name": "Flat panel spline with hole",
     },
+    "double_curvature_panel": {
+        "module": ".examples.double_curvature_panel",
+        "name": "Double curvature panel",
+    },
     "cylindrical_panel_segment": {
         "module": ".examples.cylindrical_panel_segment",
         "name": "Cylindrical panel segment",

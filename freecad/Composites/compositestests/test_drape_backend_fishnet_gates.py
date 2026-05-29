@@ -56,6 +56,7 @@ EXPECTED_FULL_MATRIX = {
     "ud_plate_basic",
     "cylindrical_panel_segment",
     "flat_panel_spline_hole",
+    "double_curvature_panel",
     "tubular_shell",
     "conical_panel_segment",
 }
