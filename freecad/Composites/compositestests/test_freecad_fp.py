@@ -1290,6 +1290,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(diag["backend"], "fishnet")
         self.assertEqual(diag["status"], "invalid")
         self.assertEqual(diag["failure_reason"], "solver_unsolved")
+        self.assertEqual(diag["solve_status"], "failed_no_neighbors")
 
     def test_execute_legacy_uses_backend_seam_and_persists_diagnostics(self):
         self.obj.Support = MagicMock()

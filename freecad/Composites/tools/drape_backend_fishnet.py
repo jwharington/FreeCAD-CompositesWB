@@ -27,6 +27,31 @@ class FishnetSupportProjectionResult:
         return cls(status="invalid", failure_reason=failure_reason, uv=None)
 
 
+@dataclass(frozen=True)
+class FishnetSolveResult:
+    """Typed constructive-solve result with explicit no-rescue semantics."""
+
+    status: str
+    failure_reason: str | None = None
+    solved_node_count: int = 0
+
+    @classmethod
+    def solved(cls, solved_node_count: int):
+        return cls(
+            status="ok",
+            failure_reason=None,
+            solved_node_count=int(solved_node_count),
+        )
+
+    @classmethod
+    def failed(cls, status: str, failure_reason: str = "solver_unsolved"):
+        return cls(
+            status=status,
+            failure_reason=failure_reason,
+            solved_node_count=0,
+        )
+
+
 class FishnetDrapeBackend(DrapeBackend):
     """Bootstrap fishnet backend.
 
@@ -44,14 +69,28 @@ class FishnetDrapeBackend(DrapeBackend):
         self.lcs = lcs
         self.shape = shape
 
+        self._seed_uv: tuple[float, float] | None = None
+        self._solve_status: str = "not_started"
+        self._solved_node_count: int = 0
+
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
             self._status = "invalid"
             self._failure_reason = evaluation.failure_reason
+            self._solve_status = "blocked_preconditions"
+            return
+
+        self._seed_uv = evaluation.uv
+        solve = self._run_constructive_solve()
+        self._solve_status = solve.status
+        self._solved_node_count = solve.solved_node_count
+
+        if solve.status == "ok":
+            self._status = "ok"
+            self._failure_reason = None
         else:
-            # Constructive solve is intentionally not implemented in CS1.
             self._status = "invalid"
-            self._failure_reason = "solver_unsolved"
+            self._failure_reason = solve.failure_reason
 
     def _evaluate_support_and_projection(self, shape) -> FishnetSupportProjectionResult:
         support = self._validate_support_shape(shape)
@@ -101,12 +140,44 @@ class FishnetDrapeBackend(DrapeBackend):
             uv=(float(uv[0]), float(uv[1]))
         )
 
+    def _run_constructive_solve(self) -> FishnetSolveResult:
+        """Run strict bootstrap solve path with no rescue branches.
+
+        CS1 step 2 policy: if no seed neighbors are available, fail explicitly
+        instead of using any synthetic rescue seed/angle path.
+        """
+
+        neighbors = self._seed_neighbors_from_mesh()
+        if not neighbors:
+            return FishnetSolveResult.failed(status="failed_no_neighbors")
+
+        # Solver implementation is pending; keep failure explicit and typed.
+        return FishnetSolveResult.failed(status="failed_not_implemented")
+
+    def _seed_neighbors_from_mesh(self) -> list[Any]:
+        topology = getattr(self.mesh, "Topology", None)
+        if not topology or len(topology) < 2:
+            return []
+
+        faces = topology[1]
+        if not faces:
+            return []
+
+        first_face = faces[0]
+        try:
+            return list(first_face)
+        except TypeError:
+            return []
+
     def is_valid(self) -> bool:
-        return False
+        return self._status == "ok"
 
     def diagnostics(self) -> dict[str, Any]:
         return {
             "backend": self.backend_name,
             "status": self._status,
             "failure_reason": self._failure_reason,
+            "solve_status": self._solve_status,
+            "solved_node_count": self._solved_node_count,
+            "seed_uv": self._seed_uv,
         }

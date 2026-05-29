@@ -229,6 +229,11 @@ class CompositeShellFP(CompositeBaseFP):
                         backend=diag.get("backend", backend_name),
                         status=diag.get("status", "invalid"),
                         failure_reason=diag.get("failure_reason"),
+                        extras={
+                            k: v
+                            for k, v in diag.items()
+                            if k not in {"backend", "status", "failure_reason"}
+                        },
                     )
 
                     if self.has_valid_draper():
@@ -265,7 +270,15 @@ class CompositeShellFP(CompositeBaseFP):
             return FishnetDrapeBackend(mesh, lcs, shape)
         return LegacyDrapeBackend(mesh, lcs, shape)
 
-    def _set_drape_diagnostics(self, fp, *, backend, status, failure_reason):
+    def _set_drape_diagnostics(
+        self,
+        fp,
+        *,
+        backend,
+        status,
+        failure_reason,
+        extras=None,
+    ):
         payload = {
             "schema_version": "1.0",
             "backend": backend,
@@ -273,6 +286,8 @@ class CompositeShellFP(CompositeBaseFP):
             "failure_reason": failure_reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        if extras:
+            payload.update(extras)
         fp.DrapeDiagnostics = json.dumps(payload, sort_keys=True)
 
     def fibre_analysis(self, fp):

@@ -61,6 +61,14 @@ class _ShapeProjectionOk:
         return (0.0, 0.0)
 
 
+class _MeshWithNeighbors:
+    Topology = ([], [(0, 1, 2)])
+
+
+class _MeshWithoutNeighbors:
+    Topology = ([], [])
+
+
 def test_result_dataclass_ok_and_failure_helpers():
     ok = FishnetSupportProjectionResult.ok(uv=(1.0, 2.0))
     fail = FishnetSupportProjectionResult.failed("invalid_support")
@@ -98,7 +106,7 @@ def test_backend_maps_projection_failed_failure_reason():
 
 def test_backend_maps_solver_unsolved_after_support_and_projection_pass():
     backend = FishnetDrapeBackend(
-        mesh=object(),
+        mesh=_MeshWithNeighbors(),
         lcs=object(),
         shape=_ShapeProjectionOk(),
     )
@@ -107,6 +115,22 @@ def test_backend_maps_solver_unsolved_after_support_and_projection_pass():
     assert backend.is_valid() is False
     assert diag["status"] == "invalid"
     assert diag["failure_reason"] == "solver_unsolved"
+    assert diag["solve_status"] == "failed_not_implemented"
+
+
+def test_backend_no_neighbor_path_fails_without_rescue_branch():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithoutNeighbors(),
+        lcs=object(),
+        shape=_ShapeProjectionOk(),
+    )
+    diag = backend.diagnostics()
+
+    assert backend.is_valid() is False
+    assert diag["status"] == "invalid"
+    assert diag["failure_reason"] == "solver_unsolved"
+    assert diag["solve_status"] == "failed_no_neighbors"
+    assert diag["solved_node_count"] == 0
 
 
 def test_unexpected_projection_exception_is_not_masked():
