@@ -44,6 +44,8 @@ EXPECTED_GATE_CATEGORIES = [
     "duplicate_collapse",
     "hole_crossing",
     "uv_physical_scale",
+    "linear_strain",
+    "shear_strain",
 ]
 
 EXPECTED_CS0_TRIAD = [
@@ -84,6 +86,11 @@ def test_gate_profile_thresholds_are_defined_and_numeric():
     assert thresholds["hole_crossing_cell_count_max"] >= 0
     assert 0.0 <= thresholds["uv_edge_scale_consistency_ratio_min"] <= 1.0
     assert thresholds["uv_edge_scale_error_p95_max"] >= 0.0
+
+    # Limits intentionally left unset for now; policy to define later.
+    assert thresholds["linear_strain_tension_max"] is None
+    assert thresholds["linear_strain_compression_min"] is None
+    assert thresholds["shear_angle_abs_limit_deg"] is None
 
 
 def test_cs0_geometry_triad_is_locked():
@@ -127,6 +134,9 @@ class _GateShapeStrictCoverage:
         "hole_crossing_cell_count": 0,
         "uv_edge_scale_consistency_ratio": 0.93,
         "uv_edge_scale_error_p95": 0.05,
+        "linear_strain_min": -0.03,
+        "linear_strain_max": 0.02,
+        "shear_angle_abs_max_deg": 7.5,
     }
 
     @staticmethod
@@ -177,6 +187,9 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
     assert diag["uv_edge_scale_consistency_ratio"] == 0.93
     assert diag["uv_edge_scale_error_p95"] == 0.05
 
+    assert diag["linear_metric_status"] == "ok"
+    assert diag["shear_metric_status"] == "ok"
+
     stage = os.environ.get("FISHNET_GATE_STAGE", "cs1")
     evaluation = evaluate_topology_quality_gates(
         metrics={
@@ -185,10 +198,15 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
             "hole_crossing_cell_count": diag["hole_crossing_cell_count"],
             "uv_edge_scale_consistency_ratio": diag["uv_edge_scale_consistency_ratio"],
             "uv_edge_scale_error_p95": diag["uv_edge_scale_error_p95"],
+            "linear_strain_min": diag["linear_strain_min"],
+            "linear_strain_max": diag["linear_strain_max"],
+            "shear_angle_abs_max_deg": diag["shear_angle_abs_max_deg"],
         },
         thresholds=_stage_thresholds(stage),
     )
     assert evaluation["ok"] is True
+    assert evaluation["check_modes"]["linear_strain"] == "not_configured"
+    assert evaluation["check_modes"]["shear_strain"] == "not_configured"
 
 
 def test_gate_coverage_rejects_legacy_payload_shim_path():
@@ -205,3 +223,5 @@ def test_gate_coverage_rejects_legacy_payload_shim_path():
     assert diag["duplicate_metric_status"] == "invalid_payload"
     assert diag["hole_metric_status"] == "invalid_payload"
     assert diag["uv_metric_status"] == "invalid_payload"
+    assert diag["linear_metric_status"] == "invalid_payload"
+    assert diag["shear_metric_status"] == "invalid_payload"

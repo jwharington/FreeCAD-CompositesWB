@@ -14,6 +14,8 @@ from .fishnet_metrics import (
     compute_duplicate_point_ratio,
     compute_unique_point_ratio,
     read_hole_crossing_cell_count,
+    read_linear_strain_extrema,
+    read_shear_strain_angle_limit_metric,
     read_uv_scale_metrics,
 )
 
@@ -102,6 +104,15 @@ class FishnetDrapeBackend(DrapeBackend):
         self._uv_edge_scale_error_p95: float | None = None
         self._uv_metric_status = "not_available"
         self._uv_metric_error: str | None = None
+
+        self._linear_strain_min: float | None = None
+        self._linear_strain_max: float | None = None
+        self._linear_metric_status = "not_available"
+        self._linear_metric_error: str | None = None
+
+        self._shear_angle_abs_max_deg: float | None = None
+        self._shear_metric_status = "not_available"
+        self._shear_metric_error: str | None = None
 
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
@@ -224,6 +235,28 @@ class FishnetDrapeBackend(DrapeBackend):
             self._uv_edge_scale_consistency_ratio = None
             self._uv_edge_scale_error_p95 = None
 
+        # Linear strain metrics (fractions)
+        try:
+            (
+                self._linear_strain_min,
+                self._linear_strain_max,
+            ) = read_linear_strain_extrema(payload)
+            self._linear_metric_status = "ok"
+        except FishnetMetricPayloadError as exc:
+            self._linear_metric_status = "invalid_payload"
+            self._linear_metric_error = str(exc)
+            self._linear_strain_min = None
+            self._linear_strain_max = None
+
+        # Shear strain metric (absolute angular extrema)
+        try:
+            self._shear_angle_abs_max_deg = read_shear_strain_angle_limit_metric(payload)
+            self._shear_metric_status = "ok"
+        except FishnetMetricPayloadError as exc:
+            self._shear_metric_status = "invalid_payload"
+            self._shear_metric_error = str(exc)
+            self._shear_angle_abs_max_deg = None
+
     def _run_constructive_solve(self) -> FishnetSolveResult:
         """Run strict bootstrap solve path with no rescue branches.
 
@@ -302,4 +335,11 @@ class FishnetDrapeBackend(DrapeBackend):
             "uv_edge_scale_error_p95": self._uv_edge_scale_error_p95,
             "uv_metric_status": self._uv_metric_status,
             "uv_metric_error": self._uv_metric_error,
+            "linear_strain_min": self._linear_strain_min,
+            "linear_strain_max": self._linear_strain_max,
+            "linear_metric_status": self._linear_metric_status,
+            "linear_metric_error": self._linear_metric_error,
+            "shear_angle_abs_max_deg": self._shear_angle_abs_max_deg,
+            "shear_metric_status": self._shear_metric_status,
+            "shear_metric_error": self._shear_metric_error,
         }

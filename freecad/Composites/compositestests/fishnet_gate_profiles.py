@@ -93,6 +93,9 @@ def _validate_thresholds(thresholds: Any) -> None:
         "hole_crossing_cell_count_max",
         "uv_edge_scale_consistency_ratio_min",
         "uv_edge_scale_error_p95_max",
+        "linear_strain_tension_max",
+        "linear_strain_compression_min",
+        "shear_angle_abs_limit_deg",
     }
     missing = required.difference(thresholds.keys())
     if missing:
@@ -100,6 +103,15 @@ def _validate_thresholds(thresholds: Any) -> None:
             f"thresholds missing required keys: {sorted(missing)}"
         )
 
+    optional_numeric = {
+        "linear_strain_tension_max",
+        "linear_strain_compression_min",
+        "shear_angle_abs_limit_deg",
+    }
+
     for key in required:
-        if not isinstance(thresholds[key], (int, float)):
+        value = thresholds[key]
+        if key in optional_numeric and value is None:
+            continue
+        if not isinstance(value, (int, float)):
             raise GateProfileError(f"thresholds.{key} must be numeric")

@@ -118,6 +118,36 @@ def read_uv_scale_metrics(payload: Mapping[str, object]) -> tuple[float, float]:
     return consistency, error_p95
 
 
+def read_linear_strain_extrema(payload: Mapping[str, object]) -> tuple[float, float]:
+    """Read linear strain extrema (fractions) from payload.
+
+    Required payload keys:
+    - ``linear_strain_min``
+    - ``linear_strain_max``
+    """
+
+    linear_min = _as_float(payload.get("linear_strain_min"), "linear_strain_min")
+    linear_max = _as_float(payload.get("linear_strain_max"), "linear_strain_max")
+
+    if linear_min > linear_max:
+        raise FishnetMetricPayloadError("linear_strain_min must be <= linear_strain_max")
+
+    return linear_min, linear_max
+
+
+def read_shear_strain_angle_limit_metric(payload: Mapping[str, object]) -> float:
+    """Read absolute shear strain angle metric in degrees from payload."""
+
+    shear_angle_abs_max_deg = _as_float(
+        payload.get("shear_angle_abs_max_deg"),
+        "shear_angle_abs_max_deg",
+    )
+    if shear_angle_abs_max_deg < 0.0:
+        raise FishnetMetricPayloadError("shear_angle_abs_max_deg must be >= 0")
+
+    return shear_angle_abs_max_deg
+
+
 def evaluate_topology_quality_gates(
     metrics: Mapping[str, object],
     thresholds: Mapping[str, object],
@@ -138,6 +168,12 @@ def evaluate_topology_quality_gates(
         metrics.get("uv_edge_scale_error_p95"),
         "uv_edge_scale_error_p95",
     )
+    linear_min = _as_float(metrics.get("linear_strain_min"), "linear_strain_min")
+    linear_max = _as_float(metrics.get("linear_strain_max"), "linear_strain_max")
+    shear_angle_abs_max_deg = _as_float(
+        metrics.get("shear_angle_abs_max_deg"),
+        "shear_angle_abs_max_deg",
+    )
 
     coverage_min = _as_float(thresholds.get("coverage_min"), "coverage_min")
     duplicate_max = _as_float(
@@ -157,6 +193,31 @@ def evaluate_topology_quality_gates(
         "uv_edge_scale_error_p95_max",
     )
 
+    linear_tension_max = _as_optional_float(
+        thresholds.get("linear_strain_tension_max"),
+        "linear_strain_tension_max",
+    )
+    linear_compression_min = _as_optional_float(
+        thresholds.get("linear_strain_compression_min"),
+        "linear_strain_compression_min",
+    )
+    shear_angle_limit_deg = _as_optional_float(
+        thresholds.get("shear_angle_abs_limit_deg"),
+        "shear_angle_abs_limit_deg",
+    )
+
+    linear_ok = True
+    if linear_tension_max is not None:
+        linear_ok = linear_ok and linear_max <= linear_tension_max
+    if linear_compression_min is not None:
+        linear_ok = linear_ok and linear_min >= linear_compression_min
+
+    shear_ok = (
+        True
+        if shear_angle_limit_deg is None
+        else shear_angle_abs_max_deg <= shear_angle_limit_deg
+    )
+
     checks = {
         "coverage": coverage >= coverage_min,
         "duplicate_collapse": duplicate <= duplicate_max,
@@ -164,10 +225,20 @@ def evaluate_topology_quality_gates(
         "uv_physical_scale": (
             uv_consistency >= uv_consistency_min and uv_error_p95 <= uv_error_max
         ),
+        "linear_strain": linear_ok,
+        "shear_strain": shear_ok,
     }
+    check_modes = {
+        "linear_strain": "enforced"
+        if (linear_tension_max is not None or linear_compression_min is not None)
+        else "not_configured",
+        "shear_strain": "enforced" if shear_angle_limit_deg is not None else "not_configured",
+    }
+
     return {
         "ok": all(checks.values()),
         "checks": checks,
+        "check_modes": check_modes,
     }
 
 
@@ -175,6 +246,12 @@ def _as_float(value: object, field_name: str) -> float:
     if not isinstance(value, (int, float)):
         raise FishnetMetricPayloadError(f"{field_name} must be numeric")
     return float(value)
+
+
+def _as_optional_float(value: object, field_name: str) -> float | None:
+    if value is None:
+        return None
+    return _as_float(value, field_name)
 
 
 def _as_nonnegative_int(value: object, field_name: str) -> int:

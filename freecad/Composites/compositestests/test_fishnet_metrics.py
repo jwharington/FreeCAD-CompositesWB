@@ -36,6 +36,8 @@ from freecad.Composites.tools.fishnet_metrics import (  # noqa: E402
     compute_unique_point_ratio,
     evaluate_topology_quality_gates,
     read_hole_crossing_cell_count,
+    read_linear_strain_extrema,
+    read_shear_strain_angle_limit_metric,
     read_uv_scale_metrics,
 )
 
@@ -153,6 +155,26 @@ def test_read_uv_scale_metrics_validates_bounds():
         )
 
 
+def test_read_linear_strain_extrema_validates_range():
+    linear_min, linear_max = read_linear_strain_extrema(
+        {"linear_strain_min": -0.03, "linear_strain_max": 0.02}
+    )
+    assert linear_min == pytest.approx(-0.03)
+    assert linear_max == pytest.approx(0.02)
+
+    with pytest.raises(FishnetMetricPayloadError, match="linear_strain_min must be <= linear_strain_max"):
+        read_linear_strain_extrema(
+            {"linear_strain_min": 0.03, "linear_strain_max": 0.02}
+        )
+
+
+def test_read_shear_strain_angle_limit_metric_requires_nonnegative_value():
+    assert read_shear_strain_angle_limit_metric({"shear_angle_abs_max_deg": 12.5}) == pytest.approx(12.5)
+
+    with pytest.raises(FishnetMetricPayloadError, match="shear_angle_abs_max_deg must be >= 0"):
+        read_shear_strain_angle_limit_metric({"shear_angle_abs_max_deg": -1.0})
+
+
 def test_evaluate_topology_quality_gates_passes_when_all_thresholds_met():
     result = evaluate_topology_quality_gates(
         metrics={
@@ -161,6 +183,9 @@ def test_evaluate_topology_quality_gates_passes_when_all_thresholds_met():
             "hole_crossing_cell_count": 0,
             "uv_edge_scale_consistency_ratio": 0.95,
             "uv_edge_scale_error_p95": 0.05,
+            "linear_strain_min": -0.03,
+            "linear_strain_max": 0.02,
+            "shear_angle_abs_max_deg": 8.0,
         },
         thresholds={
             "coverage_min": 0.70,
@@ -168,11 +193,16 @@ def test_evaluate_topology_quality_gates_passes_when_all_thresholds_met():
             "hole_crossing_cell_count_max": 0,
             "uv_edge_scale_consistency_ratio_min": 0.90,
             "uv_edge_scale_error_p95_max": 0.10,
+            "linear_strain_tension_max": 0.05,
+            "linear_strain_compression_min": -0.05,
+            "shear_angle_abs_limit_deg": 15.0,
         },
     )
 
     assert result["ok"] is True
     assert all(result["checks"].values())
+    assert result["check_modes"]["linear_strain"] == "enforced"
+    assert result["check_modes"]["shear_strain"] == "enforced"
 
 
 def test_evaluate_topology_quality_gates_reports_failing_categories():
@@ -183,6 +213,9 @@ def test_evaluate_topology_quality_gates_reports_failing_categories():
             "hole_crossing_cell_count": 2,
             "uv_edge_scale_consistency_ratio": 0.80,
             "uv_edge_scale_error_p95": 0.20,
+            "linear_strain_min": -0.08,
+            "linear_strain_max": 0.08,
+            "shear_angle_abs_max_deg": 20.0,
         },
         thresholds={
             "coverage_min": 0.70,
@@ -190,6 +223,9 @@ def test_evaluate_topology_quality_gates_reports_failing_categories():
             "hole_crossing_cell_count_max": 0,
             "uv_edge_scale_consistency_ratio_min": 0.90,
             "uv_edge_scale_error_p95_max": 0.10,
+            "linear_strain_tension_max": 0.05,
+            "linear_strain_compression_min": -0.05,
+            "shear_angle_abs_limit_deg": 15.0,
         },
     )
 
@@ -199,4 +235,37 @@ def test_evaluate_topology_quality_gates_reports_failing_categories():
         "duplicate_collapse": False,
         "hole_crossing": False,
         "uv_physical_scale": False,
+        "linear_strain": False,
+        "shear_strain": False,
     }
+
+
+def test_evaluate_topology_quality_gates_marks_strain_checks_not_configured_when_limits_absent():
+    result = evaluate_topology_quality_gates(
+        metrics={
+            "coverage_ratio_3d": 0.80,
+            "duplicate_point_ratio": 0.10,
+            "hole_crossing_cell_count": 0,
+            "uv_edge_scale_consistency_ratio": 0.95,
+            "uv_edge_scale_error_p95": 0.05,
+            "linear_strain_min": -0.03,
+            "linear_strain_max": 0.02,
+            "shear_angle_abs_max_deg": 8.0,
+        },
+        thresholds={
+            "coverage_min": 0.70,
+            "duplicate_point_ratio_max": 0.20,
+            "hole_crossing_cell_count_max": 0,
+            "uv_edge_scale_consistency_ratio_min": 0.90,
+            "uv_edge_scale_error_p95_max": 0.10,
+            "linear_strain_tension_max": None,
+            "linear_strain_compression_min": None,
+            "shear_angle_abs_limit_deg": None,
+        },
+    )
+
+    assert result["ok"] is True
+    assert result["checks"]["linear_strain"] is True
+    assert result["checks"]["shear_strain"] is True
+    assert result["check_modes"]["linear_strain"] == "not_configured"
+    assert result["check_modes"]["shear_strain"] == "not_configured"

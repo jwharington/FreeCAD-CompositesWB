@@ -70,6 +70,9 @@ class _ShapeProjectionOkWithStrictMetrics(_ShapeProjectionOk):
         "hole_crossing_cell_count": 0,
         "uv_edge_scale_consistency_ratio": 0.95,
         "uv_edge_scale_error_p95": 0.07,
+        "linear_strain_min": -0.03,
+        "linear_strain_max": 0.02,
+        "shear_angle_abs_max_deg": 8.5,
     }
 
 
@@ -189,6 +192,13 @@ def test_backend_diagnostics_compute_strict_coverage_metric_when_payload_present
     assert diag["uv_edge_scale_consistency_ratio"] == 0.95
     assert diag["uv_edge_scale_error_p95"] == 0.07
 
+    assert diag["linear_metric_status"] == "ok"
+    assert diag["linear_strain_min"] == -0.03
+    assert diag["linear_strain_max"] == 0.02
+
+    assert diag["shear_metric_status"] == "ok"
+    assert diag["shear_angle_abs_max_deg"] == 8.5
+
 
 def test_backend_diagnostics_reject_legacy_metric_payload():
     backend = FishnetDrapeBackend(
@@ -205,6 +215,8 @@ def test_backend_diagnostics_reject_legacy_metric_payload():
     assert diag["duplicate_metric_status"] == "invalid_payload"
     assert diag["hole_metric_status"] == "invalid_payload"
     assert diag["uv_metric_status"] == "invalid_payload"
+    assert diag["linear_metric_status"] == "invalid_payload"
+    assert diag["shear_metric_status"] == "invalid_payload"
 
 
 def test_unexpected_projection_exception_is_not_masked():

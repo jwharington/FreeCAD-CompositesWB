@@ -5,7 +5,9 @@
     "coverage",
     "duplicate_collapse",
     "hole_crossing",
-    "uv_physical_scale"
+    "uv_physical_scale",
+    "linear_strain",
+    "shear_strain"
   ],
   "policies": {
     "gate_blocking": true,
@@ -18,7 +20,10 @@
     "duplicate_point_ratio_max": 0.20,
     "hole_crossing_cell_count_max": 0,
     "uv_edge_scale_consistency_ratio_min": 0.90,
-    "uv_edge_scale_error_p95_max": 0.10
+    "uv_edge_scale_error_p95_max": 0.10,
+    "linear_strain_tension_max": null,
+    "linear_strain_compression_min": null,
+    "shear_angle_abs_limit_deg": null
   },
   "stages": {
     "cs0": {
