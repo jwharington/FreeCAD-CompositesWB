@@ -176,6 +176,30 @@ _Avoid_: free-text failure reasons
 The initial enum values are `not_implemented`, `invalid_support`, `projection_failed`, and `solver_unsolved`.
 _Avoid_: ad-hoc failure-reason additions without schema update
 
+**CS1 Typed Result Contract**:
+CS1 introduces a typed support/projection result contract with explicit status and failure_reason semantics and no broad exception masking.
+_Avoid_: implicit exception-driven control flow
+
+**Result Carrier Type**:
+CS1 typed results use a small internal dataclass rather than free-form dicts.
+_Avoid_: loosely-typed status payloads
+
+**CS1 Type Placement**:
+The initial result dataclass is defined in `drape_backend_fishnet.py` and extracted only when multiple consumers require reuse.
+_Avoid_: premature type-module expansion
+
+**Exception Narrowing Rule**:
+CS1 support/projection logic catches only expected geometric/API exceptions explicitly; unexpected exceptions must bubble and fail loudly.
+_Avoid_: broad Exception masking
+
+**CS1 Test Split Rule**:
+CS1 adds a focused support/projection contract test module while retaining seam-boundary assertions in `test_freecad_fp.py`.
+_Avoid_: concentrating all validation in one broad test file
+
+**CS1 Support API Test Path**:
+The focused CS1 support/projection test module path is `freecad/Composites/compositestests/test_drape_backend_fishnet_support_api.py`.
+_Avoid_: ambiguous or mixed-purpose test module naming
+
 **Fail-Fast Consumer Behavior**:
 During intermediate stages, invalid fishnet states must surface explicit errors instead of returning partial/placeholder outputs.
 _Avoid_: partial-data continuity during gate-failing stages

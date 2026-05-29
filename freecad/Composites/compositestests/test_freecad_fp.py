@@ -1267,7 +1267,10 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
 
     def test_execute_fishnet_sets_explicit_invalid_diagnostics(self):
         self.obj.Support = MagicMock()
-        self.obj.Support.Shape = MagicMock(name="shape")
+        shape = MagicMock(name="shape")
+        shape.Faces = [MagicMock(name="face")]
+        shape.project_uv_for_point.return_value = (0.0, 0.0)
+        self.obj.Support.Shape = shape
         self.obj.Laminate = MagicMock()
         self.obj.DrapeBackend = "fishnet"
 
@@ -1286,7 +1289,7 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(diag["schema_version"], "1.0")
         self.assertEqual(diag["backend"], "fishnet")
         self.assertEqual(diag["status"], "invalid")
-        self.assertEqual(diag["failure_reason"], "not_implemented")
+        self.assertEqual(diag["failure_reason"], "solver_unsolved")
 
     def test_execute_legacy_uses_backend_seam_and_persists_diagnostics(self):
         self.obj.Support = MagicMock()

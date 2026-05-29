@@ -1,0 +1,122 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+"""Focused CS1 tests for fishnet support/projection typed result contract."""
+
+from __future__ import annotations
+
+import sys
+import types
+from unittest.mock import MagicMock
+
+# FreeCAD must be mocked before importing freecad.Composites packages.
+_freecad_mock = MagicMock()
+_freecad_mock.__unit_test__ = []
+_freecad_mock.Base = types.SimpleNamespace(
+    Precision=types.SimpleNamespace(
+        confusion=lambda: 1e-7,
+        parametric=lambda _tol: 1e-9,
+    )
+)
+sys.modules.setdefault("FreeCAD", _freecad_mock)
+sys.modules.setdefault("CompositesWB", MagicMock())
+sys.modules.setdefault("Part", MagicMock())
+
+_boptools = types.ModuleType("BOPTools")
+_boptools_split = types.ModuleType("BOPTools.SplitAPI")
+_boptools.SplitAPI = _boptools_split
+sys.modules.setdefault("BOPTools", _boptools)
+sys.modules.setdefault("BOPTools.SplitAPI", _boptools_split)
+
+from freecad.Composites.tools.drape_backend_fishnet import (  # noqa: E402
+    FishnetDrapeBackend,
+    FishnetSupportProjectionResult,
+)
+
+
+class _ShapeNoFaces:
+    pass
+
+
+class _ShapeProjectionFailure:
+    Faces = [object()]
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        raise ValueError("projection unavailable")
+
+
+class _ShapeProjectionUnexpectedFailure:
+    Faces = [object()]
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        raise RuntimeError("unexpected failure")
+
+
+class _ShapeProjectionOk:
+    Faces = [object()]
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        return (0.0, 0.0)
+
+
+def test_result_dataclass_ok_and_failure_helpers():
+    ok = FishnetSupportProjectionResult.ok(uv=(1.0, 2.0))
+    fail = FishnetSupportProjectionResult.failed("invalid_support")
+
+    assert ok.status == "ok"
+    assert ok.failure_reason is None
+    assert ok.uv == (1.0, 2.0)
+
+    assert fail.status == "invalid"
+    assert fail.failure_reason == "invalid_support"
+    assert fail.uv is None
+
+
+def test_backend_maps_invalid_support_failure_reason():
+    backend = FishnetDrapeBackend(mesh=object(), lcs=object(), shape=_ShapeNoFaces())
+    diag = backend.diagnostics()
+
+    assert backend.is_valid() is False
+    assert diag["status"] == "invalid"
+    assert diag["failure_reason"] == "invalid_support"
+
+
+def test_backend_maps_projection_failed_failure_reason():
+    backend = FishnetDrapeBackend(
+        mesh=object(),
+        lcs=object(),
+        shape=_ShapeProjectionFailure(),
+    )
+    diag = backend.diagnostics()
+
+    assert backend.is_valid() is False
+    assert diag["status"] == "invalid"
+    assert diag["failure_reason"] == "projection_failed"
+
+
+def test_backend_maps_solver_unsolved_after_support_and_projection_pass():
+    backend = FishnetDrapeBackend(
+        mesh=object(),
+        lcs=object(),
+        shape=_ShapeProjectionOk(),
+    )
+    diag = backend.diagnostics()
+
+    assert backend.is_valid() is False
+    assert diag["status"] == "invalid"
+    assert diag["failure_reason"] == "solver_unsolved"
+
+
+def test_unexpected_projection_exception_is_not_masked():
+    try:
+        FishnetDrapeBackend(
+            mesh=object(),
+            lcs=object(),
+            shape=_ShapeProjectionUnexpectedFailure(),
+        )
+    except RuntimeError as exc:
+        assert "unexpected failure" in str(exc)
+    else:
+        raise AssertionError("RuntimeError should bubble for unexpected exceptions")
