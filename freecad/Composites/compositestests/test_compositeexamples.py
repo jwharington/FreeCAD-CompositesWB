@@ -55,6 +55,7 @@ class TestCompositeExamplesRegistry(unittest.TestCase):
         self.assertIn("ud_plate_basic", examples)
         self.assertIn("quasi_iso_laminate_plate", examples)
         self.assertIn("tubular_shell", examples)
+        self.assertIn("flat_panel_spline_hole", examples)
         self.assertIn("cylindrical_panel_segment", examples)
         self.assertIn("conical_panel_segment", examples)
 

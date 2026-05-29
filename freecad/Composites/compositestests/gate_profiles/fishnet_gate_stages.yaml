@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "gate_categories": [
+    "support_adherence",
+    "coverage",
+    "duplicate_collapse",
+    "hole_crossing",
+    "uv_physical_scale"
+  ],
+  "policies": {
+    "gate_blocking": true,
+    "flake_zero": true,
+    "determinism_required": true,
+    "material_divergence_delta_pct": 5.0
+  },
+  "stages": {
+    "cs0": {
+      "description": "Harness-first triad validation",
+      "examples": [
+        "ud_plate_basic",
+        "cylindrical_panel_segment",
+        "flat_panel_spline_hole"
+      ],
+      "pytest_targets": [
+        "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py"
+      ]
+    },
+    "cs1": {
+      "description": "Root-cause fallback-class removal",
+      "examples": [
+        "ud_plate_basic",
+        "cylindrical_panel_segment",
+        "flat_panel_spline_hole"
+      ],
+      "pytest_targets": [
+        "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py"
+      ]
+    },
+    "cs2": {
+      "description": "Contract and metrics strictness",
+      "examples": [
+        "ud_plate_basic",
+        "cylindrical_panel_segment",
+        "flat_panel_spline_hole",
+        "tubular_shell",
+        "conical_panel_segment"
+      ],
+      "pytest_targets": [
+        "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py",
+        "freecad/Composites/compositestests/test_freecad_fp.py"
+      ]
+    },
+    "release": {
+      "description": "Full release gate validation",
+      "examples": [
+        "ud_plate_basic",
+        "cylindrical_panel_segment",
+        "flat_panel_spline_hole",
+        "tubular_shell",
+        "conical_panel_segment"
+      ],
+      "pytest_targets": [
+        "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py",
+        "freecad/Composites/compositestests/test_freecad_fp.py",
+        "freecad/Composites/compositestests/test_drape_laminate_provider.py"
+      ]
+    }
+  }
+}

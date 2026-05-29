@@ -1,0 +1,3 @@
+# Hard-fail fishnet policy with gate-blocking and no temporary shims
+
+For the clean-slate fishnet rebuild, we decided to keep the public `CompositeShell` drape contract stable while enforcing hard-fail production behavior, strict gate-blocking progression, and a ban on temporary compatibility shims. We chose this over fallback/waiver-based delivery because prior attempts showed that masked failures and staged patching created churn, hid root causes, and undermined trust in test and artifact outcomes.

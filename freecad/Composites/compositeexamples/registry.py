@@ -19,6 +19,10 @@ EXAMPLES = {
         "module": ".examples.tubular_shell",
         "name": "Tubular shell",
     },
+    "flat_panel_spline_hole": {
+        "module": ".examples.flat_panel_spline_hole",
+        "name": "Flat panel spline with hole",
+    },
     "cylindrical_panel_segment": {
         "module": ".examples.cylindrical_panel_segment",
         "name": "Cylindrical panel segment",
