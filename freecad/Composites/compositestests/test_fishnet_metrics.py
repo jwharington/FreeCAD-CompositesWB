@@ -34,6 +34,7 @@ from freecad.Composites.tools.fishnet_metrics import (  # noqa: E402
     compute_coverage_ratio_3d,
     compute_duplicate_point_ratio,
     compute_unique_point_ratio,
+    evaluate_topology_quality_gates,
     read_hole_crossing_cell_count,
     read_uv_scale_metrics,
 )
@@ -150,3 +151,52 @@ def test_read_uv_scale_metrics_validates_bounds():
                 "uv_edge_scale_error_p95": 0.08,
             }
         )
+
+
+def test_evaluate_topology_quality_gates_passes_when_all_thresholds_met():
+    result = evaluate_topology_quality_gates(
+        metrics={
+            "coverage_ratio_3d": 0.80,
+            "duplicate_point_ratio": 0.10,
+            "hole_crossing_cell_count": 0,
+            "uv_edge_scale_consistency_ratio": 0.95,
+            "uv_edge_scale_error_p95": 0.05,
+        },
+        thresholds={
+            "coverage_min": 0.70,
+            "duplicate_point_ratio_max": 0.20,
+            "hole_crossing_cell_count_max": 0,
+            "uv_edge_scale_consistency_ratio_min": 0.90,
+            "uv_edge_scale_error_p95_max": 0.10,
+        },
+    )
+
+    assert result["ok"] is True
+    assert all(result["checks"].values())
+
+
+def test_evaluate_topology_quality_gates_reports_failing_categories():
+    result = evaluate_topology_quality_gates(
+        metrics={
+            "coverage_ratio_3d": 0.60,
+            "duplicate_point_ratio": 0.30,
+            "hole_crossing_cell_count": 2,
+            "uv_edge_scale_consistency_ratio": 0.80,
+            "uv_edge_scale_error_p95": 0.20,
+        },
+        thresholds={
+            "coverage_min": 0.70,
+            "duplicate_point_ratio_max": 0.20,
+            "hole_crossing_cell_count_max": 0,
+            "uv_edge_scale_consistency_ratio_min": 0.90,
+            "uv_edge_scale_error_p95_max": 0.10,
+        },
+    )
+
+    assert result["ok"] is False
+    assert result["checks"] == {
+        "coverage": False,
+        "duplicate_collapse": False,
+        "hole_crossing": False,
+        "uv_physical_scale": False,
+    }

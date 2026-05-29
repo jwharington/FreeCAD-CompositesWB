@@ -52,13 +52,16 @@ def load_gate_profiles(path: Path | None = None) -> dict[str, Any]:
 
 
 def _validate_profiles(data: dict[str, Any]) -> None:
-    required_top = {"version", "gate_categories", "stages"}
+    required_top = {"version", "gate_categories", "thresholds", "stages"}
     missing = required_top.difference(data.keys())
     if missing:
         raise GateProfileError(f"Profile missing top-level keys: {sorted(missing)}")
 
     if not isinstance(data["gate_categories"], list) or not data["gate_categories"]:
         raise GateProfileError("gate_categories must be a non-empty list")
+
+    thresholds = data["thresholds"]
+    _validate_thresholds(thresholds)
 
     stages = data["stages"]
     if not isinstance(stages, dict) or not stages:
@@ -78,3 +81,25 @@ def _validate_profiles(data: dict[str, Any]) -> None:
             raise GateProfileError(
                 f"stage {stage_name} requires non-empty pytest_targets"
             )
+
+
+def _validate_thresholds(thresholds: Any) -> None:
+    if not isinstance(thresholds, dict):
+        raise GateProfileError("thresholds must be a mapping")
+
+    required = {
+        "coverage_min",
+        "duplicate_point_ratio_max",
+        "hole_crossing_cell_count_max",
+        "uv_edge_scale_consistency_ratio_min",
+        "uv_edge_scale_error_p95_max",
+    }
+    missing = required.difference(thresholds.keys())
+    if missing:
+        raise GateProfileError(
+            f"thresholds missing required keys: {sorted(missing)}"
+        )
+
+    for key in required:
+        if not isinstance(thresholds[key], (int, float)):
+            raise GateProfileError(f"thresholds.{key} must be numeric")

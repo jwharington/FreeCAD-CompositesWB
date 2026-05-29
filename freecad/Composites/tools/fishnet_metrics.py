@@ -118,6 +118,59 @@ def read_uv_scale_metrics(payload: Mapping[str, object]) -> tuple[float, float]:
     return consistency, error_p95
 
 
+def evaluate_topology_quality_gates(
+    metrics: Mapping[str, object],
+    thresholds: Mapping[str, object],
+) -> dict[str, object]:
+    """Evaluate strict gate categories against profile thresholds."""
+
+    coverage = _as_float(metrics.get("coverage_ratio_3d"), "coverage_ratio_3d")
+    duplicate = _as_float(metrics.get("duplicate_point_ratio"), "duplicate_point_ratio")
+    hole_count = _as_nonnegative_int(
+        metrics.get("hole_crossing_cell_count"),
+        "hole_crossing_cell_count",
+    )
+    uv_consistency = _as_float(
+        metrics.get("uv_edge_scale_consistency_ratio"),
+        "uv_edge_scale_consistency_ratio",
+    )
+    uv_error_p95 = _as_float(
+        metrics.get("uv_edge_scale_error_p95"),
+        "uv_edge_scale_error_p95",
+    )
+
+    coverage_min = _as_float(thresholds.get("coverage_min"), "coverage_min")
+    duplicate_max = _as_float(
+        thresholds.get("duplicate_point_ratio_max"),
+        "duplicate_point_ratio_max",
+    )
+    hole_max = _as_nonnegative_int(
+        thresholds.get("hole_crossing_cell_count_max"),
+        "hole_crossing_cell_count_max",
+    )
+    uv_consistency_min = _as_float(
+        thresholds.get("uv_edge_scale_consistency_ratio_min"),
+        "uv_edge_scale_consistency_ratio_min",
+    )
+    uv_error_max = _as_float(
+        thresholds.get("uv_edge_scale_error_p95_max"),
+        "uv_edge_scale_error_p95_max",
+    )
+
+    checks = {
+        "coverage": coverage >= coverage_min,
+        "duplicate_collapse": duplicate <= duplicate_max,
+        "hole_crossing": hole_count <= hole_max,
+        "uv_physical_scale": (
+            uv_consistency >= uv_consistency_min and uv_error_p95 <= uv_error_max
+        ),
+    }
+    return {
+        "ok": all(checks.values()),
+        "checks": checks,
+    }
+
+
 def _as_float(value: object, field_name: str) -> float:
     if not isinstance(value, (int, float)):
         raise FishnetMetricPayloadError(f"{field_name} must be numeric")

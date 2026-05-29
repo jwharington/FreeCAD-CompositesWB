@@ -47,17 +47,27 @@ def main() -> int:
     env = os.environ.copy()
     env["FISHNET_GATE_STAGE"] = args.stage
 
-    pytest_cmd = [sys.executable, "-m", "pytest", "-q", *stage_cfg["pytest_targets"]]
+    pytest_targets = list(stage_cfg["pytest_targets"])
 
     if args.verbose:
         categories = ", ".join(profiles["gate_categories"])
         examples = ", ".join(stage_cfg["examples"])
+        thresholds = profiles.get("thresholds", {})
         print(f"[fishnet-gates] stage={args.stage}")
         print(f"[fishnet-gates] categories={categories}")
         print(f"[fishnet-gates] examples={examples}")
-        print(f"[fishnet-gates] cmd={' '.join(pytest_cmd)}")
+        if thresholds:
+            print(f"[fishnet-gates] thresholds={json.dumps(thresholds, sort_keys=True)}")
 
-    return subprocess.call(pytest_cmd, env=env)
+    for target in pytest_targets:
+        pytest_cmd = [sys.executable, "-m", "pytest", "-q", target]
+        if args.verbose:
+            print(f"[fishnet-gates] cmd={' '.join(pytest_cmd)}")
+        rc = subprocess.call(pytest_cmd, env=env)
+        if rc != 0:
+            return rc
+
+    return 0
 
 
 if __name__ == "__main__":

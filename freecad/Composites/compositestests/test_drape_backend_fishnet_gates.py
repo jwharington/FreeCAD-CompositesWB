@@ -35,6 +35,7 @@ sys.modules.setdefault("BOPTools.SplitAPI", _boptools_split)
 from freecad.Composites.compositeexamples import registry
 from freecad.Composites.compositestests.fishnet_gate_profiles import load_gate_profiles
 from freecad.Composites.tools.drape_backend_fishnet import FishnetDrapeBackend
+from freecad.Composites.tools.fishnet_metrics import evaluate_topology_quality_gates
 
 
 EXPECTED_GATE_CATEGORIES = [
@@ -50,6 +51,14 @@ EXPECTED_CS0_TRIAD = [
     "cylindrical_panel_segment",
     "flat_panel_spline_hole",
 ]
+
+EXPECTED_FULL_MATRIX = {
+    "ud_plate_basic",
+    "cylindrical_panel_segment",
+    "flat_panel_spline_hole",
+    "tubular_shell",
+    "conical_panel_segment",
+}
 
 
 def test_gate_profile_categories_are_strict_and_complete():
@@ -67,6 +76,15 @@ def test_gate_profile_policies_are_blocking():
     assert policies["material_divergence_delta_pct"] == 5.0
 
 
+def test_gate_profile_thresholds_are_defined_and_numeric():
+    thresholds = load_gate_profiles()["thresholds"]
+    assert thresholds["coverage_min"] > 0.0
+    assert thresholds["duplicate_point_ratio_max"] >= 0.0
+    assert thresholds["hole_crossing_cell_count_max"] >= 0
+    assert 0.0 <= thresholds["uv_edge_scale_consistency_ratio_min"] <= 1.0
+    assert thresholds["uv_edge_scale_error_p95_max"] >= 0.0
+
+
 def test_cs0_geometry_triad_is_locked():
     profiles = load_gate_profiles()
     assert profiles["stages"]["cs0"]["examples"] == EXPECTED_CS0_TRIAD
@@ -81,6 +99,12 @@ def test_stage_examples_exist_in_registry():
             assert example_id in known, (
                 f"Stage {stage_name} references unknown example '{example_id}'"
             )
+
+
+def test_cs2_and_release_include_full_required_matrix():
+    profiles = load_gate_profiles()
+    assert set(profiles["stages"]["cs2"]["examples"]) == EXPECTED_FULL_MATRIX
+    assert set(profiles["stages"]["release"]["examples"]) == EXPECTED_FULL_MATRIX
 
 
 def test_runner_stage_env_matches_profile():
@@ -120,6 +144,12 @@ class _GateShapeLegacyCoverage:
         return (0.0, 0.0)
 
 
+def _stage_thresholds(stage: str) -> dict:
+    profiles = load_gate_profiles()
+    assert stage in profiles["stages"]
+    return profiles["thresholds"]
+
+
 class _GateMeshWithNeighbors:
     Topology = ([], [(0, 1, 2)])
 
@@ -145,6 +175,19 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
     assert diag["uv_metric_status"] == "ok"
     assert diag["uv_edge_scale_consistency_ratio"] == 0.93
     assert diag["uv_edge_scale_error_p95"] == 0.05
+
+    stage = os.environ.get("FISHNET_GATE_STAGE", "cs1")
+    evaluation = evaluate_topology_quality_gates(
+        metrics={
+            "coverage_ratio_3d": diag["coverage_ratio_3d"],
+            "duplicate_point_ratio": diag["duplicate_point_ratio"],
+            "hole_crossing_cell_count": diag["hole_crossing_cell_count"],
+            "uv_edge_scale_consistency_ratio": diag["uv_edge_scale_consistency_ratio"],
+            "uv_edge_scale_error_p95": diag["uv_edge_scale_error_p95"],
+        },
+        thresholds=_stage_thresholds(stage),
+    )
+    assert evaluation["ok"] is True
 
 
 def test_gate_coverage_rejects_legacy_payload_shim_path():

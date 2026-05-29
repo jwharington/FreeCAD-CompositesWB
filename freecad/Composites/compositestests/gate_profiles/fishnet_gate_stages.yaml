@@ -13,6 +13,13 @@
     "determinism_required": true,
     "material_divergence_delta_pct": 5.0
   },
+  "thresholds": {
+    "coverage_min": 0.70,
+    "duplicate_point_ratio_max": 0.20,
+    "hole_crossing_cell_count_max": 0,
+    "uv_edge_scale_consistency_ratio_min": 0.90,
+    "uv_edge_scale_error_p95_max": 0.10
+  },
   "stages": {
     "cs0": {
       "description": "Harness-first triad validation",
@@ -47,7 +54,8 @@
       ],
       "pytest_targets": [
         "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py",
-        "freecad/Composites/compositestests/test_freecad_fp.py"
+        "freecad/Composites/compositestests/test_freecad_fp.py",
+        "freecad/Composites/compositestests/test_compositeexamples.py"
       ]
     },
     "release": {
@@ -62,7 +70,8 @@
       "pytest_targets": [
         "freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py",
         "freecad/Composites/compositestests/test_freecad_fp.py",
-        "freecad/Composites/compositestests/test_drape_laminate_provider.py"
+        "freecad/Composites/compositestests/test_drape_laminate_provider.py",
+        "freecad/Composites/compositestests/test_compositeexamples.py"
       ]
     }
   }
