@@ -66,9 +66,10 @@ Recreate fishnet drape work from scratch **without churn** by enforcing:
 - Required geometries fixed:
   1. `ud_plate_basic`
   2. `flat_panel_spline_hole`
-  3. `tubular_shell`
-  4. `cylindrical_panel_segment`
-  5. `conical_panel_segment`
+  3. `double_curvature_panel`
+  4. `tubular_shell`
+  5. `cylindrical_panel_segment`
+  6. `conical_panel_segment`
 - Baseline test commands recorded and passing.
 
 ### CP1 — Gate harness active
@@ -178,9 +179,7 @@ Pass criteria:
 Minimum stage validation:
 
 ```bash
-python -m pytest freecad/Composites/compositestests/test_fishnet_geometry.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_numerics.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_scheduler.py -q
+python freecad/Composites/scripts/run_fishnet_gates.py --stage cs2 --verbose
 python -m pytest freecad/Composites/compositestests/test_fishnet_metrics.py -q
 python -m pytest freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py -q
 python -m pytest freecad/Composites/compositestests/test_freecad_fp.py::TestCompositeShellBackendSelection -q
@@ -211,6 +210,6 @@ Plan execution is complete when:
 
 - CS0–CS3 merged,
 - G0–G4 signed off,
-- strict fishnet gates pass deterministically,
+- strict fishnet gates pass deterministically (including recorded linear/shear strain metrics),
 - no production fallback/scaffold shims remain in fishnet path,
 - rollback path is tested and documented.

@@ -63,8 +63,10 @@ If runtime names differ, map once before launch.
 
 **Must enforce:**
 - contract tests pass,
-- strict metrics semantics,
-- strict gate profile still passing.
+- strict support-aware metrics semantics (coverage/duplicate/hole/UV),
+- strict gate profile still passing (including `double_curvature_panel` in CS2/release),
+- linear/shear strain metrics recorded for all required geometries,
+- linear/shear limits enforced immediately once configured in stage thresholds.
 
 **Gate:** G3
 
@@ -140,9 +142,7 @@ Do not:
 ## 8. Required Validation Commands
 
 ```bash
-python -m pytest freecad/Composites/compositestests/test_fishnet_geometry.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_numerics.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_scheduler.py -q
+python freecad/Composites/scripts/run_fishnet_gates.py --stage cs2 --verbose
 python -m pytest freecad/Composites/compositestests/test_fishnet_metrics.py -q
 python -m pytest freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py -q
 python -m pytest freecad/Composites/compositestests/test_freecad_fp.py::TestCompositeShellBackendSelection -q

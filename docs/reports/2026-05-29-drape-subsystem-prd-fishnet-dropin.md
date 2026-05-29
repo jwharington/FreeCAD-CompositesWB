@@ -192,7 +192,7 @@ Reference implementation inspiration:
 - Remove defect-masking branches in solver/support/projection paths.
 
 ### Phase 3 — Metrics + consumer integration
-- Enforce strict metrics semantics (no compatibility inflation shims).
+- Enforce strict metrics semantics (no compatibility inflation shims), including coverage, duplicate, hole-crossing, UV scale, and linear/shear strain measurements.
 - Validate consumer integrations (TexturePlan/LCS/FEM).
 
 ### Phase 4 — Cutover
@@ -213,10 +213,11 @@ Reference implementation inspiration:
 3. `tubular_shell`
 4. `cylindrical_panel_segment`
 5. `conical_panel_segment`
+6. `double_curvature_panel` (defined by provided polynomial surface over x,y in `[0, 0.5] m`, represented in repo geometry coordinates as mm)
 
 ### 11.2 Mandatory gate categories (blocking)
 
-A release candidate fails if any category fails on any required geometry:
+A release candidate fails if any enforced category fails on any required geometry:
 
 1. **Support adherence**
    - `on_support_ratio == 1.0`
@@ -230,6 +231,14 @@ A release candidate fails if any category fails on any required geometry:
    - hole-crossing cell count within strict limit (target zero)
 5. **UV physical-scale consistency**
    - edge scale consistency and p95 error within strict profile
+6. **Linear strain limits (fractions)**
+   - record `linear_strain_min` and `linear_strain_max` for every required geometry
+   - enforce positive/negative linear strain limits once configured in gate thresholds
+7. **Shear strain limits (angular)**
+   - record `shear_angle_abs_max_deg` for every required geometry
+   - enforce shear-angle limit once configured in gate thresholds
+
+Note: linear/shear strain thresholds are intentionally left unset at this stage and will become blocking immediately once configured.
 
 ### 11.3 Kill-switch gate policy
 
@@ -283,7 +292,7 @@ Done means all are true:
 | Constructive fishnet solve with explicit failures | `freecad/Composites/tools/drape_backend_fishnet.py`, `fishnet_geometry.py`, `fishnet_numerics.py` | `test_fishnet_geometry.py`, `test_fishnet_numerics.py`, `test_fishnet_scheduler.py` | Support/Coverage |
 | Strict support/projection semantics | `drape_backend_fishnet.py` support/projection helpers | `test_drape_backend_fishnet_support_api.py` | Support adherence |
 | Output topology/UV from solved state only | `drape_backend_fishnet.py` output builders | `test_freecad_fp.py`, `test_drape_backend_fishnet_gates.py` | Duplicate + UV scale |
-| Strict metrics semantics (no shim inflation) | `freecad/Composites/tools/fishnet_metrics.py` | `test_fishnet_metrics.py`, `test_drape_backend_fishnet_gates.py` | Coverage + UV + hole crossing |
+| Strict metrics semantics (no shim inflation) | `freecad/Composites/tools/fishnet_metrics.py` | `test_fishnet_metrics.py`, `test_drape_backend_fishnet_gates.py` | Coverage + UV + hole crossing + linear/shear strain |
 | Consumer contract compatibility | `CompositeShell.py` + backend adapter seam | `test_freecad_fp.py`, `test_drape_laminate_provider.py` | Contract/Release |
 
 ---

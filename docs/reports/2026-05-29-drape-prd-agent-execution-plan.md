@@ -66,6 +66,8 @@ Purpose:
 Purpose:
 - preserve consumer API contract,
 - remove metrics compatibility inflation shims,
+- enforce strict support-aware metric semantics for coverage/duplicate/hole/UV,
+- record linear/shear strain metrics and enforce their limits once thresholds are configured,
 - keep strict gate profile passing.
 
 ### S3 / CS3 — Release prep and cleanup
@@ -96,6 +98,7 @@ Purpose:
 - Consumer contract tests pass.
 - Metrics semantics strict (no fallback inflation shims).
 - Strict gate profile remains passing.
+- Linear/shear strain metrics are recorded for all required geometries; thresholds are enforced when configured.
 
 ### G4 Release Gate
 - Full regression passes.
@@ -142,9 +145,7 @@ Do not:
 ## 7. Required Validation Commands
 
 ```bash
-python -m pytest freecad/Composites/compositestests/test_fishnet_geometry.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_numerics.py -q
-python -m pytest freecad/Composites/compositestests/test_fishnet_scheduler.py -q
+python freecad/Composites/scripts/run_fishnet_gates.py --stage cs2 --verbose
 python -m pytest freecad/Composites/compositestests/test_fishnet_metrics.py -q
 python -m pytest freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py -q
 python -m pytest freecad/Composites/compositestests/test_freecad_fp.py::TestCompositeShellBackendSelection -q
@@ -164,6 +165,6 @@ python -m pytest freecad/Composites/compositestests/test_drape_laminate_provider
 Execution is complete when:
 - CS0–CS3 merged in order,
 - G0–G4 PASS,
-- strict gates deterministic across required geometries,
+- strict gates deterministic across required geometries (including `double_curvature_panel`),
 - no production fallback/scaffold shims remain in fishnet path,
 - rollback path documented and tested.

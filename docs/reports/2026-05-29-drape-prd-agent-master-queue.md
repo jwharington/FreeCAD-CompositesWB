@@ -35,9 +35,10 @@ No stage skipping.
 
 1. `ud_plate_basic`
 2. `flat_panel_spline_hole`
-3. `tubular_shell`
-4. `cylindrical_panel_segment`
-5. `conical_panel_segment`
+3. `double_curvature_panel` (source surface defined in meters; represented in repo geometry coordinates as mm)
+4. `tubular_shell`
+5. `cylindrical_panel_segment`
+6. `conical_panel_segment`
 
 ---
 
@@ -48,6 +49,8 @@ No stage skipping.
 3. Duplicate collapse
 4. Hole crossing
 5. UV physical-scale consistency
+6. Linear strain limits (fractional min/max; enforced once configured)
+7. Shear strain limits (angular limit; enforced once configured)
 
 Any failure blocks stage progression.
 
