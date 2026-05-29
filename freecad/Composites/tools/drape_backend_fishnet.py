@@ -72,6 +72,8 @@ class FishnetDrapeBackend(DrapeBackend):
         self._seed_uv: tuple[float, float] | None = None
         self._solve_status: str = "not_started"
         self._solved_node_count: int = 0
+        self._flat_tex_coords = None
+        self._flat_boundaries = None
 
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
@@ -172,6 +174,28 @@ class FishnetDrapeBackend(DrapeBackend):
     def is_valid(self) -> bool:
         return self._status == "ok"
 
+    def _output_ready(self) -> bool:
+        return bool(
+            self.is_valid()
+            and self._flat_tex_coords is not None
+            and self._flat_boundaries is not None
+        )
+
+    def get_tex_coords(self, offset_angle_deg: float = 0):
+        if not self._output_ready():
+            return None
+        return self._flat_tex_coords
+
+    def get_tex_coord_at_point(self, point, offset_angle_deg: float = 0):
+        if not self._output_ready():
+            return None
+        return None
+
+    def get_boundaries(self, offset_angle_deg: float = 0):
+        if not self._output_ready():
+            return None
+        return self._flat_boundaries
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "backend": self.backend_name,
@@ -180,4 +204,5 @@ class FishnetDrapeBackend(DrapeBackend):
             "solve_status": self._solve_status,
             "solved_node_count": self._solved_node_count,
             "seed_uv": self._seed_uv,
+            "output_ready": self._output_ready(),
         }

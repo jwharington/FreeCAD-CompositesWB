@@ -133,6 +133,21 @@ def test_backend_no_neighbor_path_fails_without_rescue_branch():
     assert diag["solved_node_count"] == 0
 
 
+def test_backend_unsolved_output_path_has_no_synthetic_uv_or_boundaries():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighbors(),
+        lcs=object(),
+        shape=_ShapeProjectionOk(),
+    )
+
+    diag = backend.diagnostics()
+    assert diag["output_ready"] is False
+
+    assert backend.get_tex_coords() is None
+    assert backend.get_tex_coord_at_point((0.0, 0.0, 0.0)) is None
+    assert backend.get_boundaries() is None
+
+
 def test_unexpected_projection_exception_is_not_masked():
     try:
         FishnetDrapeBackend(
