@@ -9,11 +9,12 @@ these tests run without a real FreeCAD installation.
 """
 
 import importlib.util
+import json
 import os
 import sys
 import types
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # FreeCAD / GUI mock — installed BEFORE any project imports
@@ -1202,6 +1203,15 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
     def test_init_default_rosette_is_none(self):
         self.assertIsNone(self.obj.Rosette)
 
+    def test_init_adds_backend_selector_property(self):
+        self.assertIn("DrapeBackend", object.__getattribute__(self.obj, "_props"))
+        self.assertEqual(self.obj.DrapeBackend, "legacy")
+
+    def test_init_adds_diagnostics_property(self):
+        self.assertIn(
+            "DrapeDiagnostics", object.__getattribute__(self.obj, "_props")
+        )
+
     def test_init_rosette_angle_initialized_to_zero(self):
         self.assertAlmostEqual(self.fp._rosette_angle, 0.0)
 
@@ -1254,6 +1264,68 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         mock_draper.get_tex_coords.assert_called_once_with(
             offset_angle_deg=45.0
         )
+
+    def test_execute_fishnet_sets_explicit_invalid_diagnostics(self):
+        self.obj.Support = MagicMock()
+        self.obj.Support.Shape = MagicMock(name="shape")
+        self.obj.Laminate = MagicMock()
+        self.obj.DrapeBackend = "fishnet"
+
+        fake_mesh = MagicMock()
+        fake_mesh.CountFacets = 8
+
+        with patch.object(
+            _composite_shell_feature_mod.mesh_util,
+            "shape2Mesh",
+            return_value=fake_mesh,
+        ):
+            self.fp.execute(self.obj)
+
+        self.assertFalse(self.fp.has_valid_draper())
+        diag = json.loads(self.obj.DrapeDiagnostics)
+        self.assertEqual(diag["schema_version"], "1.0")
+        self.assertEqual(diag["backend"], "fishnet")
+        self.assertEqual(diag["status"], "invalid")
+        self.assertEqual(diag["failure_reason"], "not_implemented")
+
+    def test_execute_legacy_uses_backend_seam_and_persists_diagnostics(self):
+        self.obj.Support = MagicMock()
+        self.obj.Support.Shape = MagicMock(name="shape")
+        self.obj.Laminate = MagicMock()
+        self.obj.DrapeBackend = "legacy"
+
+        fake_mesh = MagicMock()
+        fake_mesh.CountFacets = 8
+
+        backend = MagicMock()
+        backend.is_valid.return_value = True
+        backend.diagnostics.return_value = {
+            "backend": "legacy",
+            "status": "ok",
+            "failure_reason": None,
+        }
+        backend.strains = []
+        backend.get_tex_coords.return_value = []
+        backend.get_boundaries.return_value = []
+        backend.get_lcs.return_value = MagicMock(name="lcs")
+        backend.draper = MagicMock(name="draper")
+
+        with patch.object(
+            _composite_shell_feature_mod.mesh_util,
+            "shape2Mesh",
+            return_value=fake_mesh,
+        ), patch.object(
+            _composite_shell_feature_mod,
+            "LegacyDrapeBackend",
+            return_value=backend,
+        ):
+            self.fp.execute(self.obj)
+
+        self.assertTrue(self.fp.has_valid_draper())
+        diag = json.loads(self.obj.DrapeDiagnostics)
+        self.assertEqual(diag["backend"], "legacy")
+        self.assertEqual(diag["status"], "ok")
+        self.assertIsNone(diag["failure_reason"])
 
     def test_on_changed_rosette_triggers_recompute(self):
         # onChanged("Rosette") should trigger fp.recompute() which calls execute()

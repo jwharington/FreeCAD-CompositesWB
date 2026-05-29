@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 # Copyright 2025 John Wharington jwharington@gmail.com
 
+import json
+from datetime import datetime, timezone
+
 import FreeCADGui
 import MeshEnums
 from FreeCAD import Console
@@ -12,7 +15,8 @@ from .. import (
     roma_map,
 )
 from ..shaders.MeshGridShader import MeshGridShader
-from ..tools.draper import Draper
+from ..tools.drape_backend_fishnet import FishnetDrapeBackend
+from ..tools.drape_backend_legacy import LegacyDrapeBackend
 from ..tools.fibre import (
     make_fibre_length_analysis,
     make_fibre_orientation_analysis,
@@ -95,6 +99,23 @@ class CompositeShellFP(CompositeBaseFP):
         )
 
         obj.addProperty(
+            type="App::PropertyEnumeration",
+            name="DrapeBackend",
+            group="Draping",
+            doc="Draping backend (legacy or fishnet)",
+        )
+        obj.DrapeBackend = ["legacy", "fishnet"]
+        obj.DrapeBackend = "legacy"
+
+        obj.addProperty(
+            type="App::PropertyString",
+            name="DrapeDiagnostics",
+            group="Draping",
+            doc="Read-only JSON diagnostics for drape backend status",
+        )
+        obj.setPropertyStatus("DrapeDiagnostics", "ReadOnly")
+
+        obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Mesh",
             group="Orthographic",
@@ -112,12 +133,14 @@ class CompositeShellFP(CompositeBaseFP):
         obj.MaxLength = 1.25
         obj.SkipDraper = False
         obj.DraperMaxFacets = 3000
+        obj.DrapeDiagnostics = ""
         obj.LocalCoordinateSystem = lcs
         obj.Rosette = rosette
         obj.Laminate = laminate
         obj.Support = support
 
         self._rosette_angle = 0.0
+        self._backend = None
 
         super().__init__(obj)
         self._initializing = False
@@ -140,67 +163,117 @@ class CompositeShellFP(CompositeBaseFP):
         try:
             mesh = mesh_util.shape2Mesh(fp.Shape, fp.MaxLength)
             display_mesh = mesh
+            self._backend = None
+            self.draper = None
 
             skip_draper = bool(
                 getattr(fp, "SkipDraper", False)
                 or getattr(self, "_force_skip_draper", False),
             )
             if skip_draper:
-                self.draper = None
                 Console.PrintMessage(
                     "CompositeShell skipping Draper (SkipDraper=True).\n",
                 )
+                self._set_drape_diagnostics(
+                    fp,
+                    backend=self._selected_backend_name(fp),
+                    status="skipped",
+                    failure_reason="solver_unsolved",
+                )
             else:
-                draper_mesh = mesh
-                max_facets = int(getattr(fp, "DraperMaxFacets", 3000) or 3000)
-                facet_count = int(getattr(draper_mesh, "CountFacets", 0))
-                if facet_count > max_facets:
-                    # Force legacy SegPerEdge levels downward until we fit
-                    # the draper budget.
-                    for seg in (20, 16, 12, 10, 8, 6):
-                        candidate = mesh_util.shape2MeshLegacy(
-                            fp.Shape,
-                            float(fp.MaxLength),
-                            seg_min=seg,
-                            seg_max=seg,
-                        )
-                        cfacets = int(getattr(candidate, "CountFacets", 0))
-                        if cfacets <= max_facets:
-                            draper_mesh = candidate
-                            facet_count = cfacets
-                            break
-                    if facet_count > max_facets:
-                        self.draper = None
-                        Console.PrintWarning(
-                            "CompositeShell skipping Draper: mesh too dense "
-                            f"({facet_count} facets > {max_facets}).\n",
-                        )
-                        draper_mesh = None
+                backend_name = self._selected_backend_name(fp)
+                backend_mesh = mesh
 
-                if draper_mesh is None:
-                    pass
-                else:
-                    # Keep render mesh and draper mesh aligned so fibre orientation
-                    # mapping remains continuous.
-                    display_mesh = draper_mesh
-                    self.draper = Draper(draper_mesh, get_lcs(), fp.Shape)
-                if self.has_valid_draper():
-                    self.fibre_analysis(fp)
-                else:
-                    Console.PrintWarning(
-                        "CompositeShell draper invalid after mesh generation.\n",
+                if backend_name == "legacy":
+                    max_facets = int(getattr(fp, "DraperMaxFacets", 3000) or 3000)
+                    facet_count = int(getattr(backend_mesh, "CountFacets", 0))
+                    if facet_count > max_facets:
+                        for seg in (20, 16, 12, 10, 8, 6):
+                            candidate = mesh_util.shape2MeshLegacy(
+                                fp.Shape,
+                                float(fp.MaxLength),
+                                seg_min=seg,
+                                seg_max=seg,
+                            )
+                            cfacets = int(getattr(candidate, "CountFacets", 0))
+                            if cfacets <= max_facets:
+                                backend_mesh = candidate
+                                facet_count = cfacets
+                                break
+                        if facet_count > max_facets:
+                            Console.PrintWarning(
+                                "CompositeShell skipping Draper: mesh too dense "
+                                f"({facet_count} facets > {max_facets}).\n",
+                            )
+                            backend_mesh = None
+                            self._set_drape_diagnostics(
+                                fp,
+                                backend=backend_name,
+                                status="invalid",
+                                failure_reason="solver_unsolved",
+                            )
+
+                if backend_mesh is not None:
+                    display_mesh = backend_mesh
+                    self._backend = self._make_backend(
+                        backend_name,
+                        backend_mesh,
+                        get_lcs(),
+                        fp.Shape,
+                    )
+                    self.draper = getattr(self._backend, "draper", None)
+
+                    diag = self._backend.diagnostics()
+                    self._set_drape_diagnostics(
+                        fp,
+                        backend=diag.get("backend", backend_name),
+                        status=diag.get("status", "invalid"),
+                        failure_reason=diag.get("failure_reason"),
                     )
 
-            # Publish the effective drape mesh used for orientation mapping.
+                    if self.has_valid_draper():
+                        self.fibre_analysis(fp)
+                    else:
+                        Console.PrintWarning(
+                            "CompositeShell backend invalid after mesh generation.\n",
+                        )
+
             fp.Mesh.Mesh = display_mesh
         except Exception as exc:
+            self._backend = None
             self.draper = None
+            self._set_drape_diagnostics(
+                fp,
+                backend=self._selected_backend_name(fp),
+                status="error",
+                failure_reason="solver_unsolved",
+            )
             Console.PrintWarning(
                 f"CompositeShell drape setup failed: {exc}\n",
             )
 
-        if fp.ViewObject:
-            fp.ViewObject.update()
+        view_object = getattr(fp, "ViewObject", None)
+        if view_object:
+            view_object.update()
+
+    def _selected_backend_name(self, fp):
+        backend = str(getattr(fp, "DrapeBackend", "legacy") or "legacy").lower()
+        return backend if backend in {"legacy", "fishnet"} else "legacy"
+
+    def _make_backend(self, backend_name, mesh, lcs, shape):
+        if backend_name == "fishnet":
+            return FishnetDrapeBackend(mesh, lcs, shape)
+        return LegacyDrapeBackend(mesh, lcs, shape)
+
+    def _set_drape_diagnostics(self, fp, *, backend, status, failure_reason):
+        payload = {
+            "schema_version": "1.0",
+            "backend": backend,
+            "status": status,
+            "failure_reason": failure_reason,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        fp.DrapeDiagnostics = json.dumps(payload, sort_keys=True)
 
     def fibre_analysis(self, fp):
         histograms_length = make_fibre_length_analysis(fp)
@@ -220,14 +293,27 @@ class CompositeShellFP(CompositeBaseFP):
                 fp.recompute()
             case "LocalCoordinateSystem" | "Rosette":
                 fp.recompute()
-            case "MaxLength" | "Support" | "SkipDraper" | "DraperMaxFacets":
+            case (
+                "MaxLength"
+                | "Support"
+                | "SkipDraper"
+                | "DraperMaxFacets"
+                | "DrapeBackend"
+            ):
                 fp.recompute()
 
     def has_valid_draper(self):
-        return hasattr(self, "draper") and self.draper and self.draper.isValid()
+        if hasattr(self, "_backend") and self._backend:
+            return bool(self._backend.is_valid())
+        return bool(hasattr(self, "draper") and self.draper and self.draper.isValid())
 
     def get_tex_coords(self, offset_angle_deg):
         if self.has_valid_draper():
+            if hasattr(self, "_backend") and self._backend:
+                return self._backend.get_tex_coords(
+                    offset_angle_deg=offset_angle_deg
+                    + getattr(self, "_rosette_angle", 0.0),
+                )
             return self.draper.get_tex_coords(
                 offset_angle_deg=offset_angle_deg
                 + getattr(self, "_rosette_angle", 0.0),
@@ -235,17 +321,24 @@ class CompositeShellFP(CompositeBaseFP):
         return None
 
     def get_draper(self):
-        if self.has_valid_draper():
-            return self.draper
+        if self.has_valid_draper() and getattr(self._backend, "draper", None):
+            return self._backend.draper
         raise ValueError("Draper invalid")
 
     def get_drape_lcs(self, tris):
         if self.has_valid_draper():
+            if hasattr(self, "_backend") and self._backend:
+                return self._backend.get_lcs(tris)
             return self.draper.get_lcs(tris)
         return None
 
     def get_boundaries(self, offset_angle_deg):
         if self.has_valid_draper():
+            if hasattr(self, "_backend") and self._backend:
+                return self._backend.get_boundaries(
+                    offset_angle_deg=offset_angle_deg
+                    + getattr(self, "_rosette_angle", 0.0),
+                )
             return self.draper.get_boundaries(
                 offset_angle_deg=offset_angle_deg
                 + getattr(self, "_rosette_angle", 0.0),
@@ -254,6 +347,8 @@ class CompositeShellFP(CompositeBaseFP):
 
     def get_strains(self):
         if self.has_valid_draper():
+            if hasattr(self, "_backend") and self._backend:
+                return self._backend.strains
             return self.draper.strains
         return None
 

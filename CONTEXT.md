@@ -124,6 +124,58 @@ _Avoid_: downstream-first fallback cleanup
 After support/projection cleanup, removal order is solver rescue branches, then output UV/topology synthetic fallbacks, then metrics shims.
 _Avoid_: output-first cleanup before solver validity
 
+**CS0.5 Seam-First Bootstrap**:
+Before CS1 cleanup, reintroduce backend seam and fishnet skeleton without fallback behavior so strict harness can evaluate an explicit fishnet path.
+_Avoid_: attempting fallback-removal sequencing before a concrete fishnet path exists
+
+**Strict Skeleton Semantics**:
+The initial fishnet skeleton must return explicit invalid/not-solved statuses rather than synthetic partial outputs.
+_Avoid_: permissive placeholder outputs
+
+**Seam Module Boundary**:
+The drape backend seam is implemented in `drape_backend.py`, `drape_backend_fishnet.py`, and `drape_backend_legacy.py`, not embedded in `CompositeShell.py`.
+_Avoid_: feature-layer seam entanglement
+
+**Bootstrap Backend Default**:
+During CS0.5, legacy backend remains default; fishnet backend is enabled only via explicit property/flag.
+_Avoid_: premature fishnet-by-default rollout
+
+**Persistent Backend Selector**:
+Backend choice is a persisted `CompositeShell` property (e.g., `DrapeBackend = legacy|fishnet`).
+_Avoid_: non-persistent runtime-only backend switches
+
+**Bootstrap Failure Signaling**:
+When fishnet is selected but not solved, recompute must emit explicit error/status signaling and invalid outputs.
+_Avoid_: silent no-op success semantics
+
+**Seam Boundary Test Rule**:
+CS0.5 must include FeaturePython tests asserting legacy baseline success and explicit fishnet hard-fail signaling when unsolved.
+_Avoid_: relying solely on lower-level harness checks for seam behavior
+
+**Bootstrap Diagnostics Schema**:
+CS0.5 includes a minimal structured fishnet diagnostics payload schema from day one.
+_Avoid_: deferred ad-hoc diagnostics retrofits
+
+**Diagnostics Persistence Rule**:
+Fishnet diagnostics are persisted on `CompositeShell` as a read-only property for inspection and reproducibility.
+_Avoid_: transient-only diagnostic state
+
+**Diagnostics Serialization Format**:
+Persisted diagnostics use a JSON string property with an explicit schema-version field.
+_Avoid_: proliferating many scalar diagnostic properties
+
+**Diagnostics Schema Contract**:
+The diagnostics JSON enforces stable required keys: `schema_version`, `backend`, `status`, `failure_reason`, and `timestamp`.
+_Avoid_: free-form schema drift
+
+**Failure Reason Enum Rule**:
+`failure_reason` uses a constrained enum from the initial schema version onward.
+_Avoid_: free-text failure reasons
+
+**Initial Failure Reason Enum**:
+The initial enum values are `not_implemented`, `invalid_support`, `projection_failed`, and `solver_unsolved`.
+_Avoid_: ad-hoc failure-reason additions without schema update
+
 **Fail-Fast Consumer Behavior**:
 During intermediate stages, invalid fishnet states must surface explicit errors instead of returning partial/placeholder outputs.
 _Avoid_: partial-data continuity during gate-failing stages
