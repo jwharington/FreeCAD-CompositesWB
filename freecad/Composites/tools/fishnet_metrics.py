@@ -8,7 +8,7 @@ Legacy solved-fraction payloads are explicitly rejected.
 
 from __future__ import annotations
 
-from typing import Mapping
+from typing import Mapping, Sequence
 
 
 class FishnetMetricPayloadError(ValueError):
@@ -151,6 +151,8 @@ def read_shear_strain_angle_limit_metric(payload: Mapping[str, object]) -> float
 def evaluate_topology_quality_gates(
     metrics: Mapping[str, object],
     thresholds: Mapping[str, object],
+    *,
+    linear_strain_zero_tolerance: float = 1e-4,
 ) -> dict[str, object]:
     """Evaluate strict gate categories against profile thresholds."""
 
@@ -201,12 +203,18 @@ def evaluate_topology_quality_gates(
         thresholds.get("linear_strain_compression_min"),
         "linear_strain_compression_min",
     )
+    linear_zero_tol = _as_float(
+        linear_strain_zero_tolerance,
+        "linear_strain_zero_tolerance",
+    )
+    if linear_zero_tol < 0.0:
+        raise FishnetMetricPayloadError("linear_strain_zero_tolerance must be >= 0")
     shear_angle_limit_deg = _as_optional_float(
         thresholds.get("shear_angle_abs_limit_deg"),
         "shear_angle_abs_limit_deg",
     )
 
-    linear_ok = True
+    linear_ok = (linear_max <= linear_zero_tol) and (linear_min >= -linear_zero_tol)
     if linear_tension_max is not None:
         linear_ok = linear_ok and linear_max <= linear_tension_max
     if linear_compression_min is not None:
@@ -229,9 +237,9 @@ def evaluate_topology_quality_gates(
         "shear_strain": shear_ok,
     }
     check_modes = {
-        "linear_strain": "enforced"
-        if (linear_tension_max is not None or linear_compression_min is not None)
-        else "not_configured",
+        "linear_strain": "enforced_zero_limit"
+        if (linear_tension_max is None and linear_compression_min is None)
+        else "enforced_zero_limit_and_threshold",
         "shear_strain": "enforced" if shear_angle_limit_deg is not None else "not_configured",
     }
 
@@ -239,6 +247,12 @@ def evaluate_topology_quality_gates(
         "ok": all(checks.values()),
         "checks": checks,
         "check_modes": check_modes,
+        "check_parameters": {
+            "linear_strain_zero_tolerance": linear_zero_tol,
+            "linear_strain_tension_max": linear_tension_max,
+            "linear_strain_compression_min": linear_compression_min,
+            "shear_angle_abs_limit_deg": shear_angle_limit_deg,
+        },
     }
 
 
@@ -252,6 +266,69 @@ def _as_optional_float(value: object, field_name: str) -> float | None:
     if value is None:
         return None
     return _as_float(value, field_name)
+
+
+def read_strain_distribution(
+    payload: Mapping[str, object],
+    field_name: str,
+) -> list[float]:
+    """Read strain distribution series used for qualitative plotting."""
+
+    values = payload.get(field_name)
+    if not isinstance(values, Sequence) or isinstance(values, (str, bytes, bytearray)):
+        raise FishnetMetricPayloadError(f"{field_name} must be an array of numeric values")
+
+    series = [_as_float(v, f"{field_name}[]") for v in values]
+    if not series:
+        raise FishnetMetricPayloadError(f"{field_name} must contain at least one value")
+    return series
+
+
+def summarize_distribution(values: Sequence[float], *, bins: int = 20) -> dict[str, object]:
+    """Summarize values for histogram/distribution display."""
+
+    if bins <= 0:
+        raise FishnetMetricPayloadError("bins must be > 0")
+    if not values:
+        raise FishnetMetricPayloadError("values must contain at least one element")
+
+    series = [float(v) for v in values]
+    lo = min(series)
+    hi = max(series)
+
+    if hi == lo:
+        return {
+            "count": len(series),
+            "min": lo,
+            "max": hi,
+            "mean": lo,
+            "histogram": {
+                "bin_edges": [lo, hi],
+                "counts": [len(series)],
+            },
+        }
+
+    width = (hi - lo) / float(bins)
+    counts = [0 for _ in range(bins)]
+    for value in series:
+        idx = int((value - lo) / width)
+        if idx >= bins:
+            idx = bins - 1
+        counts[idx] += 1
+
+    edges = [lo + width * i for i in range(bins)] + [hi]
+    mean = sum(series) / float(len(series))
+
+    return {
+        "count": len(series),
+        "min": lo,
+        "max": hi,
+        "mean": mean,
+        "histogram": {
+            "bin_edges": edges,
+            "counts": counts,
+        },
+    }
 
 
 def _as_nonnegative_int(value: object, field_name: str) -> int:

@@ -87,9 +87,8 @@ def test_gate_profile_thresholds_are_defined_and_numeric():
     assert 0.0 <= thresholds["uv_edge_scale_consistency_ratio_min"] <= 1.0
     assert thresholds["uv_edge_scale_error_p95_max"] >= 0.0
 
-    # Limits intentionally left unset for now; policy to define later.
-    assert thresholds["linear_strain_tension_max"] is None
-    assert thresholds["linear_strain_compression_min"] is None
+    assert thresholds["linear_strain_tension_max"] == 1e-4
+    assert thresholds["linear_strain_compression_min"] == -1e-4
     assert thresholds["shear_angle_abs_limit_deg"] is None
 
 
@@ -134,8 +133,8 @@ class _GateShapeStrictCoverage:
         "hole_crossing_cell_count": 0,
         "uv_edge_scale_consistency_ratio": 0.93,
         "uv_edge_scale_error_p95": 0.05,
-        "linear_strain_min": -0.03,
-        "linear_strain_max": 0.02,
+        "linear_strain_min": -5e-05,
+        "linear_strain_max": 8e-05,
         "shear_angle_abs_max_deg": 7.5,
     }
 
@@ -205,7 +204,7 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
         thresholds=_stage_thresholds(stage),
     )
     assert evaluation["ok"] is True
-    assert evaluation["check_modes"]["linear_strain"] == "not_configured"
+    assert evaluation["check_modes"]["linear_strain"] == "enforced_zero_limit_and_threshold"
     assert evaluation["check_modes"]["shear_strain"] == "not_configured"
 
 

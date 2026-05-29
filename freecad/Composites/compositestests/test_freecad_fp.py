@@ -1212,6 +1212,13 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
             "DrapeDiagnostics", object.__getattribute__(self.obj, "_props")
         )
 
+    def test_init_adds_fishnet_strain_warning_limit_properties(self):
+        props = object.__getattribute__(self.obj, "_props")
+        self.assertIn("FishnetLinearStrainWarningLimit", props)
+        self.assertIn("FishnetShearStrainWarningLimitDeg", props)
+        self.assertEqual(self.obj.FishnetLinearStrainWarningLimit, 1e-4)
+        self.assertEqual(self.obj.FishnetShearStrainWarningLimitDeg, 15.0)
+
     def test_init_rosette_angle_initialized_to_zero(self):
         self.assertAlmostEqual(self.fp._rosette_angle, 0.0)
 
@@ -1292,6 +1299,50 @@ class TestCompositeShellFPRosetteProperty(unittest.TestCase):
         self.assertEqual(diag["failure_reason"], "solver_unsolved")
         self.assertEqual(diag["solve_status"], "failed_no_neighbors")
         self.assertFalse(diag["output_ready"])
+        self.assertEqual(diag["linear_strain_warning_limit"], 1e-4)
+        self.assertEqual(diag["shear_strain_warning_limit_deg"], 15.0)
+
+    def test_execute_fishnet_uses_user_warning_limits(self):
+        self.obj.Support = MagicMock()
+        shape = MagicMock(name="shape")
+        shape.Faces = [MagicMock(name="face")]
+        shape.project_uv_for_point.return_value = (0.0, 0.0)
+        shape.fishnet_metric_payload = {
+            "covered_area_3d": 8.0,
+            "support_area_3d": 10.0,
+            "duplicate_point_count": 2,
+            "total_point_count": 10,
+            "hole_crossing_cell_count": 0,
+            "uv_edge_scale_consistency_ratio": 0.95,
+            "uv_edge_scale_error_p95": 0.07,
+            "linear_strain_min": -0.00008,
+            "linear_strain_max": 0.0005,
+            "shear_angle_abs_max_deg": 6.0,
+            "linear_strain_distribution": [-0.00008, 0.0005],
+            "shear_strain_distribution_deg": [2.0, 6.0],
+        }
+        self.obj.Support.Shape = shape
+        self.obj.Laminate = MagicMock()
+        self.obj.DrapeBackend = "fishnet"
+        self.obj.FishnetLinearStrainWarningLimit = 0.0001
+        self.obj.FishnetShearStrainWarningLimitDeg = 5.0
+
+        fake_mesh = MagicMock()
+        fake_mesh.CountFacets = 8
+
+        with patch.object(
+            _composite_shell_feature_mod.mesh_util,
+            "shape2Mesh",
+            return_value=fake_mesh,
+        ):
+            self.fp.execute(self.obj)
+
+        diag = json.loads(self.obj.DrapeDiagnostics)
+        self.assertEqual(diag["backend"], "fishnet")
+        self.assertEqual(diag["linear_strain_warning_limit"], 0.0001)
+        self.assertEqual(diag["shear_strain_warning_limit_deg"], 5.0)
+        self.assertTrue(diag["linear_strain_warning_exceeded"])
+        self.assertTrue(diag["shear_strain_warning_exceeded"])
 
     def test_execute_legacy_uses_backend_seam_and_persists_diagnostics(self):
         self.obj.Support = MagicMock()

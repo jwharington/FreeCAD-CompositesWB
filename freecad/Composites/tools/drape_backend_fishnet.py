@@ -16,7 +16,9 @@ from .fishnet_metrics import (
     read_hole_crossing_cell_count,
     read_linear_strain_extrema,
     read_shear_strain_angle_limit_metric,
+    read_strain_distribution,
     read_uv_scale_metrics,
+    summarize_distribution,
 )
 
 
@@ -74,10 +76,21 @@ class FishnetDrapeBackend(DrapeBackend):
 
     backend_name = "fishnet"
 
-    def __init__(self, mesh, lcs, shape):
+    def __init__(
+        self,
+        mesh,
+        lcs,
+        shape,
+        *,
+        linear_strain_warning_limit: float = 1e-4,
+        shear_strain_warning_limit_deg: float = 15.0,
+    ):
         self.mesh = mesh
         self.lcs = lcs
         self.shape = shape
+
+        self._linear_strain_warning_limit = float(linear_strain_warning_limit)
+        self._shear_strain_warning_limit_deg = float(shear_strain_warning_limit_deg)
 
         self._seed_uv: tuple[float, float] | None = None
         self._solve_status: str = "not_started"
@@ -113,6 +126,16 @@ class FishnetDrapeBackend(DrapeBackend):
         self._shear_angle_abs_max_deg: float | None = None
         self._shear_metric_status = "not_available"
         self._shear_metric_error: str | None = None
+
+        self._linear_strain_distribution: list[float] | None = None
+        self._linear_strain_distribution_status = "not_available"
+        self._linear_strain_distribution_error: str | None = None
+        self._linear_strain_distribution_summary: dict[str, Any] | None = None
+
+        self._shear_strain_distribution_deg: list[float] | None = None
+        self._shear_strain_distribution_status = "not_available"
+        self._shear_strain_distribution_error: str | None = None
+        self._shear_strain_distribution_summary: dict[str, Any] | None = None
 
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
@@ -257,6 +280,38 @@ class FishnetDrapeBackend(DrapeBackend):
             self._shear_metric_error = str(exc)
             self._shear_angle_abs_max_deg = None
 
+        # Linear strain distribution (qualitative plotting)
+        try:
+            self._linear_strain_distribution = read_strain_distribution(
+                payload,
+                "linear_strain_distribution",
+            )
+            self._linear_strain_distribution_summary = summarize_distribution(
+                self._linear_strain_distribution,
+            )
+            self._linear_strain_distribution_status = "ok"
+        except FishnetMetricPayloadError as exc:
+            self._linear_strain_distribution_status = "invalid_payload"
+            self._linear_strain_distribution_error = str(exc)
+            self._linear_strain_distribution = None
+            self._linear_strain_distribution_summary = None
+
+        # Shear strain distribution (qualitative plotting)
+        try:
+            self._shear_strain_distribution_deg = read_strain_distribution(
+                payload,
+                "shear_strain_distribution_deg",
+            )
+            self._shear_strain_distribution_summary = summarize_distribution(
+                self._shear_strain_distribution_deg,
+            )
+            self._shear_strain_distribution_status = "ok"
+        except FishnetMetricPayloadError as exc:
+            self._shear_strain_distribution_status = "invalid_payload"
+            self._shear_strain_distribution_error = str(exc)
+            self._shear_strain_distribution_deg = None
+            self._shear_strain_distribution_summary = None
+
     def _run_constructive_solve(self) -> FishnetSolveResult:
         """Run strict bootstrap solve path with no rescue branches.
 
@@ -311,6 +366,16 @@ class FishnetDrapeBackend(DrapeBackend):
             return None
         return self._flat_boundaries
 
+    def _is_warning_exceeded(self, value: float | None, limit: float) -> bool | None:
+        if value is None:
+            return None
+        return value > limit
+
+    def _linear_abs_extreme(self) -> float | None:
+        if self._linear_strain_min is None or self._linear_strain_max is None:
+            return None
+        return max(abs(self._linear_strain_min), abs(self._linear_strain_max))
+
     def diagnostics(self) -> dict[str, Any]:
         return {
             "backend": self.backend_name,
@@ -342,4 +407,23 @@ class FishnetDrapeBackend(DrapeBackend):
             "shear_angle_abs_max_deg": self._shear_angle_abs_max_deg,
             "shear_metric_status": self._shear_metric_status,
             "shear_metric_error": self._shear_metric_error,
+            "linear_strain_distribution": self._linear_strain_distribution,
+            "linear_strain_distribution_status": self._linear_strain_distribution_status,
+            "linear_strain_distribution_error": self._linear_strain_distribution_error,
+            "linear_strain_distribution_summary": self._linear_strain_distribution_summary,
+            "shear_strain_distribution_deg": self._shear_strain_distribution_deg,
+            "shear_strain_distribution_status": self._shear_strain_distribution_status,
+            "shear_strain_distribution_error": self._shear_strain_distribution_error,
+            "shear_strain_distribution_summary": self._shear_strain_distribution_summary,
+            "linear_strain_warning_limit": self._linear_strain_warning_limit,
+            "shear_strain_warning_limit_deg": self._shear_strain_warning_limit_deg,
+            "linear_strain_warning_exceeded": (
+                self._is_warning_exceeded(self._linear_abs_extreme(), self._linear_strain_warning_limit)
+            ),
+            "shear_strain_warning_exceeded": (
+                self._is_warning_exceeded(
+                    self._shear_angle_abs_max_deg,
+                    self._shear_strain_warning_limit_deg,
+                )
+            ),
         }

@@ -116,6 +116,20 @@ class CompositeShellFP(CompositeBaseFP):
         obj.setPropertyStatus("DrapeDiagnostics", "ReadOnly")
 
         obj.addProperty(
+            type="App::PropertyFloat",
+            name="FishnetLinearStrainWarningLimit",
+            group="Draping",
+            doc="Fishnet warning limit for absolute linear strain fraction",
+        )
+
+        obj.addProperty(
+            type="App::PropertyFloat",
+            name="FishnetShearStrainWarningLimitDeg",
+            group="Draping",
+            doc="Fishnet warning limit for absolute shear strain angle (deg)",
+        )
+
+        obj.addProperty(
             type="App::PropertyLinkGlobal",
             name="Mesh",
             group="Orthographic",
@@ -134,6 +148,8 @@ class CompositeShellFP(CompositeBaseFP):
         obj.SkipDraper = False
         obj.DraperMaxFacets = 3000
         obj.DrapeDiagnostics = ""
+        obj.FishnetLinearStrainWarningLimit = 1e-4
+        obj.FishnetShearStrainWarningLimitDeg = 15.0
         obj.LocalCoordinateSystem = lcs
         obj.Rosette = rosette
         obj.Laminate = laminate
@@ -220,6 +236,7 @@ class CompositeShellFP(CompositeBaseFP):
                         backend_mesh,
                         get_lcs(),
                         fp.Shape,
+                        fp,
                     )
                     self.draper = getattr(self._backend, "draper", None)
 
@@ -265,9 +282,19 @@ class CompositeShellFP(CompositeBaseFP):
         backend = str(getattr(fp, "DrapeBackend", "legacy") or "legacy").lower()
         return backend if backend in {"legacy", "fishnet"} else "legacy"
 
-    def _make_backend(self, backend_name, mesh, lcs, shape):
+    def _make_backend(self, backend_name, mesh, lcs, shape, fp):
         if backend_name == "fishnet":
-            return FishnetDrapeBackend(mesh, lcs, shape)
+            return FishnetDrapeBackend(
+                mesh,
+                lcs,
+                shape,
+                linear_strain_warning_limit=float(
+                    getattr(fp, "FishnetLinearStrainWarningLimit", 1e-4)
+                ),
+                shear_strain_warning_limit_deg=float(
+                    getattr(fp, "FishnetShearStrainWarningLimitDeg", 15.0)
+                ),
+            )
         return LegacyDrapeBackend(mesh, lcs, shape)
 
     def _set_drape_diagnostics(
@@ -314,6 +341,8 @@ class CompositeShellFP(CompositeBaseFP):
                 | "SkipDraper"
                 | "DraperMaxFacets"
                 | "DrapeBackend"
+                | "FishnetLinearStrainWarningLimit"
+                | "FishnetShearStrainWarningLimitDeg"
             ):
                 fp.recompute()
 
