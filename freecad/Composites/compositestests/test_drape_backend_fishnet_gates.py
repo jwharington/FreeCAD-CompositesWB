@@ -24,9 +24,17 @@ _freecad_mock.Base = types.SimpleNamespace(
 )
 sys.modules.setdefault("FreeCAD", _freecad_mock)
 sys.modules.setdefault("CompositesWB", MagicMock())
+sys.modules.setdefault("Part", MagicMock())
+
+_boptools = types.ModuleType("BOPTools")
+_boptools_split = types.ModuleType("BOPTools.SplitAPI")
+_boptools.SplitAPI = _boptools_split
+sys.modules.setdefault("BOPTools", _boptools)
+sys.modules.setdefault("BOPTools.SplitAPI", _boptools_split)
 
 from freecad.Composites.compositeexamples import registry
 from freecad.Composites.compositestests.fishnet_gate_profiles import load_gate_profiles
+from freecad.Composites.tools.drape_backend_fishnet import FishnetDrapeBackend
 
 
 EXPECTED_GATE_CATEGORIES = [
@@ -82,3 +90,54 @@ def test_runner_stage_env_matches_profile():
 
     targets = profiles["stages"][stage]["pytest_targets"]
     assert any(t.endswith("test_drape_backend_fishnet_gates.py") for t in targets)
+
+
+class _GateShapeStrictCoverage:
+    Faces = [object()]
+    fishnet_metric_payload = {
+        "covered_area_3d": 3.0,
+        "support_area_3d": 4.0,
+    }
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        return (0.0, 0.0)
+
+
+class _GateShapeLegacyCoverage:
+    Faces = [object()]
+    fishnet_metric_payload = {
+        "solved_fraction": 0.75,
+    }
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        return (0.0, 0.0)
+
+
+class _GateMeshWithNeighbors:
+    Topology = ([], [(0, 1, 2)])
+
+
+def test_gate_coverage_consumes_strict_support_aware_metric_path():
+    backend = FishnetDrapeBackend(
+        mesh=_GateMeshWithNeighbors(),
+        lcs=object(),
+        shape=_GateShapeStrictCoverage(),
+    )
+    diag = backend.diagnostics()
+
+    assert diag["coverage_metric_status"] == "ok"
+    assert diag["coverage_ratio_3d"] == 0.75
+
+
+def test_gate_coverage_rejects_legacy_payload_shim_path():
+    backend = FishnetDrapeBackend(
+        mesh=_GateMeshWithNeighbors(),
+        lcs=object(),
+        shape=_GateShapeLegacyCoverage(),
+    )
+    diag = backend.diagnostics()
+
+    assert diag["coverage_metric_status"] == "invalid_payload"
+    assert diag["coverage_ratio_3d"] is None

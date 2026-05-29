@@ -8,6 +8,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from .drape_backend import DrapeBackend
+from .fishnet_metrics import (
+    FishnetMetricPayloadError,
+    compute_coverage_ratio_3d,
+)
 
 
 @dataclass(frozen=True)
@@ -75,17 +79,25 @@ class FishnetDrapeBackend(DrapeBackend):
         self._flat_tex_coords = None
         self._flat_boundaries = None
 
+        self._coverage_payload = self._extract_coverage_payload(shape)
+        self._coverage_ratio_3d: float | None = None
+        self._coverage_metric_status = "not_available"
+        self._coverage_metric_error: str | None = None
+
         evaluation = self._evaluate_support_and_projection(shape)
         if evaluation.status != "ok":
             self._status = "invalid"
             self._failure_reason = evaluation.failure_reason
             self._solve_status = "blocked_preconditions"
+            self._compute_coverage_metric()
             return
 
         self._seed_uv = evaluation.uv
         solve = self._run_constructive_solve()
         self._solve_status = solve.status
         self._solved_node_count = solve.solved_node_count
+
+        self._compute_coverage_metric()
 
         if solve.status == "ok":
             self._status = "ok"
@@ -141,6 +153,25 @@ class FishnetDrapeBackend(DrapeBackend):
         return FishnetSupportProjectionResult.ok(
             uv=(float(uv[0]), float(uv[1]))
         )
+
+    def _extract_coverage_payload(self, shape) -> dict[str, Any] | None:
+        payload = getattr(shape, "fishnet_metric_payload", None)
+        if isinstance(payload, dict):
+            return payload
+        return None
+
+    def _compute_coverage_metric(self) -> None:
+        if self._coverage_payload is None:
+            self._coverage_metric_status = "not_available"
+            return
+
+        try:
+            self._coverage_ratio_3d = compute_coverage_ratio_3d(self._coverage_payload)
+            self._coverage_metric_status = "ok"
+        except FishnetMetricPayloadError as exc:
+            self._coverage_metric_status = "invalid_payload"
+            self._coverage_metric_error = str(exc)
+            self._coverage_ratio_3d = None
 
     def _run_constructive_solve(self) -> FishnetSolveResult:
         """Run strict bootstrap solve path with no rescue branches.
@@ -205,4 +236,8 @@ class FishnetDrapeBackend(DrapeBackend):
             "solved_node_count": self._solved_node_count,
             "seed_uv": self._seed_uv,
             "output_ready": self._output_ready(),
+            "coverage_payload": self._coverage_payload,
+            "coverage_ratio_3d": self._coverage_ratio_3d,
+            "coverage_metric_status": self._coverage_metric_status,
+            "coverage_metric_error": self._coverage_metric_error,
         }

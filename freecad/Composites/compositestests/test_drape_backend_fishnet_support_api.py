@@ -61,6 +61,19 @@ class _ShapeProjectionOk:
         return (0.0, 0.0)
 
 
+class _ShapeProjectionOkWithStrictMetrics(_ShapeProjectionOk):
+    fishnet_metric_payload = {
+        "covered_area_3d": 8.0,
+        "support_area_3d": 10.0,
+    }
+
+
+class _ShapeProjectionOkWithLegacyMetrics(_ShapeProjectionOk):
+    fishnet_metric_payload = {
+        "solved_fraction": 0.9,
+    }
+
+
 class _MeshWithNeighbors:
     Topology = ([], [(0, 1, 2)])
 
@@ -146,6 +159,32 @@ def test_backend_unsolved_output_path_has_no_synthetic_uv_or_boundaries():
     assert backend.get_tex_coords() is None
     assert backend.get_tex_coord_at_point((0.0, 0.0, 0.0)) is None
     assert backend.get_boundaries() is None
+
+
+def test_backend_diagnostics_compute_strict_coverage_metric_when_payload_present():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighbors(),
+        lcs=object(),
+        shape=_ShapeProjectionOkWithStrictMetrics(),
+    )
+
+    diag = backend.diagnostics()
+    assert diag["coverage_metric_status"] == "ok"
+    assert diag["coverage_ratio_3d"] == 0.8
+    assert diag["coverage_metric_error"] is None
+
+
+def test_backend_diagnostics_reject_legacy_metric_payload():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighbors(),
+        lcs=object(),
+        shape=_ShapeProjectionOkWithLegacyMetrics(),
+    )
+
+    diag = backend.diagnostics()
+    assert diag["coverage_metric_status"] == "invalid_payload"
+    assert diag["coverage_ratio_3d"] is None
+    assert "legacy solved-fraction payload" in str(diag["coverage_metric_error"])
 
 
 def test_unexpected_projection_exception_is_not_masked():
