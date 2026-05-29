@@ -65,6 +65,11 @@ class _ShapeProjectionOkWithStrictMetrics(_ShapeProjectionOk):
     fishnet_metric_payload = {
         "covered_area_3d": 8.0,
         "support_area_3d": 10.0,
+        "duplicate_point_count": 2,
+        "total_point_count": 10,
+        "hole_crossing_cell_count": 0,
+        "uv_edge_scale_consistency_ratio": 0.95,
+        "uv_edge_scale_error_p95": 0.07,
     }
 
 
@@ -173,6 +178,17 @@ def test_backend_diagnostics_compute_strict_coverage_metric_when_payload_present
     assert diag["coverage_ratio_3d"] == 0.8
     assert diag["coverage_metric_error"] is None
 
+    assert diag["duplicate_metric_status"] == "ok"
+    assert diag["duplicate_point_ratio"] == 0.2
+    assert diag["unique_point_ratio"] == 0.8
+
+    assert diag["hole_metric_status"] == "ok"
+    assert diag["hole_crossing_cell_count"] == 0
+
+    assert diag["uv_metric_status"] == "ok"
+    assert diag["uv_edge_scale_consistency_ratio"] == 0.95
+    assert diag["uv_edge_scale_error_p95"] == 0.07
+
 
 def test_backend_diagnostics_reject_legacy_metric_payload():
     backend = FishnetDrapeBackend(
@@ -185,6 +201,10 @@ def test_backend_diagnostics_reject_legacy_metric_payload():
     assert diag["coverage_metric_status"] == "invalid_payload"
     assert diag["coverage_ratio_3d"] is None
     assert "legacy solved-fraction payload" in str(diag["coverage_metric_error"])
+
+    assert diag["duplicate_metric_status"] == "invalid_payload"
+    assert diag["hole_metric_status"] == "invalid_payload"
+    assert diag["uv_metric_status"] == "invalid_payload"
 
 
 def test_unexpected_projection_exception_is_not_masked():

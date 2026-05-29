@@ -32,6 +32,10 @@ sys.modules.setdefault("BOPTools.SplitAPI", _boptools_split)
 from freecad.Composites.tools.fishnet_metrics import (  # noqa: E402
     FishnetMetricPayloadError,
     compute_coverage_ratio_3d,
+    compute_duplicate_point_ratio,
+    compute_unique_point_ratio,
+    read_hole_crossing_cell_count,
+    read_uv_scale_metrics,
 )
 
 
@@ -100,5 +104,49 @@ def test_compute_coverage_ratio_3d_rejects_nonnumeric_values():
             {
                 "covered_area_3d": "10.0",
                 "support_area_3d": 20.0,
+            }
+        )
+
+
+def test_duplicate_and_unique_point_ratios_are_computed_strictly():
+    payload = {
+        "duplicate_point_count": 2,
+        "total_point_count": 10,
+    }
+    assert compute_duplicate_point_ratio(payload) == pytest.approx(0.2)
+    assert compute_unique_point_ratio(payload) == pytest.approx(0.8)
+
+
+def test_duplicate_ratio_rejects_invalid_counts():
+    with pytest.raises(FishnetMetricPayloadError, match="duplicate_point_count must be <= total_point_count"):
+        compute_duplicate_point_ratio(
+            {
+                "duplicate_point_count": 11,
+                "total_point_count": 10,
+            }
+        )
+
+
+def test_read_hole_crossing_cell_count_requires_nonnegative_int():
+    assert read_hole_crossing_cell_count({"hole_crossing_cell_count": 0}) == 0
+    with pytest.raises(FishnetMetricPayloadError, match="hole_crossing_cell_count must be >= 0"):
+        read_hole_crossing_cell_count({"hole_crossing_cell_count": -1})
+
+
+def test_read_uv_scale_metrics_validates_bounds():
+    consistency, error_p95 = read_uv_scale_metrics(
+        {
+            "uv_edge_scale_consistency_ratio": 0.95,
+            "uv_edge_scale_error_p95": 0.08,
+        }
+    )
+    assert consistency == pytest.approx(0.95)
+    assert error_p95 == pytest.approx(0.08)
+
+    with pytest.raises(FishnetMetricPayloadError, match=r"uv_edge_scale_consistency_ratio must be in \[0, 1\]"):
+        read_uv_scale_metrics(
+            {
+                "uv_edge_scale_consistency_ratio": 1.2,
+                "uv_edge_scale_error_p95": 0.08,
             }
         )

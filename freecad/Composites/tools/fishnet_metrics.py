@@ -58,7 +58,83 @@ def _reject_legacy_solved_fraction_payload(payload: Mapping[str, object]) -> Non
         )
 
 
+def compute_duplicate_point_ratio(payload: Mapping[str, object]) -> float:
+    """Compute duplicate point ratio from strict payload keys.
+
+    Required payload keys:
+    - ``duplicate_point_count``
+    - ``total_point_count``
+    """
+
+    dup = _as_nonnegative_int(payload.get("duplicate_point_count"), "duplicate_point_count")
+    total = _as_positive_int(payload.get("total_point_count"), "total_point_count")
+
+    if dup > total:
+        raise FishnetMetricPayloadError("duplicate_point_count must be <= total_point_count")
+
+    return float(dup) / float(total)
+
+
+def compute_unique_point_ratio(payload: Mapping[str, object]) -> float:
+    """Compute unique point ratio from strict payload keys."""
+
+    return 1.0 - compute_duplicate_point_ratio(payload)
+
+
+def read_hole_crossing_cell_count(payload: Mapping[str, object]) -> int:
+    """Read strict hole-crossing count from payload."""
+
+    return _as_nonnegative_int(
+        payload.get("hole_crossing_cell_count"),
+        "hole_crossing_cell_count",
+    )
+
+
+def read_uv_scale_metrics(payload: Mapping[str, object]) -> tuple[float, float]:
+    """Read strict UV physical-scale metrics from payload.
+
+    Returns
+    -------
+    tuple[float, float]
+        (uv_edge_scale_consistency_ratio, uv_edge_scale_error_p95)
+    """
+
+    consistency = _as_float(
+        payload.get("uv_edge_scale_consistency_ratio"),
+        "uv_edge_scale_consistency_ratio",
+    )
+    error_p95 = _as_float(
+        payload.get("uv_edge_scale_error_p95"),
+        "uv_edge_scale_error_p95",
+    )
+
+    if consistency < 0.0 or consistency > 1.0:
+        raise FishnetMetricPayloadError(
+            "uv_edge_scale_consistency_ratio must be in [0, 1]"
+        )
+    if error_p95 < 0.0:
+        raise FishnetMetricPayloadError("uv_edge_scale_error_p95 must be >= 0")
+
+    return consistency, error_p95
+
+
 def _as_float(value: object, field_name: str) -> float:
     if not isinstance(value, (int, float)):
         raise FishnetMetricPayloadError(f"{field_name} must be numeric")
     return float(value)
+
+
+def _as_nonnegative_int(value: object, field_name: str) -> int:
+    if not isinstance(value, int):
+        raise FishnetMetricPayloadError(f"{field_name} must be integer")
+    if value < 0:
+        raise FishnetMetricPayloadError(f"{field_name} must be >= 0")
+    return int(value)
+
+
+def _as_positive_int(value: object, field_name: str) -> int:
+    if not isinstance(value, int):
+        raise FishnetMetricPayloadError(f"{field_name} must be integer")
+    if value <= 0:
+        raise FishnetMetricPayloadError(f"{field_name} must be > 0")
+    return int(value)

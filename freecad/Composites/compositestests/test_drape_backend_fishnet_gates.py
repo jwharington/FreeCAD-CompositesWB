@@ -97,6 +97,11 @@ class _GateShapeStrictCoverage:
     fishnet_metric_payload = {
         "covered_area_3d": 3.0,
         "support_area_3d": 4.0,
+        "duplicate_point_count": 1,
+        "total_point_count": 10,
+        "hole_crossing_cell_count": 0,
+        "uv_edge_scale_consistency_ratio": 0.93,
+        "uv_edge_scale_error_p95": 0.05,
     }
 
     @staticmethod
@@ -130,6 +135,17 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
     assert diag["coverage_metric_status"] == "ok"
     assert diag["coverage_ratio_3d"] == 0.75
 
+    assert diag["duplicate_metric_status"] == "ok"
+    assert diag["duplicate_point_ratio"] == 0.1
+    assert diag["unique_point_ratio"] == 0.9
+
+    assert diag["hole_metric_status"] == "ok"
+    assert diag["hole_crossing_cell_count"] == 0
+
+    assert diag["uv_metric_status"] == "ok"
+    assert diag["uv_edge_scale_consistency_ratio"] == 0.93
+    assert diag["uv_edge_scale_error_p95"] == 0.05
+
 
 def test_gate_coverage_rejects_legacy_payload_shim_path():
     backend = FishnetDrapeBackend(
@@ -141,3 +157,7 @@ def test_gate_coverage_rejects_legacy_payload_shim_path():
 
     assert diag["coverage_metric_status"] == "invalid_payload"
     assert diag["coverage_ratio_3d"] is None
+
+    assert diag["duplicate_metric_status"] == "invalid_payload"
+    assert diag["hole_metric_status"] == "invalid_payload"
+    assert diag["uv_metric_status"] == "invalid_payload"
