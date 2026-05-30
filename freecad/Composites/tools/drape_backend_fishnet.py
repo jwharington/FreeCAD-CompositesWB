@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from .drape_backend import DrapeBackend
@@ -191,6 +192,32 @@ class FishnetDrapeBackend(DrapeBackend):
             return FishnetSupportProjectionResult.failed("projection_failed")
         return FishnetSupportProjectionResult.ok(uv=uv)
 
+    def _project_uv_via_surface(self, shape, point) -> tuple[float, float] | None:
+        faces = getattr(shape, "Faces", None)
+        if not faces:
+            return None
+
+        face = faces[0]
+        surface = getattr(face, "Surface", None)
+        if surface is None or not hasattr(surface, "parameter"):
+            return None
+
+        candidates = [point, getattr(face, "CenterOfMass", None)]
+        for sample_point in candidates:
+            if sample_point is None:
+                continue
+            try:
+                uv = surface.parameter(sample_point)
+            except Exception:
+                continue
+            if not isinstance(uv, tuple) or len(uv) != 2:
+                continue
+            try:
+                return (float(uv[0]), float(uv[1]))
+            except Exception:
+                continue
+        return None
+
     def _project_uv_point(self, shape, point) -> tuple[float, float] | None:
         projector = getattr(shape, "project_uv_for_point", None)
         if callable(projector):
@@ -208,28 +235,7 @@ class FishnetDrapeBackend(DrapeBackend):
         if not self._derive_runtime_metric_payload:
             return None
 
-        faces = getattr(shape, "Faces", None)
-        if not faces:
-            return None
-
-        face = faces[0]
-        surface = getattr(face, "Surface", None)
-        if surface is None or not hasattr(surface, "parameter"):
-            return None
-
-        sample_point = getattr(face, "CenterOfMass", None)
-        if sample_point is None:
-            sample_point = point
-        try:
-            uv = surface.parameter(sample_point)
-        except Exception:
-            return None
-        if not isinstance(uv, tuple) or len(uv) != 2:
-            return None
-        try:
-            return (float(uv[0]), float(uv[1]))
-        except Exception:
-            return None
+        return self._project_uv_via_surface(shape, point)
 
     def _extract_metric_payload(self, shape) -> dict[str, Any] | None:
         payload = getattr(shape, "fishnet_metric_payload", None)
@@ -239,26 +245,151 @@ class FishnetDrapeBackend(DrapeBackend):
             return None
         return self._derive_metric_payload_from_runtime(shape)
 
+    def _derive_uv_from_xyz(self, coords_3d: list[list[float]]) -> list[list[float]]:
+        if not coords_3d:
+            return []
+        axis_ranges = []
+        for axis in range(3):
+            values = [row[axis] for row in coords_3d]
+            axis_ranges.append((max(values) - min(values), axis))
+        axis_ranges.sort(reverse=True)
+        u_axis = axis_ranges[0][1]
+        v_axis = axis_ranges[1][1]
+        return [[float(row[u_axis]), float(row[v_axis])] for row in coords_3d]
+
+    @staticmethod
+    def _uv_is_degenerate(coords_uv: list[list[float]]) -> bool:
+        if len(coords_uv) < 3:
+            return True
+        unique = {
+            (round(float(uv[0]), 9), round(float(uv[1]), 9))
+            for uv in coords_uv
+            if isinstance(uv, list) and len(uv) == 2
+        }
+        return len(unique) < 3
+
+    def _to_xyz(self, point: Any) -> list[float] | None:
+        try:
+            return [float(point.x), float(point.y), float(point.z)]
+        except Exception:
+            return None
+
+    @staticmethod
+    def _make_point_vector(xyz: list[float]):
+        try:
+            import FreeCAD  # type: ignore
+
+            return FreeCAD.Vector(float(xyz[0]), float(xyz[1]), float(xyz[2]))
+        except Exception:
+            return SimpleNamespace(x=float(xyz[0]), y=float(xyz[1]), z=float(xyz[2]))
+
+    def _point_inside_support(self, shape, point: Any, xyz: list[float]) -> bool:
+        checker = getattr(shape, "isInside", None)
+        if not callable(checker):
+            return True
+
+        probe = point if point is not None else self._make_point_vector(xyz)
+        if not hasattr(probe, "x"):
+            probe = self._make_point_vector(xyz)
+
+        for args in ((probe, 1e-7, True), (probe, 1e-7), (probe,)):
+            try:
+                result = checker(*args)
+            except TypeError:
+                continue
+            except Exception:
+                return True
+            if isinstance(result, bool):
+                return result
+        return True
+
+    def _collect_runtime_samples(self, shape) -> list[tuple[Any, list[float]]]:
+        samples: list[tuple[Any, list[float]]] = []
+
+        for point in list(getattr(self.mesh, "Points", []) or []):
+            xyz = self._to_xyz(point)
+            if xyz is not None:
+                samples.append((point, xyz))
+
+        # Dense fallback for sparse runtime meshes (e.g. flat panel with hole).
+        if len(samples) >= 32:
+            return samples
+
+        bound_box = getattr(shape, "BoundBox", None)
+        diag = float(getattr(bound_box, "DiagonalLength", 1.0) or 1.0)
+        deflection = max(diag / 120.0, 1e-3)
+
+        try:
+            tess = shape.tessellate(deflection)
+            vertices = tess[0] if isinstance(tess, tuple) and tess else []
+        except Exception:
+            vertices = []
+
+        for vertex in vertices:
+            xyz = self._to_xyz(vertex)
+            if xyz is None and isinstance(vertex, (tuple, list)) and len(vertex) == 3:
+                try:
+                    xyz = [float(vertex[0]), float(vertex[1]), float(vertex[2])]
+                    vertex = SimpleNamespace(x=xyz[0], y=xyz[1], z=xyz[2])
+                except Exception:
+                    xyz = None
+            if xyz is not None:
+                samples.append((vertex, xyz))
+
+        if len(samples) >= 256:
+            return samples
+
+        faces = list(getattr(shape, "Faces", []) or [])
+        for face in faces:
+            wires = list(getattr(face, "Wires", []) or [])
+            for wire in wires:
+                edges = list(getattr(wire, "Edges", []) or [])
+                for edge in edges:
+                    try:
+                        discretized = edge.discretize(25)
+                    except Exception:
+                        continue
+                    for point in discretized or []:
+                        xyz = self._to_xyz(point)
+                        if xyz is not None:
+                            samples.append((point, xyz))
+            if len(samples) >= 512:
+                break
+
+        return samples
+
     def _derive_metric_payload_from_runtime(self, shape) -> dict[str, Any] | None:
-        mesh_points = list(getattr(self.mesh, "Points", []) or [])
-        if len(mesh_points) < 3:
+        samples = self._collect_runtime_samples(shape)
+        if len(samples) < 3:
             return None
 
         coords_3d: list[list[float]] = []
         coords_uv: list[list[float]] = []
-        for point in mesh_points:
-            try:
-                xyz = [float(point.x), float(point.y), float(point.z)]
-            except Exception:
+        seen_coords: set[tuple[float, float, float]] = set()
+        for point, xyz in samples:
+            if not self._point_inside_support(shape, point, xyz):
                 continue
-            uv = self._project_uv_point(shape, point)
+
+            key = (round(xyz[0], 6), round(xyz[1], 6), round(xyz[2], 6))
+            if key in seen_coords:
+                continue
+            seen_coords.add(key)
+            uv = None
+            if self._derive_runtime_metric_payload:
+                uv = self._project_uv_via_surface(shape, point)
             if uv is None:
-                continue
+                uv = self._project_uv_point(shape, point)
             coords_3d.append(xyz)
-            coords_uv.append([uv[0], uv[1]])
+            if uv is None:
+                coords_uv.append([float(xyz[0]), float(xyz[1])])
+            else:
+                coords_uv.append([uv[0], uv[1]])
 
         if len(coords_3d) < 3:
             return None
+
+        if self._uv_is_degenerate(coords_uv):
+            coords_uv = self._derive_uv_from_xyz(coords_3d)
 
         faces = getattr(shape, "Faces", None)
         support_area = 1.0

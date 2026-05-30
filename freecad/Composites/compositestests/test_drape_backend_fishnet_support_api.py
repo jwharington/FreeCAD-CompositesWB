@@ -104,6 +104,111 @@ class _MeshWithoutNeighbors:
     Topology = ([], [])
 
 
+class _Point:
+    def __init__(self, x: float, y: float, z: float):
+        self.x = x
+        self.y = y
+        self.z = z
+
+
+class _RuntimeSurface:
+    @staticmethod
+    def parameter(point):
+        if not hasattr(point, "x") or not hasattr(point, "y"):
+            raise TypeError("expects point-like object")
+        return (float(point.x), float(point.y))
+
+
+class _RuntimeFace:
+    Surface = _RuntimeSurface()
+    CenterOfMass = _Point(10.0, 20.0, 0.0)
+    Area = 100.0
+
+
+class _RuntimeShapeNoProjector:
+    Faces = [_RuntimeFace()]
+
+
+class _RuntimeShapeConstantProjector:
+    Faces = [_RuntimeFace()]
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        return (123.0, 456.0)
+
+
+class _RuntimeShapeConstantProjectorNoSurface:
+    Faces = [object()]
+
+    @staticmethod
+    def project_uv_for_point(_point):
+        return (123.0, 456.0)
+
+
+class _MeshWithNeighborsAndPoints:
+    Topology = ([], [(0, 1, 2)])
+    Points = [
+        _Point(0.0, 0.0, 0.0),
+        _Point(1.0, 0.0, 0.0),
+        _Point(0.0, 1.0, 0.0),
+    ]
+
+
+class _SparseMeshWithNeighbors:
+    Topology = ([], [(0, 1, 2)])
+    Points = [
+        _Point(0.0, 0.0, 0.0),
+        _Point(1.0, 0.0, 0.0),
+        _Point(0.0, 1.0, 0.0),
+        _Point(1.0, 1.0, 0.0),
+    ]
+
+
+class _FakeEdge:
+    @staticmethod
+    def discretize(_n):
+        return [
+            _Point(0.25, 0.25, 0.0),
+            _Point(0.75, 0.25, 0.0),
+            _Point(0.75, 0.75, 0.0),
+            _Point(0.25, 0.75, 0.0),
+        ]
+
+
+class _FakeWire:
+    Edges = [_FakeEdge()]
+
+
+class _RuntimeFaceWithWire(_RuntimeFace):
+    Wires = [_FakeWire()]
+
+
+class _RuntimeSparseShape(_RuntimeShapeNoProjector):
+    Faces = [_RuntimeFaceWithWire()]
+
+    @staticmethod
+    def tessellate(_deflection):
+        return (
+            [
+                _Point(0.0, 0.0, 0.0),
+                _Point(1.0, 0.0, 0.0),
+                _Point(1.0, 1.0, 0.0),
+                _Point(0.0, 1.0, 0.0),
+                _Point(0.5, 0.5, 0.0),
+            ],
+            [],
+        )
+
+    @staticmethod
+    def isInside(point, *_args):
+        x = float(getattr(point, "x", 0.0))
+        y = float(getattr(point, "y", 0.0))
+        dx = x - 0.5
+        dy = y - 0.5
+        hole_r2 = 0.2 * 0.2
+        return (dx * dx + dy * dy) >= hole_r2
+
+
 def test_result_dataclass_ok_and_failure_helpers():
     ok = FishnetSupportProjectionResult.ok(uv=(1.0, 2.0))
     fail = FishnetSupportProjectionResult.failed("invalid_support")
@@ -241,6 +346,66 @@ def test_backend_diagnostics_reject_legacy_metric_payload():
     assert diag["shear_metric_status"] == "invalid_payload"
     assert diag["strain_heatmap_3d_status"] == "invalid_payload"
     assert diag["strain_heatmap_flat_status"] == "invalid_payload"
+
+
+def test_runtime_metric_payload_derives_non_degenerate_uv_from_mesh_points():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighborsAndPoints(),
+        lcs=object(),
+        shape=_RuntimeShapeNoProjector(),
+        derive_runtime_metric_payload=True,
+    )
+
+    diag = backend.diagnostics()
+    assert diag["strain_heatmap_flat_status"] == "ok"
+    coords_uv = diag["strain_heatmap_flat"]["coordinates_uv"]
+    assert len(coords_uv) == 3
+    assert len({tuple(row) for row in coords_uv}) == 3
+
+
+def test_runtime_metric_payload_prefers_surface_projection_over_constant_projector():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighborsAndPoints(),
+        lcs=object(),
+        shape=_RuntimeShapeConstantProjector(),
+        derive_runtime_metric_payload=True,
+    )
+
+    diag = backend.diagnostics()
+    coords_uv = diag["strain_heatmap_flat"]["coordinates_uv"]
+    assert len({tuple(row) for row in coords_uv}) == 3
+    assert coords_uv[0] != [123.0, 456.0]
+
+
+def test_runtime_metric_payload_falls_back_to_xyz_uv_when_projection_is_degenerate():
+    backend = FishnetDrapeBackend(
+        mesh=_MeshWithNeighborsAndPoints(),
+        lcs=object(),
+        shape=_RuntimeShapeConstantProjectorNoSurface(),
+        derive_runtime_metric_payload=True,
+    )
+
+    diag = backend.diagnostics()
+    coords_uv = diag["strain_heatmap_flat"]["coordinates_uv"]
+    assert len({tuple(row) for row in coords_uv}) == 3
+
+
+def test_runtime_metric_payload_augments_sparse_mesh_from_shape_sampling():
+    backend = FishnetDrapeBackend(
+        mesh=_SparseMeshWithNeighbors(),
+        lcs=object(),
+        shape=_RuntimeSparseShape(),
+        derive_runtime_metric_payload=True,
+    )
+
+    diag = backend.diagnostics()
+    coords_3d = diag["strain_heatmap_3d"]["coordinates"]
+    coords_uv = diag["strain_heatmap_flat"]["coordinates_uv"]
+    assert len(coords_3d) > 4
+    assert len(coords_uv) == len(coords_3d)
+
+    # Hole exclusion: center sample from sparse mesh/tessellation should be filtered.
+    assert [0.5, 0.5, 0.0] not in coords_3d
 
 
 def test_unexpected_projection_exception_is_not_masked():
