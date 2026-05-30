@@ -23,15 +23,15 @@
 | Runtime diagnostics capture path | G4 evidence plumbing | PASS | `6c1b35f` (runner attempts runtime per-example capture with source selection) |
 | Runtime-only default enforcement | G4 policy hardening | PASS | `2bfd9d9` (`--render-heatmaps` now hard-fails unless runtime complete or explicit fallback opt-in) |
 | Release evidence anti-synthetic guard | G4 policy hardening | PASS | `8c03e79` (release stage rejects `--allow-test-diagnostics-fallback`) |
-| CS3 release readiness check | G4 | BLOCKED (runtime env missing) | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` returns exit 2 with `No module named 'FreeCAD'` |
+| CS3 release readiness check | G4 | BLOCKED (FreeCADCmd unavailable in env) | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` returns exit 2 with `FreeCADCmd not found` |
 
 ## Current Commit Head
 
-- `8c03e79` feat(gates): forbid release fallback and require real runtime diagnostics
+- `34e21b1` feat(gates): require FreeCADCmd for gate tests and runtime diagnostics capture
 
 ## Latest Release Evidence Bundle
 
-- Runtime release heatmap evidence: **not available in this environment** (no FreeCAD runtime).
+- Runtime release heatmap evidence: **not available in this environment** (FreeCADCmd unavailable).
 - Last release render attempt: failed by policy as expected.
 - Per-example directories emitted:
   - `ud_plate_basic`
@@ -63,7 +63,8 @@ Stage root contains:
 - Runner now reports diagnostics source selection (`runtime` vs `test` vs `fallback`) during `--render-heatmaps` execution.
 - Runtime diagnostics are now the default requirement for artifact rendering.
 - For `--stage release`, test/synthetic fallback is prohibited even when requested.
-- Current environment lacks FreeCAD runtime (`No module named 'FreeCAD'`), so release runtime evidence is intentionally blocked instead of silently synthesised.
+- Gate runner now executes pytest targets via `FreeCADCmd` and captures runtime diagnostics via `FreeCADCmd`.
+- Current environment lacks `FreeCADCmd`, so release runtime evidence is intentionally blocked instead of silently synthesised.
 - CompositeShell exposes user-adjustable warning limits:
   - `FishnetLinearStrainWarningLimit`
   - `FishnetShearStrainWarningLimitDeg`
