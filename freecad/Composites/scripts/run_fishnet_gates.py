@@ -245,6 +245,11 @@ def _build_pytest_command(*, freecad_cmd: str, repo_root: Path, target: str) -> 
     return [freecad_cmd, "-P", str(repo_root), "-c", script]
 
 
+def _heatmap_example_ids(stage_examples: list[str]) -> list[str]:
+    # ud_plate_basic is laminate-only and has no CompositeShell drape diagnostics.
+    return [example_id for example_id in stage_examples if example_id != "ud_plate_basic"]
+
+
 def main() -> int:
     args = _parse_args()
     profiles = _load_profiles()
@@ -289,13 +294,17 @@ def main() -> int:
 
     pytest_targets = list(stage_cfg["pytest_targets"])
 
+    heatmap_examples = _heatmap_example_ids(list(stage_cfg["examples"]))
+
     if args.verbose:
         categories = ", ".join(profiles["gate_categories"])
         examples = ", ".join(stage_cfg["examples"])
+        heatmap_examples_str = ", ".join(heatmap_examples)
         thresholds = profiles.get("thresholds", {})
         print(f"[fishnet-gates] stage={args.stage}")
         print(f"[fishnet-gates] categories={categories}")
         print(f"[fishnet-gates] examples={examples}")
+        print(f"[fishnet-gates] heatmap_examples={heatmap_examples_str}")
         if thresholds:
             print(f"[fishnet-gates] thresholds={json.dumps(thresholds, sort_keys=True)}")
 
@@ -313,13 +322,13 @@ def main() -> int:
 
     if args.render_heatmaps:
         runtime_files = _collect_runtime_example_diagnostics(
-            stage_examples=list(stage_cfg["examples"]),
+            stage_examples=heatmap_examples,
             out_dir=runtime_diagnostics_dir,
             verbose=args.verbose,
         )
         test_files = sorted(diagnostics_dir.glob("*.json")) if diagnostics_dir.exists() else []
         source, diagnostics_files = _pick_diagnostics_files(
-            stage_examples=list(stage_cfg["examples"]),
+            stage_examples=heatmap_examples,
             runtime_files=runtime_files,
             test_files=test_files,
             fallback_file=diagnostics_path,

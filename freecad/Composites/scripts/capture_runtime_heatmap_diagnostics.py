@@ -19,7 +19,7 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-def _extract_diagnostics_payload(result: dict) -> dict | None:
+def _extract_diagnostics_payload(result: dict) -> tuple[dict | None, str]:
     feature_stack = result.get("feature_stack") if isinstance(result, dict) else None
     shell_obj = feature_stack.get("shell") if isinstance(feature_stack, dict) else None
 
@@ -33,16 +33,37 @@ def _extract_diagnostics_payload(result: dict) -> dict | None:
             diagnostics_json = maybe_diag.get("DrapeDiagnostics")
 
     if not diagnostics_json:
-        return None
+        return None, "missing_diagnostics_json"
 
     try:
         payload = json.loads(diagnostics_json)
     except Exception:
-        return None
+        return None, "invalid_diagnostics_json"
 
     if not payload.get("strain_heatmap_3d") or not payload.get("strain_heatmap_flat"):
-        return None
-    return payload
+        status = payload.get("status")
+        reason = payload.get("failure_reason")
+        return None, f"missing_heatmap_payload status={status} reason={reason}"
+    return payload, "ok"
+
+
+def _force_fishnet_runtime(result: dict, example_id: str) -> None:
+    feature_stack = result.get("feature_stack") if isinstance(result, dict) else None
+    shell_obj = feature_stack.get("shell") if isinstance(feature_stack, dict) else None
+    doc = result.get("doc") if isinstance(result, dict) else None
+
+    if shell_obj is None or doc is None:
+        return
+
+    try:
+        if hasattr(shell_obj, "DrapeBackend"):
+            shell_obj.DrapeBackend = "fishnet"
+        if hasattr(shell_obj, "SkipDraper"):
+            shell_obj.SkipDraper = False
+        if hasattr(doc, "recompute"):
+            doc.recompute()
+    except Exception as exc:
+        print(f"[runtime-capture] {example_id}: fishnet_recompute_error={exc}")
 
 
 def main() -> int:
@@ -90,9 +111,18 @@ def main() -> int:
             print(f"[runtime-capture] {example_id}: error={exc}")
             continue
 
-        payload = _extract_diagnostics_payload(result)
+        _force_fishnet_runtime(result, example_id)
+        payload, status = _extract_diagnostics_payload(result)
         if payload is None:
-            print(f"[runtime-capture] {example_id}: missing_heatmap_diagnostics")
+            feature_stack = result.get("feature_stack") if isinstance(result, dict) else None
+            shell_obj = feature_stack.get("shell") if isinstance(feature_stack, dict) else None
+            shell_error = feature_stack.get("shell_error") if isinstance(feature_stack, dict) else None
+            created = feature_stack.get("created") if isinstance(feature_stack, dict) else None
+            reason = feature_stack.get("reason") if isinstance(feature_stack, dict) else None
+            print(
+                f"[runtime-capture] {example_id}: {status} "
+                f"created={created} reason={reason} has_shell={shell_obj is not None} shell_error={shell_error}"
+            )
             continue
 
         path = out_dir / f"{example_id}.json"

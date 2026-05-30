@@ -471,3 +471,13 @@ def test_build_pytest_command_uses_freecadcmd_and_repo_path(tmp_path):
     assert cmd[2] == str(tmp_path)
     assert cmd[3] == "-c"
     assert "pytest.main" in cmd[4]
+
+
+def test_heatmap_example_ids_excludes_ud_plate_basic():
+    module = _load_gate_runner_module()
+
+    selected = module._heatmap_example_ids(
+        ["ud_plate_basic", "cylindrical_panel_segment", "flat_panel_spline_hole"]
+    )
+
+    assert selected == ["cylindrical_panel_segment", "flat_panel_spline_hole"]
