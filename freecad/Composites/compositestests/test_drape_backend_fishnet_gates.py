@@ -8,6 +8,7 @@ solver implementation changes land.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -184,6 +185,25 @@ def _stage_examples(stage: str) -> list[str]:
     return list(cfg.get("examples", []))
 
 
+def _load_gate_runner_module():
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "run_fishnet_gates.py"
+    spec = importlib.util.spec_from_file_location("run_fishnet_gates_script", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
+    scripts_dir = str(script_path.parent)
+    added = False
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+        added = True
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(scripts_dir)
+    return module
+
+
 def _write_heatmap_diagnostics_if_requested(diag: dict) -> None:
     out_dir = os.environ.get("FISHNET_HEATMAP_DIAGNOSTICS_DIR")
     if out_dir:
@@ -269,3 +289,36 @@ def test_gate_coverage_rejects_legacy_payload_shim_path():
     assert diag["uv_metric_status"] == "invalid_payload"
     assert diag["linear_metric_status"] == "invalid_payload"
     assert diag["shear_metric_status"] == "invalid_payload"
+
+
+def test_runner_writes_artifact_index(tmp_path):
+    module = _load_gate_runner_module()
+
+    rendered = {
+        "ud_plate_basic": {
+            "geometry_3d": tmp_path / "ud_plate_basic" / "geometry_3d.html",
+            "texture_flat": tmp_path / "ud_plate_basic" / "texture_flat.html",
+            "plot_data": tmp_path / "ud_plate_basic" / "plot_data.json",
+            "diagnostics": tmp_path / "diagnostics" / "ud_plate_basic.json",
+        },
+        "tubular_shell": {
+            "geometry_3d": tmp_path / "tubular_shell" / "geometry_3d.html",
+            "texture_flat": tmp_path / "tubular_shell" / "texture_flat.html",
+            "plot_data": tmp_path / "tubular_shell" / "plot_data.json",
+            "diagnostics": tmp_path / "diagnostics" / "tubular_shell.json",
+        },
+    }
+
+    for outputs in rendered.values():
+        for path in outputs.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("x", encoding="utf-8")
+
+    index_path = module._write_artifact_index(out_dir=tmp_path, rendered=rendered)
+    html = index_path.read_text(encoding="utf-8")
+
+    assert index_path.exists()
+    assert "ud_plate_basic" in html
+    assert "tubular_shell" in html
+    assert "ud_plate_basic/geometry_3d.html" in html
+    assert "diagnostics/tubular_shell.json" in html

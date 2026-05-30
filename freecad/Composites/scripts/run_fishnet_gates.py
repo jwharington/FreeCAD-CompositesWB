@@ -83,6 +83,46 @@ def _render_example_heatmaps(
     return rendered
 
 
+def _write_artifact_index(*, out_dir: Path, rendered: dict[str, dict[str, Path]]) -> Path:
+    rows: list[str] = []
+    for example_id, outputs in sorted(rendered.items()):
+        geometry = outputs.get("geometry_3d")
+        texture = outputs.get("texture_flat")
+        plot_data = outputs.get("plot_data")
+        diagnostics = outputs.get("diagnostics")
+
+        def _rel(path: Path | None) -> str:
+            if path is None:
+                return ""
+            return path.relative_to(out_dir).as_posix()
+
+        rows.append(
+            "<tr>"
+            f"<td>{example_id}</td>"
+            f"<td><a href='{_rel(geometry)}'>geometry_3d.html</a></td>"
+            f"<td><a href='{_rel(texture)}'>texture_flat.html</a></td>"
+            f"<td><a href='{_rel(plot_data)}'>plot_data.json</a></td>"
+            f"<td><a href='{_rel(diagnostics)}'>diagnostics.json</a></td>"
+            "</tr>"
+        )
+
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        "<title>Fishnet Gate Heatmap Artifacts</title>"
+        "<style>body{font-family:Arial,sans-serif;padding:20px;}"
+        "table{border-collapse:collapse;width:100%;}th,td{border:1px solid #ccc;padding:8px;}"
+        "th{background:#f5f5f5;text-align:left;}</style></head><body>"
+        "<h1>Fishnet Gate Heatmap Artifacts</h1>"
+        f"<p>Generated at {datetime.now(timezone.utc).isoformat()}</p>"
+        "<table><thead><tr><th>Example</th><th>3D Heatmap</th><th>Flat Heatmap</th><th>Plot Data</th><th>Diagnostics</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></body></html>"
+    )
+
+    index_path = out_dir / "index.html"
+    index_path.write_text(html, encoding="utf-8")
+    return index_path
+
+
 def main() -> int:
     args = _parse_args()
     profiles = _load_profiles()
@@ -133,11 +173,14 @@ def main() -> int:
                     file=sys.stderr,
                 )
                 return 2
-        _render_example_heatmaps(
+        rendered = _render_example_heatmaps(
             diagnostics_files=diagnostics_files,
             out_dir=out_dir,
             verbose=args.verbose,
         )
+        index_path = _write_artifact_index(out_dir=out_dir, rendered=rendered)
+        if args.verbose:
+            print(f"[fishnet-gates] artifact.index={index_path}")
 
     return 0
 
