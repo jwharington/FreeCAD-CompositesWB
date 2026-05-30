@@ -94,12 +94,20 @@ def _validate_heatmap(heatmap: dict, *, coord_key: str, expected_dim: int, name:
             raise ValueError(f"{name}.{coord_key}[{idx}] must have {expected_dim} values")
 
 
+def _display_geometry_name(plot_data: dict) -> str:
+    raw = plot_data.get("geometry_name")
+    if not isinstance(raw, str) or not raw.strip():
+        return "Unknown geometry"
+    return raw
+
+
 def _render_geometry_html(plot_data: dict) -> str:
+    geometry_name = _display_geometry_name(plot_data)
     return f"""<!doctype html>
 <html>
 <head>
   <meta charset=\"utf-8\" />
-  <title>Fishnet Strain Heatmap — 3D</title>
+  <title>{geometry_name} — Fishnet Strain Heatmap — 3D</title>
   <script src=\"{PLOTLY_CDN}\"></script>
   <style>html,body,#plot{{height:100%;margin:0;}}</style>
 </head>
@@ -193,7 +201,7 @@ const shearTrace = {{
 }};
 
 const layout = {{
-  title: 'Fishnet Strain Heatmap — 3D Surface (contours)',
+  title: '{geometry_name} — Fishnet Strain Heatmap — 3D Surface (contours)',
   scene: {{
     xaxis: {{title: 'X (mm)'}},
     yaxis: {{title: 'Y (mm)'}},
@@ -220,11 +228,12 @@ Plotly.newPlot('plot', [linearTrace, shearTrace], layout, {{responsive: true}});
 
 
 def _render_texture_html(plot_data: dict) -> str:
+    geometry_name = _display_geometry_name(plot_data)
     return f"""<!doctype html>
 <html>
 <head>
   <meta charset=\"utf-8\" />
-  <title>Fishnet Strain Heatmap — Flattened Texture</title>
+  <title>{geometry_name} — Fishnet Strain Heatmap — Flattened Texture</title>
   <script src=\"{PLOTLY_CDN}\"></script>
   <style>html,body,#plot{{height:100%;margin:0;}}</style>
 </head>
@@ -307,7 +316,7 @@ const shearTrace = {{
 }};
 
 const layout = {{
-  title: 'Fishnet Strain Heatmap — Flattened Texture Plan (contours)',
+  title: '{geometry_name} — Fishnet Strain Heatmap — Flattened Texture Plan (contours)',
   xaxis: {{title: 'U (texture coords)'}},
   yaxis: {{title: 'V (texture coords)', scaleanchor: 'x', scaleratio: 1}},
   updatemenus: [{{
@@ -336,9 +345,12 @@ def create_heatmap_artifacts(
     geometry_html_name: str = "geometry_3d.html",
     texture_html_name: str = "texture_flat.html",
     plot_data_name: str = "plot_data.json",
+    geometry_name: str | None = None,
 ) -> dict[str, Path]:
     diag = _load_diagnostics(diagnostics_path)
     plot_data = _extract_heatmaps(diag)
+    resolved_geometry_name = geometry_name if geometry_name is not None else diagnostics_path.stem
+    plot_data["geometry_name"] = resolved_geometry_name
 
     out_dir.mkdir(parents=True, exist_ok=True)
 
