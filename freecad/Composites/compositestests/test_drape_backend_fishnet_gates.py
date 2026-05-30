@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import sys
 import types
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # FreeCAD must be mocked before importing freecad.Composites packages.
 _freecad_mock = MagicMock()
@@ -427,3 +427,47 @@ def test_validate_heatmap_policy_allows_non_release_fallback():
 
     assert ok is True
     assert err is None
+
+
+def test_resolve_freecadcmd_prefers_env_path(tmp_path):
+    module = _load_gate_runner_module()
+    fake_cmd = tmp_path / "FreeCADCmd"
+    fake_cmd.write_text("#!/bin/sh\n", encoding="utf-8")
+
+    with patch.dict(os.environ, {"FREECADCMD": str(fake_cmd)}, clear=False), patch.object(
+        module.shutil,
+        "which",
+        return_value=None,
+    ):
+        resolved = module._resolve_freecadcmd()
+
+    assert resolved == str(fake_cmd)
+
+
+def test_collect_runtime_example_diagnostics_returns_empty_when_freecadcmd_missing(tmp_path):
+    module = _load_gate_runner_module()
+
+    with patch.object(module, "_resolve_freecadcmd", return_value=None):
+        files = module._collect_runtime_example_diagnostics(
+            stage_examples=["ud_plate_basic"],
+            out_dir=tmp_path / "runtime",
+            verbose=False,
+        )
+
+    assert files == []
+
+
+def test_build_pytest_command_uses_freecadcmd_and_repo_path(tmp_path):
+    module = _load_gate_runner_module()
+
+    cmd = module._build_pytest_command(
+        freecad_cmd="/opt/freecad/bin/FreeCADCmd",
+        repo_root=tmp_path,
+        target="freecad/Composites/compositestests/test_drape_backend_fishnet_gates.py",
+    )
+
+    assert cmd[0] == "/opt/freecad/bin/FreeCADCmd"
+    assert cmd[1] == "-P"
+    assert cmd[2] == str(tmp_path)
+    assert cmd[3] == "-c"
+    assert "pytest.main" in cmd[4]

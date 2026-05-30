@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -140,95 +141,73 @@ def _validate_heatmap_policy(*, stage: str, allow_test_diagnostics_fallback: boo
     return True, None
 
 
+def _resolve_freecadcmd() -> str | None:
+    configured = os.environ.get("FREECADCMD")
+    candidates: list[str] = []
+    if configured:
+        candidates.append(configured)
+    which_hit = shutil.which("FreeCADCmd")
+    if which_hit:
+        candidates.append(which_hit)
+    candidates.extend([
+        "/home/jmw/opt/FreeCAD-build/bin/FreeCADCmd",
+        str(Path.home() / "opt" / "FreeCAD-build" / "bin" / "FreeCADCmd"),
+    ])
+
+    seen = set()
+    for candidate in candidates:
+        if not candidate or candidate in seen:
+            continue
+        seen.add(candidate)
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
 def _collect_runtime_example_diagnostics(
     *,
     stage_examples: list[str],
     out_dir: Path,
     verbose: bool,
 ) -> list[Path]:
-    """Capture diagnostics by executing composite examples directly.
+    """Capture diagnostics by executing examples via FreeCADCmd."""
 
-    Returns a list of JSON diagnostics files that contain both required heatmap
-    payload blocks. Invalid or incomplete diagnostics are skipped.
-    """
-
-    try:
-        from freecad.Composites.compositeexamples import runner
-    except Exception as exc:
+    freecad_cmd = _resolve_freecadcmd()
+    if not freecad_cmd:
         if verbose:
-            print(f"[fishnet-gates] runtime_capture.import_failed={exc}")
+            print(
+                "[fishnet-gates] runtime_capture.freecadcmd_missing="
+                "set FREECADCMD or add FreeCADCmd to PATH"
+            )
         return []
 
+    repo_root = Path(__file__).resolve().parents[3]
+    script_path = Path(__file__).resolve().with_name("capture_runtime_heatmap_diagnostics.py")
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    written: list[Path] = []
+    cmd = [
+        freecad_cmd,
+        "-P",
+        str(repo_root),
+        str(script_path),
+        "--out-dir",
+        str(out_dir),
+        "--examples",
+        ",".join(stage_examples),
+    ]
 
-    for example_id in stage_examples:
-        try:
-            result = runner.run(
-                example_id,
-                run_solver=False,
-                doc=None,
-                debug_options={
-                    "diagnostics": True,
-                    "skip_view_providers": True,
-                    "skip_recompute": False,
-                    "skip_draper": False,
-                },
-            )
-        except TypeError as exc:
-            # Some examples do not yet expose debug_options in build().
-            if "debug_options" not in str(exc):
-                if verbose:
-                    print(f"[fishnet-gates] runtime_capture.{example_id}.error={exc}")
-                continue
-            try:
-                result = runner.run(
-                    example_id,
-                    run_solver=False,
-                    doc=None,
-                )
-            except Exception as retry_exc:
-                if verbose:
-                    print(f"[fishnet-gates] runtime_capture.{example_id}.error={retry_exc}")
-                continue
-        except Exception as exc:
-            if verbose:
-                print(f"[fishnet-gates] runtime_capture.{example_id}.error={exc}")
-            continue
+    if verbose:
+        print(f"[fishnet-gates] runtime_capture.cmd={' '.join(cmd)}")
 
-        diagnostics_json = None
-        feature_stack = result.get("feature_stack") if isinstance(result, dict) else None
-        shell_obj = feature_stack.get("shell") if isinstance(feature_stack, dict) else None
-        if shell_obj is not None:
-            diagnostics_json = getattr(shell_obj, "DrapeDiagnostics", None)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if verbose and proc.stdout.strip():
+        print(proc.stdout.strip())
+    if proc.returncode != 0:
+        if verbose and proc.stderr.strip():
+            print(proc.stderr.strip())
+        return []
 
-        if not diagnostics_json and isinstance(result, dict):
-            maybe_diag = result.get("diagnostics")
-            if isinstance(maybe_diag, dict):
-                diagnostics_json = maybe_diag.get("DrapeDiagnostics")
-
-        if not diagnostics_json:
-            if verbose:
-                print(f"[fishnet-gates] runtime_capture.{example_id}.status=missing_diagnostics")
-            continue
-
-        try:
-            diagnostics = json.loads(diagnostics_json)
-        except Exception:
-            if verbose:
-                print(f"[fishnet-gates] runtime_capture.{example_id}.status=invalid_json")
-            continue
-
-        if not diagnostics.get("strain_heatmap_3d") or not diagnostics.get("strain_heatmap_flat"):
-            if verbose:
-                print(f"[fishnet-gates] runtime_capture.{example_id}.status=missing_heatmap_payload")
-            continue
-
-        path = out_dir / f"{example_id}.json"
-        path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8")
-        written.append(path)
-
-    return written
+    return sorted(out_dir.glob("*.json"))
 
 
 def _pick_diagnostics_files(
@@ -255,6 +234,11 @@ def _pick_diagnostics_files(
     return "none", []
 
 
+def _build_pytest_command(*, freecad_cmd: str, repo_root: Path, target: str) -> list[str]:
+    script = f"import pytest, sys; raise SystemExit(pytest.main(['-q', {target!r}]))"
+    return [freecad_cmd, "-P", str(repo_root), "-c", script]
+
+
 def main() -> int:
     args = _parse_args()
     profiles = _load_profiles()
@@ -262,6 +246,16 @@ def main() -> int:
 
     env = os.environ.copy()
     env["FISHNET_GATE_STAGE"] = args.stage
+
+    freecad_cmd = _resolve_freecadcmd()
+    if not freecad_cmd:
+        print(
+            "[fishnet-gates] ERROR: FreeCADCmd not found. Set FREECADCMD or add FreeCADCmd to PATH",
+            file=sys.stderr,
+        )
+        return 2
+
+    repo_root = Path(__file__).resolve().parents[3]
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = Path(args.artifact_dir) / args.stage / timestamp
@@ -300,7 +294,11 @@ def main() -> int:
             print(f"[fishnet-gates] thresholds={json.dumps(thresholds, sort_keys=True)}")
 
     for target in pytest_targets:
-        pytest_cmd = [sys.executable, "-m", "pytest", "-q", target]
+        pytest_cmd = _build_pytest_command(
+            freecad_cmd=freecad_cmd,
+            repo_root=repo_root,
+            target=target,
+        )
         if args.verbose:
             print(f"[fishnet-gates] cmd={' '.join(pytest_cmd)}")
         rc = subprocess.call(pytest_cmd, env=env)
