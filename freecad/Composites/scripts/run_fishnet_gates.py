@@ -12,6 +12,7 @@ from pathlib import Path
 import subprocess
 import sys
 from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 from render_strain_heatmaps import create_heatmap_artifacts
 
@@ -123,6 +124,150 @@ def _write_artifact_index(*, out_dir: Path, rendered: dict[str, dict[str, Path]]
     return index_path
 
 
+def _ensure_runtime_freecad_mocks() -> None:
+    """Install lightweight FreeCAD/BOPTools mocks when unavailable.
+
+    This allows runtime diagnostics capture through compositeexamples on CI/dev
+    hosts where the full FreeCAD runtime is not present.
+    """
+
+    if "FreeCAD" not in sys.modules:
+        freecad_mock = MagicMock()
+        freecad_mock.__unit_test__ = []
+        freecad_mock.Base = MagicMock()
+        freecad_mock.Base.Precision = MagicMock()
+        freecad_mock.Base.Precision.confusion.return_value = 1e-7
+        freecad_mock.Base.Precision.parametric.return_value = 1e-9
+        freecad_mock.ParamGet.return_value = MagicMock()
+        sys.modules["FreeCAD"] = freecad_mock
+
+    sys.modules.setdefault("CompositesWB", MagicMock())
+    sys.modules.setdefault("Part", MagicMock())
+
+    if "BOPTools" not in sys.modules:
+        import types
+
+        boptools = types.ModuleType("BOPTools")
+        boptools_split = types.ModuleType("BOPTools.SplitAPI")
+        boptools.SplitAPI = boptools_split
+        sys.modules["BOPTools"] = boptools
+        sys.modules["BOPTools.SplitAPI"] = boptools_split
+
+
+def _collect_runtime_example_diagnostics(
+    *,
+    stage_examples: list[str],
+    out_dir: Path,
+    verbose: bool,
+) -> list[Path]:
+    """Capture diagnostics by executing composite examples directly.
+
+    Returns a list of JSON diagnostics files that contain both required heatmap
+    payload blocks. Invalid or incomplete diagnostics are skipped.
+    """
+
+    _ensure_runtime_freecad_mocks()
+
+    try:
+        from freecad.Composites.compositeexamples import runner
+    except Exception as exc:
+        if verbose:
+            print(f"[fishnet-gates] runtime_capture.import_failed={exc}")
+        return []
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+
+    for example_id in stage_examples:
+        try:
+            result = runner.run(
+                example_id,
+                run_solver=False,
+                doc=None,
+                debug_options={
+                    "diagnostics": True,
+                    "skip_view_providers": True,
+                    "skip_recompute": False,
+                    "skip_draper": False,
+                },
+            )
+        except TypeError as exc:
+            # Some examples do not yet expose debug_options in build().
+            if "debug_options" not in str(exc):
+                if verbose:
+                    print(f"[fishnet-gates] runtime_capture.{example_id}.error={exc}")
+                continue
+            try:
+                result = runner.run(
+                    example_id,
+                    run_solver=False,
+                    doc=None,
+                )
+            except Exception as retry_exc:
+                if verbose:
+                    print(f"[fishnet-gates] runtime_capture.{example_id}.error={retry_exc}")
+                continue
+        except Exception as exc:
+            if verbose:
+                print(f"[fishnet-gates] runtime_capture.{example_id}.error={exc}")
+            continue
+
+        diagnostics_json = None
+        feature_stack = result.get("feature_stack") if isinstance(result, dict) else None
+        shell_obj = feature_stack.get("shell") if isinstance(feature_stack, dict) else None
+        if shell_obj is not None:
+            diagnostics_json = getattr(shell_obj, "DrapeDiagnostics", None)
+
+        if not diagnostics_json and isinstance(result, dict):
+            maybe_diag = result.get("diagnostics")
+            if isinstance(maybe_diag, dict):
+                diagnostics_json = maybe_diag.get("DrapeDiagnostics")
+
+        if not diagnostics_json:
+            if verbose:
+                print(f"[fishnet-gates] runtime_capture.{example_id}.status=missing_diagnostics")
+            continue
+
+        try:
+            diagnostics = json.loads(diagnostics_json)
+        except Exception:
+            if verbose:
+                print(f"[fishnet-gates] runtime_capture.{example_id}.status=invalid_json")
+            continue
+
+        if not diagnostics.get("strain_heatmap_3d") or not diagnostics.get("strain_heatmap_flat"):
+            if verbose:
+                print(f"[fishnet-gates] runtime_capture.{example_id}.status=missing_heatmap_payload")
+            continue
+
+        path = out_dir / f"{example_id}.json"
+        path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8")
+        written.append(path)
+
+    return written
+
+
+def _pick_diagnostics_files(
+    *,
+    stage_examples: list[str],
+    runtime_files: list[Path],
+    test_files: list[Path],
+    fallback_file: Path,
+) -> tuple[str, list[Path]]:
+    expected = set(stage_examples)
+    runtime_ids = {p.stem for p in runtime_files}
+    if expected and expected.issubset(runtime_ids):
+        return "runtime", sorted(runtime_files)
+
+    if test_files:
+        return "test", sorted(test_files)
+
+    if fallback_file.exists():
+        return "fallback", [fallback_file]
+
+    return "none", []
+
+
 def main() -> int:
     args = _parse_args()
     profiles = _load_profiles()
@@ -135,10 +280,12 @@ def main() -> int:
     out_dir = Path(args.artifact_dir) / args.stage / timestamp
     diagnostics_path = out_dir / "diagnostics.json"
     diagnostics_dir = out_dir / "diagnostics"
+    runtime_diagnostics_dir = out_dir / "runtime-diagnostics"
 
     if args.render_heatmaps:
         out_dir.mkdir(parents=True, exist_ok=True)
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        runtime_diagnostics_dir.mkdir(parents=True, exist_ok=True)
         env["FISHNET_HEATMAP_DIAGNOSTICS_PATH"] = str(diagnostics_path)
         env["FISHNET_HEATMAP_DIAGNOSTICS_DIR"] = str(diagnostics_dir)
 
@@ -163,16 +310,27 @@ def main() -> int:
             return rc
 
     if args.render_heatmaps:
-        diagnostics_files = sorted(diagnostics_dir.glob("*.json"))
+        runtime_files = _collect_runtime_example_diagnostics(
+            stage_examples=list(stage_cfg["examples"]),
+            out_dir=runtime_diagnostics_dir,
+            verbose=args.verbose,
+        )
+        test_files = sorted(diagnostics_dir.glob("*.json"))
+        source, diagnostics_files = _pick_diagnostics_files(
+            stage_examples=list(stage_cfg["examples"]),
+            runtime_files=runtime_files,
+            test_files=test_files,
+            fallback_file=diagnostics_path,
+        )
         if not diagnostics_files:
-            if diagnostics_path.exists():
-                diagnostics_files = [diagnostics_path]
-            else:
-                print(
-                    "[fishnet-gates] ERROR: expected heatmap diagnostics not produced by tests",
-                    file=sys.stderr,
-                )
-                return 2
+            print(
+                "[fishnet-gates] ERROR: expected heatmap diagnostics not produced",
+                file=sys.stderr,
+            )
+            return 2
+        if args.verbose:
+            print(f"[fishnet-gates] diagnostics_source={source}")
+
         rendered = _render_example_heatmaps(
             diagnostics_files=diagnostics_files,
             out_dir=out_dir,
