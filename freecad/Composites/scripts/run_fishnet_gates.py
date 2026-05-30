@@ -40,6 +40,14 @@ def _parse_args() -> argparse.Namespace:
         default="artifacts/fishnet-gates",
         help="Base output directory for stage artifacts when --render-heatmaps is enabled",
     )
+    parser.add_argument(
+        "--allow-test-diagnostics-fallback",
+        action="store_true",
+        help=(
+            "Allow --render-heatmaps to use test-harness diagnostics when "
+            "runtime per-example diagnostics are incomplete"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -253,17 +261,20 @@ def _pick_diagnostics_files(
     runtime_files: list[Path],
     test_files: list[Path],
     fallback_file: Path,
+    allow_test_diagnostics_fallback: bool,
 ) -> tuple[str, list[Path]]:
     expected = set(stage_examples)
     runtime_ids = {p.stem for p in runtime_files}
     if expected and expected.issubset(runtime_ids):
         return "runtime", sorted(runtime_files)
 
-    if test_files:
-        return "test", sorted(test_files)
+    if allow_test_diagnostics_fallback:
+        test_ids = {p.stem for p in test_files}
+        if expected and expected.issubset(test_ids):
+            return "test", sorted(test_files)
 
-    if fallback_file.exists():
-        return "fallback", [fallback_file]
+        if fallback_file.exists():
+            return "fallback", [fallback_file]
 
     return "none", []
 
@@ -321,10 +332,12 @@ def main() -> int:
             runtime_files=runtime_files,
             test_files=test_files,
             fallback_file=diagnostics_path,
+            allow_test_diagnostics_fallback=args.allow_test_diagnostics_fallback,
         )
         if not diagnostics_files:
             print(
-                "[fishnet-gates] ERROR: expected heatmap diagnostics not produced",
+                "[fishnet-gates] ERROR: runtime per-example heatmap diagnostics incomplete; "
+                "rerun with --allow-test-diagnostics-fallback to use test diagnostics",
                 file=sys.stderr,
             )
             return 2

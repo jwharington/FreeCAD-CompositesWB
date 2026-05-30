@@ -338,13 +338,14 @@ def test_pick_diagnostics_files_prefers_complete_runtime_set(tmp_path):
         runtime_files=runtime_files,
         test_files=test_files,
         fallback_file=tmp_path / "diagnostics.json",
+        allow_test_diagnostics_fallback=False,
     )
 
     assert source == "runtime"
     assert {p.stem for p in files} == {"ud_plate_basic", "tubular_shell"}
 
 
-def test_pick_diagnostics_files_falls_back_to_test_files_when_runtime_partial(tmp_path):
+def test_pick_diagnostics_files_returns_none_when_runtime_partial_without_opt_in(tmp_path):
     module = _load_gate_runner_module()
 
     runtime_files = [tmp_path / "runtime" / "ud_plate_basic.json"]
@@ -358,7 +359,47 @@ def test_pick_diagnostics_files_falls_back_to_test_files_when_runtime_partial(tm
         runtime_files=runtime_files,
         test_files=test_files,
         fallback_file=tmp_path / "diagnostics.json",
+        allow_test_diagnostics_fallback=False,
+    )
+
+    assert source == "none"
+    assert files == []
+
+
+def test_pick_diagnostics_files_falls_back_to_test_files_only_with_opt_in(tmp_path):
+    module = _load_gate_runner_module()
+
+    runtime_files = [tmp_path / "runtime" / "ud_plate_basic.json"]
+    test_files = [
+        tmp_path / "diagnostics" / "ud_plate_basic.json",
+        tmp_path / "diagnostics" / "tubular_shell.json",
+    ]
+
+    source, files = module._pick_diagnostics_files(
+        stage_examples=["ud_plate_basic", "tubular_shell"],
+        runtime_files=runtime_files,
+        test_files=test_files,
+        fallback_file=tmp_path / "diagnostics.json",
+        allow_test_diagnostics_fallback=True,
     )
 
     assert source == "test"
     assert {p.stem for p in files} == {"ud_plate_basic", "tubular_shell"}
+
+
+def test_pick_diagnostics_files_ignores_partial_test_set_even_with_opt_in(tmp_path):
+    module = _load_gate_runner_module()
+
+    fallback = tmp_path / "diagnostics.json"
+    fallback.write_text("{}", encoding="utf-8")
+
+    source, files = module._pick_diagnostics_files(
+        stage_examples=["ud_plate_basic", "tubular_shell"],
+        runtime_files=[tmp_path / "runtime" / "ud_plate_basic.json"],
+        test_files=[tmp_path / "diagnostics" / "ud_plate_basic.json"],
+        fallback_file=fallback,
+        allow_test_diagnostics_fallback=True,
+    )
+
+    assert source == "fallback"
+    assert files == [fallback]
