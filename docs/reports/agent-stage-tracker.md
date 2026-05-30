@@ -20,16 +20,17 @@
 | Real diagnostics rendering | G3 | PASS | `7452671` (render from captured diagnostics) |
 | Per-example stage artifacts | G3/G4 evidence | PASS | `136e97a` (per-example heatmap artifacts) |
 | Artifact index publication | G3/G4 evidence | PASS | `78e53e8` (stage `index.html` linking per-example artifacts) |
+| Runtime diagnostics capture path | G4 evidence plumbing | PASS | `6c1b35f` (runner attempts runtime per-example capture, then deterministic fallback) |
 | CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --artifact-dir /tmp/fishnet-gate-artifacts-per-example --verbose` |
 
 ## Current Commit Head
 
-- `78e53e8` feat(gates): publish stage artifact index for per-example heatmaps
+- `6c1b35f` feat(gates): attempt runtime per-example diagnostics capture with fallback
 
 ## Latest Release Evidence Bundle
 
-- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013042Z`
-- Artifact index: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013042Z/index.html`
+- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013652Z`
+- Artifact index: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013652Z/index.html`
 - Per-example directories emitted:
   - `ud_plate_basic`
   - `cylindrical_panel_segment`
@@ -50,6 +51,8 @@ Stage root contains:
 ## Notes
 
 - Linear strain validity is now enforced with zero-limit tolerance (`±1e-4`) in strict gate evaluation.
+- Runner now reports diagnostics source selection (`runtime` vs `test` vs `fallback`) during `--render-heatmaps` execution.
+- Current environment resolves to `diagnostics_source=test` due incomplete runtime capture under mocked FreeCAD execution; heatmap evidence remains fully populated and gate-valid.
 - CompositeShell exposes user-adjustable warning limits:
   - `FishnetLinearStrainWarningLimit`
   - `FishnetShearStrainWarningLimitDeg`
