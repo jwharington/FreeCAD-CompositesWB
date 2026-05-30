@@ -52,81 +52,12 @@ def _load_profiles() -> dict:
     return json.loads(profile_path.read_text(encoding="utf-8"))
 
 
-def _build_stage_heatmap_diagnostics(*, stage: str, thresholds: dict) -> dict:
-    linear_limit = thresholds.get("linear_strain_tension_max")
-    if linear_limit is None:
-        linear_limit = 1e-4
-
-    shear_limit = thresholds.get("shear_angle_abs_limit_deg")
-    if shear_limit is None:
-        shear_limit = 15.0
-
-    sample = {
-        "backend": "fishnet",
-        "status": "invalid",
-        "failure_reason": "solver_unsolved",
-        "stage": stage,
-        "linear_strain_warning_limit": float(linear_limit),
-        "shear_strain_warning_limit_deg": float(shear_limit),
-        "strain_heatmap_3d": {
-            "coordinates": [
-                [0.0, 0.0, 0.0],
-                [250.0, 0.0, 6.0],
-                [0.0, 250.0, 4.0],
-                [250.0, 250.0, 9.0],
-                [125.0, 125.0, 5.5],
-                [200.0, 120.0, 7.2],
-                [80.0, 210.0, 5.8],
-                [40.0, 140.0, 3.5],
-            ],
-            "linear_values": [
-                -0.00008,
-                -0.00002,
-                0.00001,
-                0.00009,
-                0.00003,
-                0.00007,
-                0.00006,
-                0.00002,
-            ],
-            "shear_values_deg": [2.0, 3.5, 5.0, 7.5, 4.2, 6.8, 6.0, 3.2],
-        },
-        "strain_heatmap_flat": {
-            "coordinates_uv": [
-                [0.0, 0.0],
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [1.0, 1.0],
-                [0.5, 0.5],
-                [0.85, 0.45],
-                [0.30, 0.90],
-                [0.15, 0.60],
-            ],
-            "linear_values": [
-                -0.00008,
-                -0.00002,
-                0.00001,
-                0.00009,
-                0.00003,
-                0.00007,
-                0.00006,
-                0.00002,
-            ],
-            "shear_values_deg": [2.0, 3.5, 5.0, 7.5, 4.2, 6.8, 6.0, 3.2],
-        },
-    }
-    return sample
-
-
-def _render_stage_heatmaps(*, stage: str, thresholds: dict, artifact_dir: Path, verbose: bool) -> dict[str, Path]:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = artifact_dir / stage / timestamp
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    diagnostics = _build_stage_heatmap_diagnostics(stage=stage, thresholds=thresholds)
-    diagnostics_path = out_dir / "diagnostics.json"
-    diagnostics_path.write_text(json.dumps(diagnostics, indent=2, sort_keys=True), encoding="utf-8")
-
+def _render_stage_heatmaps_from_diagnostics(
+    *,
+    diagnostics_path: Path,
+    out_dir: Path,
+    verbose: bool,
+) -> dict[str, Path]:
     outputs = create_heatmap_artifacts(
         diagnostics_path=diagnostics_path,
         out_dir=out_dir,
@@ -152,6 +83,14 @@ def main() -> int:
     env = os.environ.copy()
     env["FISHNET_GATE_STAGE"] = args.stage
 
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_dir = Path(args.artifact_dir) / args.stage / timestamp
+    diagnostics_path = out_dir / "diagnostics.json"
+
+    if args.render_heatmaps:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        env["FISHNET_HEATMAP_DIAGNOSTICS_PATH"] = str(diagnostics_path)
+
     pytest_targets = list(stage_cfg["pytest_targets"])
 
     if args.verbose:
@@ -173,10 +112,16 @@ def main() -> int:
             return rc
 
     if args.render_heatmaps:
-        _render_stage_heatmaps(
-            stage=args.stage,
-            thresholds=profiles.get("thresholds", {}),
-            artifact_dir=Path(args.artifact_dir),
+        if not diagnostics_path.exists():
+            print(
+                "[fishnet-gates] ERROR: expected heatmap diagnostics not produced by tests: "
+                f"{diagnostics_path}",
+                file=sys.stderr,
+            )
+            return 2
+        _render_stage_heatmaps_from_diagnostics(
+            diagnostics_path=diagnostics_path,
+            out_dir=out_dir,
             verbose=args.verbose,
         )
 

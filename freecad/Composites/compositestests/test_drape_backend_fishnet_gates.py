@@ -8,7 +8,9 @@ solver implementation changes land.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 import sys
 import types
 from unittest.mock import MagicMock
@@ -136,6 +138,22 @@ class _GateShapeStrictCoverage:
         "linear_strain_min": -5e-05,
         "linear_strain_max": 8e-05,
         "shear_angle_abs_max_deg": 7.5,
+        "strain_heatmap_coordinates_3d": [
+            [0.0, 0.0, 0.0],
+            [250.0, 0.0, 6.0],
+            [0.0, 250.0, 4.0],
+            [250.0, 250.0, 9.0],
+            [125.0, 125.0, 5.5],
+        ],
+        "strain_heatmap_coordinates_uv": [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [0.0, 1.0],
+            [1.0, 1.0],
+            [0.5, 0.5],
+        ],
+        "strain_heatmap_linear_values": [-5e-05, -1e-05, 2e-05, 8e-05, 3e-05],
+        "strain_heatmap_shear_values_deg": [2.0, 3.5, 5.0, 7.5, 4.2],
     }
 
     @staticmethod
@@ -158,6 +176,15 @@ def _stage_thresholds(stage: str) -> dict:
     profiles = load_gate_profiles()
     assert stage in profiles["stages"]
     return profiles["thresholds"]
+
+
+def _write_heatmap_diagnostics_if_requested(diag: dict) -> None:
+    out_path = os.environ.get("FISHNET_HEATMAP_DIAGNOSTICS_PATH")
+    if not out_path:
+        return
+    path = Path(out_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(diag, indent=2, sort_keys=True), encoding="utf-8")
 
 
 class _GateMeshWithNeighbors:
@@ -188,6 +215,7 @@ def test_gate_coverage_consumes_strict_support_aware_metric_path():
 
     assert diag["linear_metric_status"] == "ok"
     assert diag["shear_metric_status"] == "ok"
+    _write_heatmap_diagnostics_if_requested(diag)
 
     stage = os.environ.get("FISHNET_GATE_STAGE", "cs1")
     evaluation = evaluate_topology_quality_gates(
