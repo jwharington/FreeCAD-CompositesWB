@@ -52,27 +52,35 @@ def _load_profiles() -> dict:
     return json.loads(profile_path.read_text(encoding="utf-8"))
 
 
-def _render_stage_heatmaps_from_diagnostics(
+def _render_example_heatmaps(
     *,
-    diagnostics_path: Path,
+    diagnostics_files: list[Path],
     out_dir: Path,
     verbose: bool,
-) -> dict[str, Path]:
-    outputs = create_heatmap_artifacts(
-        diagnostics_path=diagnostics_path,
-        out_dir=out_dir,
-        geometry_html_name="geometry_3d.html",
-        texture_html_name="texture_flat.html",
-        plot_data_name="plot_data.json",
-    )
-    outputs["diagnostics"] = diagnostics_path
+) -> dict[str, dict[str, Path]]:
+    rendered: dict[str, dict[str, Path]] = {}
+    for diagnostics_path in diagnostics_files:
+        example_id = diagnostics_path.stem
+        example_out = out_dir / example_id
+        example_out.mkdir(parents=True, exist_ok=True)
+        outputs = create_heatmap_artifacts(
+            diagnostics_path=diagnostics_path,
+            out_dir=example_out,
+            geometry_html_name="geometry_3d.html",
+            texture_html_name="texture_flat.html",
+            plot_data_name="plot_data.json",
+        )
+        outputs["diagnostics"] = diagnostics_path
+        rendered[example_id] = outputs
 
     if verbose:
         print(f"[fishnet-gates] heatmap_artifacts_dir={out_dir}")
-        for key, path in outputs.items():
-            print(f"[fishnet-gates] artifact.{key}={path}")
+        for example_id, outputs in sorted(rendered.items()):
+            print(f"[fishnet-gates] example={example_id}")
+            for key, path in outputs.items():
+                print(f"[fishnet-gates] artifact.{example_id}.{key}={path}")
 
-    return outputs
+    return rendered
 
 
 def main() -> int:
@@ -86,10 +94,13 @@ def main() -> int:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = Path(args.artifact_dir) / args.stage / timestamp
     diagnostics_path = out_dir / "diagnostics.json"
+    diagnostics_dir = out_dir / "diagnostics"
 
     if args.render_heatmaps:
         out_dir.mkdir(parents=True, exist_ok=True)
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         env["FISHNET_HEATMAP_DIAGNOSTICS_PATH"] = str(diagnostics_path)
+        env["FISHNET_HEATMAP_DIAGNOSTICS_DIR"] = str(diagnostics_dir)
 
     pytest_targets = list(stage_cfg["pytest_targets"])
 
@@ -112,15 +123,18 @@ def main() -> int:
             return rc
 
     if args.render_heatmaps:
-        if not diagnostics_path.exists():
-            print(
-                "[fishnet-gates] ERROR: expected heatmap diagnostics not produced by tests: "
-                f"{diagnostics_path}",
-                file=sys.stderr,
-            )
-            return 2
-        _render_stage_heatmaps_from_diagnostics(
-            diagnostics_path=diagnostics_path,
+        diagnostics_files = sorted(diagnostics_dir.glob("*.json"))
+        if not diagnostics_files:
+            if diagnostics_path.exists():
+                diagnostics_files = [diagnostics_path]
+            else:
+                print(
+                    "[fishnet-gates] ERROR: expected heatmap diagnostics not produced by tests",
+                    file=sys.stderr,
+                )
+                return 2
+        _render_example_heatmaps(
+            diagnostics_files=diagnostics_files,
             out_dir=out_dir,
             verbose=args.verbose,
         )

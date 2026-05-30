@@ -178,13 +178,30 @@ def _stage_thresholds(stage: str) -> dict:
     return profiles["thresholds"]
 
 
+def _stage_examples(stage: str) -> list[str]:
+    profiles = load_gate_profiles()
+    cfg = profiles["stages"].get(stage, {})
+    return list(cfg.get("examples", []))
+
+
 def _write_heatmap_diagnostics_if_requested(diag: dict) -> None:
+    out_dir = os.environ.get("FISHNET_HEATMAP_DIAGNOSTICS_DIR")
+    if out_dir:
+        stage = os.environ.get("FISHNET_GATE_STAGE", "cs0")
+        examples = _stage_examples(stage) or ["stage_diagnostic"]
+        root = Path(out_dir)
+        root.mkdir(parents=True, exist_ok=True)
+        for example_id in examples:
+            payload = dict(diag)
+            payload["example_id"] = example_id
+            path = root / f"{example_id}.json"
+            path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
     out_path = os.environ.get("FISHNET_HEATMAP_DIAGNOSTICS_PATH")
-    if not out_path:
-        return
-    path = Path(out_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(diag, indent=2, sort_keys=True), encoding="utf-8")
+    if out_path:
+        path = Path(out_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(diag, indent=2, sort_keys=True), encoding="utf-8")
 
 
 class _GateMeshWithNeighbors:
