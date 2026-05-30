@@ -113,37 +113,93 @@ const x = xyz.map(p => p[0]);
 const y = xyz.map(p => p[1]);
 const z = xyz.map(p => p[2]);
 
+function linspace(min, max, n) {{
+  if (n <= 1) return [min];
+  const step = (max - min) / (n - 1);
+  return Array.from({{length: n}}, (_, i) => min + i * step);
+}}
+
+function idwAt(xq, yq, values, power = 2) {{
+  let num = 0.0;
+  let den = 0.0;
+  for (let i = 0; i < xyz.length; i++) {{
+    const dx = xq - xyz[i][0];
+    const dy = yq - xyz[i][1];
+    const d2 = dx * dx + dy * dy;
+    if (d2 < 1e-16) return values[i];
+    const w = 1.0 / Math.pow(d2, power / 2.0);
+    num += w * values[i];
+    den += w;
+  }}
+  return den > 0 ? (num / den) : 0.0;
+}}
+
+const xMin = Math.min(...x);
+const xMax = Math.max(...x);
+const yMin = Math.min(...y);
+const yMax = Math.max(...y);
+const nx = 50;
+const ny = 50;
+const xGrid = linspace(xMin, xMax, nx);
+const yGrid = linspace(yMin, yMax, ny);
+
+const zGrid = [];
+const linearGrid = [];
+const shearGrid = [];
+for (let j = 0; j < ny; j++) {{
+  const zRow = [];
+  const lRow = [];
+  const sRow = [];
+  for (let i = 0; i < nx; i++) {{
+    const xq = xGrid[i];
+    const yq = yGrid[j];
+    zRow.push(idwAt(xq, yq, z));
+    lRow.push(idwAt(xq, yq, hm.linear_values));
+    sRow.push(idwAt(xq, yq, hm.shear_values_deg));
+  }}
+  zGrid.push(zRow);
+  linearGrid.push(lRow);
+  shearGrid.push(sRow);
+}}
+
 const linearTrace = {{
-  type: 'scatter3d',
-  mode: 'markers',
-  x, y, z,
-  marker: {{
-    size: 4,
-    color: hm.linear_values,
-    colorscale: 'RdBu',
-    reversescale: true,
-    colorbar: {{title: 'Linear strain'}},
+  type: 'surface',
+  x: xGrid,
+  y: yGrid,
+  z: zGrid,
+  surfacecolor: linearGrid,
+  colorscale: 'RdBu',
+  reversescale: true,
+  colorbar: {{title: 'Linear strain (fraction)'}},
+  contours: {{
+    z: {{show: true, usecolormap: true, highlightwidth: 1}},
   }},
   name: 'Linear strain',
 }};
 
 const shearTrace = {{
-  type: 'scatter3d',
-  mode: 'markers',
-  x, y, z,
+  type: 'surface',
+  x: xGrid,
+  y: yGrid,
+  z: zGrid,
   visible: false,
-  marker: {{
-    size: 4,
-    color: hm.shear_values_deg,
-    colorscale: 'Viridis',
-    colorbar: {{title: 'Shear angle (deg)'}},
+  surfacecolor: shearGrid,
+  colorscale: 'Viridis',
+  colorbar: {{title: 'Shear strain angle (deg)'}},
+  contours: {{
+    z: {{show: true, usecolormap: true, highlightwidth: 1}},
   }},
   name: 'Shear strain',
 }};
 
 const layout = {{
-  title: 'Fishnet Strain Heatmap — 3D Surface',
-  scene: {{xaxis: {{title: 'X'}}, yaxis: {{title: 'Y'}}, zaxis: {{title: 'Z'}}, aspectmode: 'data'}},
+  title: 'Fishnet Strain Heatmap — 3D Surface (contours)',
+  scene: {{
+    xaxis: {{title: 'X (mm)'}},
+    yaxis: {{title: 'Y (mm)'}},
+    zaxis: {{title: 'Z (mm)'}},
+    aspectmode: 'data'
+  }},
   updatemenus: [{{
     type: 'buttons',
     direction: 'left',
@@ -181,40 +237,79 @@ const uv = hm.coordinates_uv;
 const u = uv.map(p => p[0]);
 const v = uv.map(p => p[1]);
 
+function linspace(min, max, n) {{
+  if (n <= 1) return [min];
+  const step = (max - min) / (n - 1);
+  return Array.from({{length: n}}, (_, i) => min + i * step);
+}}
+
+function idwAt(uq, vq, values, power = 2) {{
+  let num = 0.0;
+  let den = 0.0;
+  for (let i = 0; i < uv.length; i++) {{
+    const du = uq - uv[i][0];
+    const dv = vq - uv[i][1];
+    const d2 = du * du + dv * dv;
+    if (d2 < 1e-16) return values[i];
+    const w = 1.0 / Math.pow(d2, power / 2.0);
+    num += w * values[i];
+    den += w;
+  }}
+  return den > 0 ? (num / den) : 0.0;
+}}
+
+const uMin = Math.min(...u);
+const uMax = Math.max(...u);
+const vMin = Math.min(...v);
+const vMax = Math.max(...v);
+const nu = 120;
+const nv = 120;
+const uGrid = linspace(uMin, uMax, nu);
+const vGrid = linspace(vMin, vMax, nv);
+
+const linearGrid = [];
+const shearGrid = [];
+for (let j = 0; j < nv; j++) {{
+  const lRow = [];
+  const sRow = [];
+  for (let i = 0; i < nu; i++) {{
+    const uq = uGrid[i];
+    const vq = vGrid[j];
+    lRow.push(idwAt(uq, vq, hm.linear_values));
+    sRow.push(idwAt(uq, vq, hm.shear_values_deg));
+  }}
+  linearGrid.push(lRow);
+  shearGrid.push(sRow);
+}}
+
 const linearTrace = {{
-  type: 'scattergl',
-  mode: 'markers',
-  x: u,
-  y: v,
-  marker: {{
-    size: 6,
-    color: hm.linear_values,
-    colorscale: 'RdBu',
-    reversescale: true,
-    colorbar: {{title: 'Linear strain'}},
-  }},
+  type: 'contour',
+  x: uGrid,
+  y: vGrid,
+  z: linearGrid,
+  colorscale: 'RdBu',
+  reversescale: true,
+  contours: {{coloring: 'heatmap', showlines: true}},
+  colorbar: {{title: 'Linear strain (fraction)'}},
   name: 'Linear strain',
 }};
 
 const shearTrace = {{
-  type: 'scattergl',
-  mode: 'markers',
-  x: u,
-  y: v,
+  type: 'contour',
+  x: uGrid,
+  y: vGrid,
+  z: shearGrid,
   visible: false,
-  marker: {{
-    size: 6,
-    color: hm.shear_values_deg,
-    colorscale: 'Viridis',
-    colorbar: {{title: 'Shear angle (deg)'}},
-  }},
+  colorscale: 'Viridis',
+  contours: {{coloring: 'heatmap', showlines: true}},
+  colorbar: {{title: 'Shear strain angle (deg)'}},
   name: 'Shear strain',
 }};
 
 const layout = {{
-  title: 'Fishnet Strain Heatmap — Flattened Texture Plan',
-  xaxis: {{title: 'U'}},
-  yaxis: {{title: 'V', scaleanchor: 'x', scaleratio: 1}},
+  title: 'Fishnet Strain Heatmap — Flattened Texture Plan (contours)',
+  xaxis: {{title: 'U (texture coords)'}},
+  yaxis: {{title: 'V (texture coords)', scaleanchor: 'x', scaleratio: 1}},
   updatemenus: [{{
     type: 'buttons',
     direction: 'left',
