@@ -51,7 +51,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--watchdog-seconds",
         type=int,
-        default=600,
+        default=60,
         help="Per-subprocess timeout in seconds before treating the job as hung",
     )
     return parser.parse_args()
@@ -205,35 +205,45 @@ def _collect_runtime_example_diagnostics(
         ),
     ]
 
-    env = os.environ.copy()
-    env["FISHNET_RUNTIME_CAPTURE_OUT_DIR"] = str(out_dir)
-    env["FISHNET_RUNTIME_CAPTURE_EXAMPLES"] = ",".join(stage_examples)
+    captured_files: list[Path] = []
 
-    if verbose:
-        print(f"[fishnet-gates] runtime_capture.cmd={' '.join(cmd)}")
+    for example_id in stage_examples:
+        env = os.environ.copy()
+        env["FISHNET_RUNTIME_CAPTURE_OUT_DIR"] = str(out_dir)
+        env["FISHNET_RUNTIME_CAPTURE_EXAMPLES"] = example_id
 
-    try:
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=watchdog_seconds,
-        )
-    except subprocess.TimeoutExpired:
-        print(
-            f"[fishnet-gates] runtime_capture.timeout_after_s={watchdog_seconds}",
-            file=sys.stderr,
-        )
-        return []
-    if verbose and proc.stdout.strip():
-        print(proc.stdout.strip())
-    if proc.returncode != 0:
-        if verbose and proc.stderr.strip():
-            print(proc.stderr.strip())
-        return []
+        if verbose:
+            print(f"[fishnet-gates] runtime_capture.example={example_id}")
+            print(f"[fishnet-gates] runtime_capture.cmd={' '.join(cmd)}")
 
-    return sorted(out_dir.glob("*.json"))
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=watchdog_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                f"[fishnet-gates] runtime_capture.timeout_after_s={watchdog_seconds} example={example_id}",
+                file=sys.stderr,
+            )
+            continue
+
+        if verbose and proc.stdout.strip():
+            print(proc.stdout.strip())
+
+        if proc.returncode != 0:
+            if verbose and proc.stderr.strip():
+                print(proc.stderr.strip())
+            continue
+
+        out_file = out_dir / f"{example_id}.json"
+        if out_file.exists():
+            captured_files.append(out_file)
+
+    return sorted(captured_files)
 
 
 def _pick_diagnostics_files(

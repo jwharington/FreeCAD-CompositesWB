@@ -15,6 +15,7 @@ from pathlib import Path
 import sys
 import types
 from unittest.mock import MagicMock, patch
+import subprocess
 
 # FreeCAD must be mocked before importing freecad.Composites packages.
 _freecad_mock = MagicMock()
@@ -456,6 +457,59 @@ def test_collect_runtime_example_diagnostics_returns_empty_when_freecadcmd_missi
         )
 
     assert files == []
+
+
+def test_collect_runtime_example_diagnostics_splits_by_example_and_collects_outputs(tmp_path):
+    module = _load_gate_runner_module()
+    out_dir = tmp_path / "runtime"
+    stage_examples = ["cylindrical_panel_segment", "conical_panel_segment"]
+
+    def _fake_run(cmd, capture_output, text, env, timeout):
+        example = env["FISHNET_RUNTIME_CAPTURE_EXAMPLES"]
+        (out_dir / f"{example}.json").write_text("{}", encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch.object(module, "_resolve_freecadcmd", return_value="/fake/FreeCADCmd"), patch.object(
+        module.subprocess,
+        "run",
+        side_effect=_fake_run,
+    ) as run_mock:
+        files = module._collect_runtime_example_diagnostics(
+            stage_examples=stage_examples,
+            out_dir=out_dir,
+            verbose=False,
+            watchdog_seconds=10,
+        )
+
+    assert [p.stem for p in files] == sorted(stage_examples)
+    assert run_mock.call_count == len(stage_examples)
+
+
+def test_collect_runtime_example_diagnostics_continues_after_timeout(tmp_path):
+    module = _load_gate_runner_module()
+    out_dir = tmp_path / "runtime"
+    stage_examples = ["cylindrical_panel_segment", "conical_panel_segment"]
+
+    def _fake_run(cmd, capture_output, text, env, timeout):
+        example = env["FISHNET_RUNTIME_CAPTURE_EXAMPLES"]
+        if example == "cylindrical_panel_segment":
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout)
+        (out_dir / f"{example}.json").write_text("{}", encoding="utf-8")
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    with patch.object(module, "_resolve_freecadcmd", return_value="/fake/FreeCADCmd"), patch.object(
+        module.subprocess,
+        "run",
+        side_effect=_fake_run,
+    ):
+        files = module._collect_runtime_example_diagnostics(
+            stage_examples=stage_examples,
+            out_dir=out_dir,
+            verbose=False,
+            watchdog_seconds=10,
+        )
+
+    assert [p.stem for p in files] == ["conical_panel_segment"]
 
 
 def test_build_pytest_command_uses_freecadcmd_and_repo_path(tmp_path):
