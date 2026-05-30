@@ -28,8 +28,8 @@ _freecad_mock.Base = types.SimpleNamespace(
 )
 _freecad_mock.ParamGet.return_value = MagicMock()
 
-sys.modules["FreeCAD"] = _freecad_mock
-sys.modules["CompositesWB"] = MagicMock()
+sys.modules.setdefault("FreeCAD", _freecad_mock)
+sys.modules.setdefault("CompositesWB", MagicMock())
 
 # ---------------------------------------------------------------------------
 # Ensure repo root is on sys.path so package imports work.

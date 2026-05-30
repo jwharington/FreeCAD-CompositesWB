@@ -191,17 +191,21 @@ def _collect_runtime_example_diagnostics(
         freecad_cmd,
         "-P",
         str(repo_root),
-        str(script_path),
-        "--out-dir",
-        str(out_dir),
-        "--examples",
-        ",".join(stage_examples),
+        "-c",
+        (
+            "import runpy; "
+            f"runpy.run_path({str(script_path)!r}, run_name='__main__')"
+        ),
     ]
+
+    env = os.environ.copy()
+    env["FISHNET_RUNTIME_CAPTURE_OUT_DIR"] = str(out_dir)
+    env["FISHNET_RUNTIME_CAPTURE_EXAMPLES"] = ",".join(stage_examples)
 
     if verbose:
         print(f"[fishnet-gates] runtime_capture.cmd={' '.join(cmd)}")
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if verbose and proc.stdout.strip():
         print(proc.stdout.strip())
     if proc.returncode != 0:
