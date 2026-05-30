@@ -19,15 +19,17 @@
 | Gate-runner heatmap integration | G3 | PASS | `fc52684` (`--render-heatmaps`) |
 | Real diagnostics rendering | G3 | PASS | `7452671` (render from captured diagnostics) |
 | Per-example stage artifacts | G3/G4 evidence | PASS | `136e97a` (per-example heatmap artifacts) |
+| Artifact index publication | G3/G4 evidence | PASS | `78e53e8` (stage `index.html` linking per-example artifacts) |
 | CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --artifact-dir /tmp/fishnet-gate-artifacts-per-example --verbose` |
 
 ## Current Commit Head
 
-- `136e97a` feat(gates): emit per-example heatmap artifacts for stage matrix
+- `78e53e8` feat(gates): publish stage artifact index for per-example heatmaps
 
 ## Latest Release Evidence Bundle
 
-- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T003055Z`
+- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013042Z`
+- Artifact index: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T013042Z/index.html`
 - Per-example directories emitted:
   - `ud_plate_basic`
   - `cylindrical_panel_segment`
@@ -41,6 +43,9 @@ Each example directory contains:
 - `texture_flat.html` (flattened contour heatmap, U/V texture coordinates)
 - `plot_data.json`
 - paired diagnostics at `diagnostics/<example>.json`
+
+Stage root contains:
+- `index.html` with direct links per example to geometry/texture/plot/diagnostics artifacts.
 
 ## Notes
 
