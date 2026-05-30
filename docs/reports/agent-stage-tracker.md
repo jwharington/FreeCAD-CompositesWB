@@ -22,16 +22,17 @@
 | Artifact index publication | G3/G4 evidence | PASS | `78e53e8` (stage `index.html` linking per-example artifacts) |
 | Runtime diagnostics capture path | G4 evidence plumbing | PASS | `6c1b35f` (runner attempts runtime per-example capture with source selection) |
 | Runtime-only default enforcement | G4 policy hardening | PASS | `2bfd9d9` (`--render-heatmaps` now hard-fails unless runtime complete or explicit fallback opt-in) |
-| CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --allow-test-diagnostics-fallback --artifact-dir /tmp/fishnet-gate-artifacts-per-example --verbose` |
+| Release evidence anti-synthetic guard | G4 policy hardening | PASS | `8c03e79` (release stage rejects `--allow-test-diagnostics-fallback`) |
+| CS3 release readiness check | G4 | BLOCKED (runtime env missing) | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` returns exit 2 with `No module named 'FreeCAD'` |
 
 ## Current Commit Head
 
-- `2bfd9d9` feat(gates): enforce runtime-only default diagnostics with explicit fallback flag
+- `8c03e79` feat(gates): forbid release fallback and require real runtime diagnostics
 
 ## Latest Release Evidence Bundle
 
-- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T015300Z`
-- Artifact index: `/tmp/fishnet-gate-artifacts-per-example/release/20260530T015300Z/index.html`
+- Runtime release heatmap evidence: **not available in this environment** (no FreeCAD runtime).
+- Last release render attempt: failed by policy as expected.
 - Per-example directories emitted:
   - `ud_plate_basic`
   - `cylindrical_panel_segment`
@@ -49,12 +50,20 @@ Each example directory contains:
 Stage root contains:
 - `index.html` with direct links per example to geometry/texture/plot/diagnostics artifacts.
 
+## Latest Dev-Only Fallback Bundle (Non-Release)
+
+- Stage: `cs2`
+- Artifact root: `/tmp/fishnet-gate-artifacts-per-example/cs2/20260530T021923Z`
+- Artifact index: `/tmp/fishnet-gate-artifacts-per-example/cs2/20260530T021923Z/index.html`
+- Diagnostics source: `test` (explicit `--allow-test-diagnostics-fallback`)
+
 ## Notes
 
 - Linear strain validity is now enforced with zero-limit tolerance (`±1e-4`) in strict gate evaluation.
 - Runner now reports diagnostics source selection (`runtime` vs `test` vs `fallback`) during `--render-heatmaps` execution.
-- Runtime diagnostics are now the default requirement for artifact rendering; use `--allow-test-diagnostics-fallback` only for explicit non-runtime evidence generation.
-- Current environment resolves to `diagnostics_source=test` with explicit opt-in due incomplete runtime capture under mocked FreeCAD execution; heatmap evidence remains fully populated and gate-valid.
+- Runtime diagnostics are now the default requirement for artifact rendering.
+- For `--stage release`, test/synthetic fallback is prohibited even when requested.
+- Current environment lacks FreeCAD runtime (`No module named 'FreeCAD'`), so release runtime evidence is intentionally blocked instead of silently synthesised.
 - CompositeShell exposes user-adjustable warning limits:
   - `FishnetLinearStrainWarningLimit`
   - `FishnetShearStrainWarningLimitDeg`
