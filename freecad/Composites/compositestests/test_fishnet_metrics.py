@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+import subprocess
 import sys
 import types
 from unittest.mock import MagicMock
@@ -328,3 +331,100 @@ def test_evaluate_topology_quality_gates_enforces_linear_zero_tolerance_even_wit
 
     assert result["checks"]["linear_strain"] is False
     assert result["ok"] is False
+
+
+def test_render_strain_heatmap_script_generates_expected_artifacts(tmp_path: Path):
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "render_strain_heatmaps.py"
+    )
+
+    diagnostics = {
+        "backend": "fishnet",
+        "status": "invalid",
+        "failure_reason": "solver_unsolved",
+        "linear_strain_warning_limit": 1e-4,
+        "shear_strain_warning_limit_deg": 15.0,
+        "strain_heatmap_3d": {
+            "coordinates": [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],
+            "linear_values": [-0.00008, 0.0002],
+            "shear_values_deg": [2.0, 6.0],
+        },
+        "strain_heatmap_flat": {
+            "coordinates_uv": [[0.0, 0.0], [1.0, 0.0]],
+            "linear_values": [-0.00008, 0.0002],
+            "shear_values_deg": [2.0, 6.0],
+        },
+    }
+
+    diagnostics_path = tmp_path / "diag.json"
+    diagnostics_path.write_text(json.dumps(diagnostics), encoding="utf-8")
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(script_path),
+            "--diagnostics",
+            str(diagnostics_path),
+            "--out-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert (tmp_path / "geometry_3d.html").exists()
+    assert (tmp_path / "texture_flat.html").exists()
+    assert (tmp_path / "plot_data.json").exists()
+
+
+def test_render_strain_heatmap_script_accepts_wrapped_diagnostics(tmp_path: Path):
+    script_path = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "render_strain_heatmaps.py"
+    )
+
+    diagnostics = {
+        "backend": "fishnet",
+        "status": "invalid",
+        "failure_reason": "solver_unsolved",
+        "linear_strain_warning_limit": 1e-4,
+        "shear_strain_warning_limit_deg": 15.0,
+        "strain_heatmap_3d": {
+            "coordinates": [[0.0, 0.0, 0.0]],
+            "linear_values": [0.0],
+            "shear_values_deg": [0.0],
+        },
+        "strain_heatmap_flat": {
+            "coordinates_uv": [[0.0, 0.0]],
+            "linear_values": [0.0],
+            "shear_values_deg": [0.0],
+        },
+    }
+
+    wrapped_path = tmp_path / "wrapped.json"
+    wrapped_path.write_text(
+        json.dumps({"DrapeDiagnostics": json.dumps(diagnostics)}),
+        encoding="utf-8",
+    )
+
+    subprocess.check_call(
+        [
+            sys.executable,
+            str(script_path),
+            "--diagnostics",
+            str(wrapped_path),
+            "--out-dir",
+            str(tmp_path),
+            "--geometry-html",
+            "g3d.html",
+            "--texture-html",
+            "tflat.html",
+            "--plot-data",
+            "pdata.json",
+        ]
+    )
+
+    assert (tmp_path / "g3d.html").exists()
+    assert (tmp_path / "tflat.html").exists()
+    assert (tmp_path / "pdata.json").exists()
