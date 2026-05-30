@@ -294,6 +294,7 @@ class CompositeShellFP(CompositeBaseFP):
                 shear_strain_warning_limit_deg=float(
                     getattr(fp, "FishnetShearStrainWarningLimitDeg", 15.0)
                 ),
+                derive_runtime_metric_payload=True,
             )
         return LegacyDrapeBackend(mesh, lcs, shape)
 

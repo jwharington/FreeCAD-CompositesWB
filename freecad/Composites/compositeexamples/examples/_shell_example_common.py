@@ -94,9 +94,12 @@ def largest_face(shape):
     """Return the largest-area face for a shell-like generated shape."""
 
     faces = getattr(shape, "Faces", None)
-    if not faces:
+    if faces is None:
         return shape
-    return max(faces, key=lambda face: getattr(face, "Area", 0.0))
+    try:
+        return max(faces, key=lambda face: getattr(face, "Area", 0.0))
+    except (TypeError, ValueError):
+        return shape
 
 
 def create_support_feature(doc, name, shape):
@@ -440,7 +443,7 @@ def create_composite_feature_stack(
         shell_error=shell_error,
     )
 
-    if hasattr(doc, "recompute") and not skip_recompute:
+    if gui_up and hasattr(doc, "recompute") and not skip_recompute:
         record_diagnostic_event(diagnostics, "feature_stack.recompute.begin")
         doc.recompute()
         record_diagnostic_event(diagnostics, "feature_stack.recompute.done")

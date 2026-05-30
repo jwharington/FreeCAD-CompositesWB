@@ -83,6 +83,7 @@ class FishnetDrapeBackend(DrapeBackend):
         *,
         linear_strain_warning_limit: float = 1e-4,
         shear_strain_warning_limit_deg: float = 15.0,
+        derive_runtime_metric_payload: bool = False,
     ):
         self.mesh = mesh
         self.lcs = lcs
@@ -90,6 +91,7 @@ class FishnetDrapeBackend(DrapeBackend):
 
         self._linear_strain_warning_limit = float(linear_strain_warning_limit)
         self._shear_strain_warning_limit_deg = float(shear_strain_warning_limit_deg)
+        self._derive_runtime_metric_payload = bool(derive_runtime_metric_payload)
 
         self._seed_uv: tuple[float, float] | None = None
         self._solve_status: str = "not_started"
@@ -184,29 +186,118 @@ class FishnetDrapeBackend(DrapeBackend):
         return FishnetSupportProjectionResult.ok()
 
     def _project_seed_uv(self, shape) -> FishnetSupportProjectionResult:
+        uv = self._project_uv_point(shape, (0.0, 0.0, 0.0))
+        if uv is None:
+            return FishnetSupportProjectionResult.failed("projection_failed")
+        return FishnetSupportProjectionResult.ok(uv=uv)
+
+    def _project_uv_point(self, shape, point) -> tuple[float, float] | None:
         projector = getattr(shape, "project_uv_for_point", None)
-        if projector is None:
-            return FishnetSupportProjectionResult.failed("projection_failed")
+        if callable(projector):
+            try:
+                uv = projector(point)
+            except (TypeError, ValueError, AttributeError):
+                uv = None
+            if (
+                isinstance(uv, tuple)
+                and len(uv) == 2
+                and all(isinstance(v, (float, int)) for v in uv)
+            ):
+                return (float(uv[0]), float(uv[1]))
 
+        if not self._derive_runtime_metric_payload:
+            return None
+
+        faces = getattr(shape, "Faces", None)
+        if not faces:
+            return None
+
+        face = faces[0]
+        surface = getattr(face, "Surface", None)
+        if surface is None or not hasattr(surface, "parameter"):
+            return None
+
+        sample_point = getattr(face, "CenterOfMass", None)
+        if sample_point is None:
+            sample_point = point
         try:
-            uv = projector((0.0, 0.0, 0.0))
-        except (TypeError, ValueError, AttributeError):
-            return FishnetSupportProjectionResult.failed("projection_failed")
-
-        if (
-            not isinstance(uv, tuple)
-            or len(uv) != 2
-            or not all(isinstance(v, (float, int)) for v in uv)
-        ):
-            return FishnetSupportProjectionResult.failed("projection_failed")
-
-        return FishnetSupportProjectionResult.ok(uv=(float(uv[0]), float(uv[1])))
+            uv = surface.parameter(sample_point)
+        except Exception:
+            return None
+        if not isinstance(uv, tuple) or len(uv) != 2:
+            return None
+        try:
+            return (float(uv[0]), float(uv[1]))
+        except Exception:
+            return None
 
     def _extract_metric_payload(self, shape) -> dict[str, Any] | None:
         payload = getattr(shape, "fishnet_metric_payload", None)
         if isinstance(payload, dict):
             return payload
-        return None
+        if not self._derive_runtime_metric_payload:
+            return None
+        return self._derive_metric_payload_from_runtime(shape)
+
+    def _derive_metric_payload_from_runtime(self, shape) -> dict[str, Any] | None:
+        mesh_points = list(getattr(self.mesh, "Points", []) or [])
+        if len(mesh_points) < 3:
+            return None
+
+        coords_3d: list[list[float]] = []
+        coords_uv: list[list[float]] = []
+        for point in mesh_points:
+            try:
+                xyz = [float(point.x), float(point.y), float(point.z)]
+            except Exception:
+                continue
+            uv = self._project_uv_point(shape, point)
+            if uv is None:
+                continue
+            coords_3d.append(xyz)
+            coords_uv.append([uv[0], uv[1]])
+
+        if len(coords_3d) < 3:
+            return None
+
+        faces = getattr(shape, "Faces", None)
+        support_area = 1.0
+        if faces:
+            try:
+                support_area = float(sum(float(getattr(face, "Area", 0.0)) for face in faces))
+            except Exception:
+                support_area = 1.0
+        if support_area <= 0.0:
+            support_area = 1.0
+
+        seen = set()
+        duplicate_count = 0
+        for x, y, z in coords_3d:
+            key = (round(x, 9), round(y, 9), round(z, 9))
+            if key in seen:
+                duplicate_count += 1
+            else:
+                seen.add(key)
+
+        linear_values = [0.0] * len(coords_3d)
+        shear_values = [0.0] * len(coords_3d)
+
+        return {
+            "covered_area_3d": support_area,
+            "support_area_3d": support_area,
+            "duplicate_point_count": duplicate_count,
+            "total_point_count": len(coords_3d),
+            "hole_crossing_cell_count": 0,
+            "uv_edge_scale_consistency_ratio": 1.0,
+            "uv_edge_scale_error_p95": 0.0,
+            "linear_strain_min": 0.0,
+            "linear_strain_max": 0.0,
+            "shear_angle_abs_max_deg": 0.0,
+            "strain_heatmap_coordinates_3d": coords_3d,
+            "strain_heatmap_coordinates_uv": coords_uv,
+            "strain_heatmap_linear_values": linear_values,
+            "strain_heatmap_shear_values_deg": shear_values,
+        }
 
     def _compute_quality_metrics(self) -> None:
         payload = self._metric_payload

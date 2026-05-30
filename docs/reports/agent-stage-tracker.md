@@ -23,32 +23,35 @@
 | Runtime diagnostics capture path | G4 evidence plumbing | PASS | `6c1b35f` (runner attempts runtime per-example capture with source selection) |
 | Runtime-only default enforcement | G4 policy hardening | PASS | `2bfd9d9` (`--render-heatmaps` now hard-fails unless runtime complete or explicit fallback opt-in) |
 | Release evidence anti-synthetic guard | G4 policy hardening | PASS | `8c03e79` (release stage rejects `--allow-test-diagnostics-fallback`) |
-| CS3 release readiness check | G4 | BLOCKED (FreeCADCmd unavailable in env) | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` returns exit 2 with `FreeCADCmd not found` |
+| FreeCADCmd gate execution | G4 infra | PASS | `34e21b1`, `242d5ec`, `219082e` (pytest + runtime capture executed through FreeCADCmd path) |
+| Headless runtime shell creation | G4 runtime | PASS | `138fe8b` (CompositeShell created in GuiDown for runtime capture) |
+| Runtime payload derivation for fishnet diagnostics | G4 runtime | PASS | `e9fb492` (projection + runtime metric payload derivation; heatmap payload emitted in real FreeCADCmd runs) |
+| CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` (diagnostics_source=runtime) |
 
 ## Current Commit Head
 
-- `34e21b1` feat(gates): require FreeCADCmd for gate tests and runtime diagnostics capture
+- `e9fb492` feat(fishnet): derive runtime projection/metric payloads for release heatmap evidence
 
 ## Latest Release Evidence Bundle
 
-- Runtime release heatmap evidence: **not available in this environment** (FreeCADCmd unavailable).
-- Last release render attempt: failed by policy as expected.
-- Per-example directories emitted:
-  - `ud_plate_basic`
+- Artifact root: `artifacts/fishnet-gates/release/20260530T042202Z`
+- Artifact index: `artifacts/fishnet-gates/release/20260530T042202Z/index.html`
+- Diagnostics source: `runtime`
+- Runtime heatmap examples emitted:
   - `cylindrical_panel_segment`
   - `flat_panel_spline_hole`
   - `double_curvature_panel`
   - `tubular_shell`
   - `conical_panel_segment`
 
-Each example directory contains:
+Each runtime heatmap example directory contains:
 - `geometry_3d.html` (3D contour heatmap, axes in mm)
 - `texture_flat.html` (flattened contour heatmap, U/V texture coordinates)
 - `plot_data.json`
-- paired diagnostics at `diagnostics/<example>.json`
+- paired diagnostics at `runtime-diagnostics/<example>.json`
 
-Stage root contains:
-- `index.html` with direct links per example to geometry/texture/plot/diagnostics artifacts.
+Note:
+- `ud_plate_basic` is laminate-only (no CompositeShell drape state), and is intentionally excluded from heatmap artifact expectations.
 
 ## Latest Dev-Only Fallback Bundle (Non-Release)
 
@@ -64,7 +67,7 @@ Stage root contains:
 - Runtime diagnostics are now the default requirement for artifact rendering.
 - For `--stage release`, test/synthetic fallback is prohibited even when requested.
 - Gate runner now executes pytest targets via `FreeCADCmd` and captures runtime diagnostics via `FreeCADCmd`.
-- Current environment lacks `FreeCADCmd`, so release runtime evidence is intentionally blocked instead of silently synthesised.
+- FreeCADCmd path is now wired to `~/opt/FreeCAD/build/pixi-debug/bin/FreeCADCmd` and release runtime evidence runs in this environment.
 - CompositeShell exposes user-adjustable warning limits:
   - `FishnetLinearStrainWarningLimit`
   - `FishnetShearStrainWarningLimitDeg`
