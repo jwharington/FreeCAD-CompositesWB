@@ -29,29 +29,46 @@ BOUNDARY_CONDITIONS = {
 def _make_panel_with_hole(FreeCAD, Part):
     """Build a best-effort irregular flat panel with a central hole."""
 
+    # Mildly irregular outer boundary.
+    pts = [
+        FreeCAD.Vector(-450.0, -320.0, 0.0),
+        FreeCAD.Vector(460.0, -300.0, 0.0),
+        FreeCAD.Vector(430.0, 310.0, 0.0),
+        FreeCAD.Vector(-420.0, 330.0, 0.0),
+        FreeCAD.Vector(-450.0, -320.0, 0.0),
+    ]
+    outer = Part.Wire(Part.makePolygon(pts))
+
+    circle = Part.Circle(
+        FreeCAD.Vector(0.0, 0.0, 0.0),
+        FreeCAD.Vector(0.0, 0.0, 1.0),
+        GEOMETRY["hole_radius_mm"],
+    )
+    inner = Part.Wire(circle.toShape())
+
+    # Preferred API when available.
     try:
-        # Mildly irregular outer boundary.
-        pts = [
-            FreeCAD.Vector(-450.0, -320.0, 0.0),
-            FreeCAD.Vector(460.0, -300.0, 0.0),
-            FreeCAD.Vector(430.0, 310.0, 0.0),
-            FreeCAD.Vector(-420.0, 330.0, 0.0),
-            FreeCAD.Vector(-450.0, -320.0, 0.0),
-        ]
-        outer = Part.Wire(Part.makePolygon(pts))
-
-        circle = Part.Circle(
-            FreeCAD.Vector(0.0, 0.0, 0.0),
-            FreeCAD.Vector(0.0, 0.0, 1.0),
-            GEOMETRY["hole_radius_mm"],
-        )
-        inner = Part.Wire(circle.toShape())
-
-        # Part.Face can accept outer wire and inner-wire list for hole.
-        return Part.Face(outer, [inner])
+        face = Part.Face(outer, [inner])
+        if getattr(face, "Faces", None):
+            return face
+        if hasattr(face, "Wires") and len(getattr(face, "Wires", []) or []) > 1:
+            return face
     except Exception:
-        # Conservative fallback used only for non-standard Part APIs in tests.
-        return Part.makePlane(GEOMETRY["length_mm"], GEOMETRY["width_mm"])
+        pass
+
+    # Robust fallback: explicit boolean subtraction.
+    try:
+        outer_face = Part.Face(outer)
+        inner_face = Part.Face(inner)
+        cut_shape = outer_face.cut(inner_face)
+        faces = list(getattr(cut_shape, "Faces", []) or [])
+        if faces:
+            return max(faces, key=lambda f: getattr(f, "Area", 0.0))
+    except Exception:
+        pass
+
+    # Conservative fallback used only for non-standard Part APIs in tests.
+    return Part.makePlane(GEOMETRY["length_mm"], GEOMETRY["width_mm"])
 
 
 def build(doc=None, run_solver=False, debug_options=None):

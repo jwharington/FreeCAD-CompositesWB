@@ -303,6 +303,103 @@ class FishnetDrapeBackend(DrapeBackend):
                 return result
         return True
 
+    @staticmethod
+    def _point_in_polygon_2d(x: float, y: float, polygon: list[list[float]]) -> bool:
+        inside = False
+        if len(polygon) < 3:
+            return False
+        j = len(polygon) - 1
+        for i in range(len(polygon)):
+            xi, yi = polygon[i]
+            xj, yj = polygon[j]
+            intersects = ((yi > y) != (yj > y)) and (
+                x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi
+            )
+            if intersects:
+                inside = not inside
+            j = i
+        return inside
+
+    def _discretize_wire_points_3d(self, wire: Any, *, count: int = 48) -> list[list[float]]:
+        pts: list[list[float]] = []
+        for edge in list(getattr(wire, "Edges", []) or []):
+            try:
+                seq = edge.discretize(count)
+            except Exception:
+                continue
+            for point in seq or []:
+                xyz = self._to_xyz(point)
+                if xyz is not None:
+                    pts.append(xyz)
+        return pts
+
+    def _planar_trim_filter(self, shape) -> Any:
+        faces = list(getattr(shape, "Faces", []) or [])
+        if not faces:
+            return None
+
+        target_face = None
+        for face in faces:
+            wires = list(getattr(face, "Wires", []) or [])
+            if len(wires) > 1:
+                target_face = face
+                break
+        if target_face is None:
+            return None
+
+        wires = list(getattr(target_face, "Wires", []) or [])
+        if len(wires) <= 1:
+            return None
+
+        loops_3d: list[list[list[float]]] = []
+        for wire in wires:
+            loop = self._discretize_wire_points_3d(wire)
+            if len(loop) >= 3:
+                loops_3d.append(loop)
+        if len(loops_3d) <= 1:
+            return None
+
+        # Use dominant in-plane axes from outer loop spread.
+        all_pts = [p for loop in loops_3d for p in loop]
+        ranges = []
+        for axis in range(3):
+            vals = [p[axis] for p in all_pts]
+            ranges.append((max(vals) - min(vals), axis))
+        ranges.sort(reverse=True)
+        u_axis = ranges[0][1]
+        v_axis = ranges[1][1]
+
+        loops_2d: list[list[list[float]]] = []
+        areas: list[float] = []
+        for loop in loops_3d:
+            poly = [[p[u_axis], p[v_axis]] for p in loop]
+            loops_2d.append(poly)
+            area = 0.0
+            for i in range(len(poly)):
+                x1, y1 = poly[i]
+                x2, y2 = poly[(i + 1) % len(poly)]
+                area += x1 * y2 - x2 * y1
+            areas.append(abs(area) * 0.5)
+
+        outer_idx = max(range(len(areas)), key=lambda i: areas[i])
+        outer = loops_2d[outer_idx]
+        holes = [loops_2d[i] for i in range(len(loops_2d)) if i != outer_idx]
+
+        return (u_axis, v_axis, outer, holes)
+
+    def _point_inside_planar_trimmed_loops(self, xyz: list[float], planar_filter: Any) -> bool:
+        if planar_filter is None:
+            return True
+        u_axis, v_axis, outer, holes = planar_filter
+        u = xyz[u_axis]
+        v = xyz[v_axis]
+        if not self._point_in_polygon_2d(u, v, outer):
+            return False
+        for hole in holes:
+            if self._point_in_polygon_2d(u, v, hole):
+                return False
+        return True
+
     def _collect_runtime_samples(self, shape) -> list[tuple[Any, list[float]]]:
         samples: list[tuple[Any, list[float]]] = []
 
@@ -366,7 +463,10 @@ class FishnetDrapeBackend(DrapeBackend):
         coords_3d: list[list[float]] = []
         coords_uv: list[list[float]] = []
         seen_coords: set[tuple[float, float, float]] = set()
+        planar_filter = self._planar_trim_filter(shape)
         for point, xyz in samples:
+            if not self._point_inside_planar_trimmed_loops(xyz, planar_filter):
+                continue
             if not self._point_inside_support(shape, point, xyz):
                 continue
 

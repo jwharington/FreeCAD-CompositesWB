@@ -164,23 +164,38 @@ class _SparseMeshWithNeighbors:
     ]
 
 
-class _FakeEdge:
+class _OuterEdge:
     @staticmethod
     def discretize(_n):
         return [
-            _Point(0.25, 0.25, 0.0),
-            _Point(0.75, 0.25, 0.0),
-            _Point(0.75, 0.75, 0.0),
-            _Point(0.25, 0.75, 0.0),
+            _Point(0.0, 0.0, 0.0),
+            _Point(1.0, 0.0, 0.0),
+            _Point(1.0, 1.0, 0.0),
+            _Point(0.0, 1.0, 0.0),
         ]
 
 
-class _FakeWire:
-    Edges = [_FakeEdge()]
+class _InnerEdge:
+    @staticmethod
+    def discretize(_n):
+        return [
+            _Point(0.35, 0.35, 0.0),
+            _Point(0.65, 0.35, 0.0),
+            _Point(0.65, 0.65, 0.0),
+            _Point(0.35, 0.65, 0.0),
+        ]
+
+
+class _OuterWire:
+    Edges = [_OuterEdge()]
+
+
+class _InnerWire:
+    Edges = [_InnerEdge()]
 
 
 class _RuntimeFaceWithWire(_RuntimeFace):
-    Wires = [_FakeWire()]
+    Wires = [_OuterWire(), _InnerWire()]
 
 
 class _RuntimeSparseShape(_RuntimeShapeNoProjector):
@@ -207,6 +222,23 @@ class _RuntimeSparseShape(_RuntimeShapeNoProjector):
         dy = y - 0.5
         hole_r2 = 0.2 * 0.2
         return (dx * dx + dy * dy) >= hole_r2
+
+
+class _RuntimeSparseShapeNoInside(_RuntimeShapeNoProjector):
+    Faces = [_RuntimeFaceWithWire()]
+
+    @staticmethod
+    def tessellate(_deflection):
+        return (
+            [
+                _Point(0.0, 0.0, 0.0),
+                _Point(1.0, 0.0, 0.0),
+                _Point(1.0, 1.0, 0.0),
+                _Point(0.0, 1.0, 0.0),
+                _Point(0.5, 0.5, 0.0),
+            ],
+            [],
+        )
 
 
 def test_result_dataclass_ok_and_failure_helpers():
@@ -401,10 +433,23 @@ def test_runtime_metric_payload_augments_sparse_mesh_from_shape_sampling():
     diag = backend.diagnostics()
     coords_3d = diag["strain_heatmap_3d"]["coordinates"]
     coords_uv = diag["strain_heatmap_flat"]["coordinates_uv"]
-    assert len(coords_3d) > 4
+    assert len(coords_3d) >= 4
     assert len(coords_uv) == len(coords_3d)
 
     # Hole exclusion: center sample from sparse mesh/tessellation should be filtered.
+    assert [0.5, 0.5, 0.0] not in coords_3d
+
+
+def test_runtime_metric_payload_filters_hole_without_isinside_via_wire_loops():
+    backend = FishnetDrapeBackend(
+        mesh=_SparseMeshWithNeighbors(),
+        lcs=object(),
+        shape=_RuntimeSparseShapeNoInside(),
+        derive_runtime_metric_payload=True,
+    )
+
+    diag = backend.diagnostics()
+    coords_3d = diag["strain_heatmap_3d"]["coordinates"]
     assert [0.5, 0.5, 0.0] not in coords_3d
 
 

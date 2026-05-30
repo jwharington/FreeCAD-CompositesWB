@@ -173,6 +173,35 @@ class TestFreeCADIntegration(unittest.TestCase):
 
         self._close_doc_if_exists(doc_name)
 
+    def test_flat_panel_spline_hole_support_preserves_inner_hole(self):
+        doc_name = "Composites_FlatPanel_Spline_Hole"
+        self._close_doc_if_exists(doc_name)
+
+        result = example_runner.run(
+            "flat_panel_spline_hole",
+            run_solver=False,
+            doc=None,
+            debug_options={
+                "skip_draper": True,
+                "skip_view_providers": True,
+                "skip_recompute": True,
+            },
+        )
+
+        support = result.get("support")
+        self.assertIsNotNone(support)
+        face = getattr(support, "Shape", None)
+        self.assertIsNotNone(face)
+
+        wires = list(getattr(face, "Wires", []) or [])
+        self.assertGreaterEqual(
+            len(wires),
+            2,
+            "flat_panel_spline_hole support should include an inner hole wire",
+        )
+
+        self._close_doc_if_exists(doc_name)
+
     def test_fibre_composite_lamina_areal_weight_updates(self):
         import FreeCADGui
 
