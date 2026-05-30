@@ -150,6 +150,8 @@ def _resolve_freecadcmd() -> str | None:
     if which_hit:
         candidates.append(which_hit)
     candidates.extend([
+        "/home/jmw/opt/FreeCAD/build/pixi-debug/bin/FreeCADCmd",
+        str(Path.home() / "opt" / "FreeCAD" / "build" / "pixi-debug" / "bin" / "FreeCADCmd"),
         "/home/jmw/opt/FreeCAD-build/bin/FreeCADCmd",
         str(Path.home() / "opt" / "FreeCAD-build" / "bin" / "FreeCADCmd"),
     ])
