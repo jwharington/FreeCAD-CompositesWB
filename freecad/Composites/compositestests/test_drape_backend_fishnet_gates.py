@@ -403,3 +403,27 @@ def test_pick_diagnostics_files_ignores_partial_test_set_even_with_opt_in(tmp_pa
 
     assert source == "fallback"
     assert files == [fallback]
+
+
+def test_validate_heatmap_policy_rejects_release_fallback():
+    module = _load_gate_runner_module()
+
+    ok, err = module._validate_heatmap_policy(
+        stage="release",
+        allow_test_diagnostics_fallback=True,
+    )
+
+    assert ok is False
+    assert "not permitted" in err
+
+
+def test_validate_heatmap_policy_allows_non_release_fallback():
+    module = _load_gate_runner_module()
+
+    ok, err = module._validate_heatmap_policy(
+        stage="cs2",
+        allow_test_diagnostics_fallback=True,
+    )
+
+    assert ok is True
+    assert err is None

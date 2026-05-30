@@ -12,7 +12,6 @@ from pathlib import Path
 import subprocess
 import sys
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 from render_strain_heatmaps import create_heatmap_artifacts
 
@@ -132,34 +131,13 @@ def _write_artifact_index(*, out_dir: Path, rendered: dict[str, dict[str, Path]]
     return index_path
 
 
-def _ensure_runtime_freecad_mocks() -> None:
-    """Install lightweight FreeCAD/BOPTools mocks when unavailable.
-
-    This allows runtime diagnostics capture through compositeexamples on CI/dev
-    hosts where the full FreeCAD runtime is not present.
-    """
-
-    if "FreeCAD" not in sys.modules:
-        freecad_mock = MagicMock()
-        freecad_mock.__unit_test__ = []
-        freecad_mock.Base = MagicMock()
-        freecad_mock.Base.Precision = MagicMock()
-        freecad_mock.Base.Precision.confusion.return_value = 1e-7
-        freecad_mock.Base.Precision.parametric.return_value = 1e-9
-        freecad_mock.ParamGet.return_value = MagicMock()
-        sys.modules["FreeCAD"] = freecad_mock
-
-    sys.modules.setdefault("CompositesWB", MagicMock())
-    sys.modules.setdefault("Part", MagicMock())
-
-    if "BOPTools" not in sys.modules:
-        import types
-
-        boptools = types.ModuleType("BOPTools")
-        boptools_split = types.ModuleType("BOPTools.SplitAPI")
-        boptools.SplitAPI = boptools_split
-        sys.modules["BOPTools"] = boptools
-        sys.modules["BOPTools.SplitAPI"] = boptools_split
+def _validate_heatmap_policy(*, stage: str, allow_test_diagnostics_fallback: bool) -> tuple[bool, str | None]:
+    if stage == "release" and allow_test_diagnostics_fallback:
+        return (
+            False,
+            "--allow-test-diagnostics-fallback is not permitted for --stage release",
+        )
+    return True, None
 
 
 def _collect_runtime_example_diagnostics(
@@ -173,8 +151,6 @@ def _collect_runtime_example_diagnostics(
     Returns a list of JSON diagnostics files that contain both required heatmap
     payload blocks. Invalid or incomplete diagnostics are skipped.
     """
-
-    _ensure_runtime_freecad_mocks()
 
     try:
         from freecad.Composites.compositeexamples import runner
@@ -294,11 +270,22 @@ def main() -> int:
     runtime_diagnostics_dir = out_dir / "runtime-diagnostics"
 
     if args.render_heatmaps:
+        ok, err = _validate_heatmap_policy(
+            stage=args.stage,
+            allow_test_diagnostics_fallback=args.allow_test_diagnostics_fallback,
+        )
+        if not ok:
+            print(f"[fishnet-gates] ERROR: {err}", file=sys.stderr)
+            return 2
+
         out_dir.mkdir(parents=True, exist_ok=True)
-        diagnostics_dir.mkdir(parents=True, exist_ok=True)
         runtime_diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        env["FISHNET_HEATMAP_DIAGNOSTICS_PATH"] = str(diagnostics_path)
-        env["FISHNET_HEATMAP_DIAGNOSTICS_DIR"] = str(diagnostics_dir)
+
+        # Test-harness diagnostics are enabled only for explicit dev fallback.
+        if args.allow_test_diagnostics_fallback:
+            diagnostics_dir.mkdir(parents=True, exist_ok=True)
+            env["FISHNET_HEATMAP_DIAGNOSTICS_PATH"] = str(diagnostics_path)
+            env["FISHNET_HEATMAP_DIAGNOSTICS_DIR"] = str(diagnostics_dir)
 
     pytest_targets = list(stage_cfg["pytest_targets"])
 
@@ -326,7 +313,7 @@ def main() -> int:
             out_dir=runtime_diagnostics_dir,
             verbose=args.verbose,
         )
-        test_files = sorted(diagnostics_dir.glob("*.json"))
+        test_files = sorted(diagnostics_dir.glob("*.json")) if diagnostics_dir.exists() else []
         source, diagnostics_files = _pick_diagnostics_files(
             stage_examples=list(stage_cfg["examples"]),
             runtime_files=runtime_files,
@@ -337,7 +324,7 @@ def main() -> int:
         if not diagnostics_files:
             print(
                 "[fishnet-gates] ERROR: runtime per-example heatmap diagnostics incomplete; "
-                "rerun with --allow-test-diagnostics-fallback to use test diagnostics",
+                "dev-only fallback is available on non-release stages via --allow-test-diagnostics-fallback",
                 file=sys.stderr,
             )
             return 2
