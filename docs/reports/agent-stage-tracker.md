@@ -25,17 +25,17 @@
 | Release evidence anti-synthetic guard | G4 policy hardening | PASS | `8c03e79` (release stage rejects `--allow-test-diagnostics-fallback`) |
 | FreeCADCmd gate execution | G4 infra | PASS | `34e21b1`, `242d5ec`, `219082e` (pytest + runtime capture executed through FreeCADCmd path) |
 | Headless runtime shell creation | G4 runtime | PASS | `138fe8b` (CompositeShell created in GuiDown for runtime capture) |
-| Runtime payload derivation for fishnet diagnostics | G4 runtime | PASS | `e9fb492` (projection + runtime metric payload derivation; heatmap payload emitted in real FreeCADCmd runs) |
-| CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --verbose` (diagnostics_source=runtime) |
+| Runtime payload derivation for fishnet diagnostics | G4 runtime | PASS | `2247f40` (projection + runtime metric payload derivation; heatmap payload emitted in real FreeCADCmd runs) |
+| CS3 release readiness check | G4 | PASS | `python freecad/Composites/scripts/run_fishnet_gates.py --stage release --render-heatmaps --watchdog-seconds 600 --verbose` (diagnostics_source=runtime) |
 
 ## Current Commit Head
 
-- `e9fb492` feat(fishnet): derive runtime projection/metric payloads for release heatmap evidence
+- `2247f40` feat(fishnet): derive runtime projection/metric payloads for release heatmap evidence
 
 ## Latest Release Evidence Bundle
 
-- Artifact root: `artifacts/fishnet-gates/release/20260530T042202Z`
-- Artifact index: `artifacts/fishnet-gates/release/20260530T042202Z/index.html`
+- Artifact root: `artifacts/fishnet-gates/release/20260530T045022Z`
+- Artifact index: `artifacts/fishnet-gates/release/20260530T045022Z/index.html`
 - Diagnostics source: `runtime`
 - Runtime heatmap examples emitted:
   - `cylindrical_panel_segment`
@@ -68,6 +68,7 @@ Note:
 - For `--stage release`, test/synthetic fallback is prohibited even when requested.
 - Gate runner now executes pytest targets via `FreeCADCmd` and captures runtime diagnostics via `FreeCADCmd`.
 - FreeCADCmd path is now wired to `~/opt/FreeCAD/build/pixi-debug/bin/FreeCADCmd` and release runtime evidence runs in this environment.
+- Gate runner now includes a per-subprocess watchdog (`--watchdog-seconds`, default 600s) to fail fast on stuck FreeCADCmd jobs.
 - CompositeShell exposes user-adjustable warning limits:
   - `FishnetLinearStrainWarningLimit`
   - `FishnetShearStrainWarningLimitDeg`

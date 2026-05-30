@@ -452,6 +452,7 @@ def test_collect_runtime_example_diagnostics_returns_empty_when_freecadcmd_missi
             stage_examples=["ud_plate_basic"],
             out_dir=tmp_path / "runtime",
             verbose=False,
+            watchdog_seconds=10,
         )
 
     assert files == []

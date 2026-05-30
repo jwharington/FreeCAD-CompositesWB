@@ -48,6 +48,12 @@ def _parse_args() -> argparse.Namespace:
             "runtime per-example diagnostics are incomplete"
         ),
     )
+    parser.add_argument(
+        "--watchdog-seconds",
+        type=int,
+        default=600,
+        help="Per-subprocess timeout in seconds before treating the job as hung",
+    )
     return parser.parse_args()
 
 
@@ -171,6 +177,7 @@ def _collect_runtime_example_diagnostics(
     stage_examples: list[str],
     out_dir: Path,
     verbose: bool,
+    watchdog_seconds: int,
 ) -> list[Path]:
     """Capture diagnostics by executing examples via FreeCADCmd."""
 
@@ -205,7 +212,20 @@ def _collect_runtime_example_diagnostics(
     if verbose:
         print(f"[fishnet-gates] runtime_capture.cmd={' '.join(cmd)}")
 
-    proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=watchdog_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"[fishnet-gates] runtime_capture.timeout_after_s={watchdog_seconds}",
+            file=sys.stderr,
+        )
+        return []
     if verbose and proc.stdout.strip():
         print(proc.stdout.strip())
     if proc.returncode != 0:
@@ -316,7 +336,15 @@ def main() -> int:
         )
         if args.verbose:
             print(f"[fishnet-gates] cmd={' '.join(pytest_cmd)}")
-        rc = subprocess.call(pytest_cmd, env=env)
+        try:
+            proc = subprocess.run(pytest_cmd, env=env, timeout=args.watchdog_seconds)
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            print(
+                f"[fishnet-gates] ERROR: watchdog timeout after {args.watchdog_seconds}s for target {target}",
+                file=sys.stderr,
+            )
+            return 124
         if rc != 0:
             return rc
 
@@ -325,6 +353,7 @@ def main() -> int:
             stage_examples=heatmap_examples,
             out_dir=runtime_diagnostics_dir,
             verbose=args.verbose,
+            watchdog_seconds=args.watchdog_seconds,
         )
         test_files = sorted(diagnostics_dir.glob("*.json")) if diagnostics_dir.exists() else []
         source, diagnostics_files = _pick_diagnostics_files(
